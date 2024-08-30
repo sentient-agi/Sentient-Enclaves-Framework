@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "pipeline",
+]
+exclude = [
+]
+edition = "2021"
+resolver = "2"
