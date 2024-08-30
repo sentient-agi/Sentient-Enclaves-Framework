@@ -10,7 +10,7 @@ use nix::sys::socket::{accept, bind, connect, shutdown, socket};
 use nix::sys::socket::{AddressFamily, Shutdown, SockFlag, SockType, VsockAddr};
 use nix::unistd::close;
 use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
+use num_traits::{FromPrimitive, ToPrimitive};
 use std::cmp::min;
 use std::convert::TryInto;
 use std::fs::File;
@@ -154,7 +154,8 @@ fn recv_file_server(fd: RawFd) -> Result<(), String> {
         file.read_exact(&mut buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
             .map_err(|err| format!("Could not read {:?}", err))?;
         send_loop(fd, &buf, tmpsize)?;
-        progress += tmpsize
+        progress += tmpsize;
+        println!("File transmission progress: {:?}%", (progress/filesize*100).to_f32().unwrap().round());
     }
 
     Ok(())
@@ -184,7 +185,8 @@ fn send_file_server(fd: RawFd) -> Result<(), String> {
         recv_loop(fd, &mut buf, tmpsize)?;
         file.write_all(&buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
             .map_err(|err| format!("Could not write {:?}", err))?;
-        progress += tmpsize
+        progress += tmpsize;
+        println!("File transmission progress: {:?}%", (progress/filesize*100).to_f32().unwrap().round());
     }
 
     Ok(())
@@ -323,7 +325,8 @@ pub fn recv_file(args: FileArgs) -> Result<(), String> {
         recv_loop(socket_fd, &mut buf, tmpsize)?;
         file.write_all(&buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
             .map_err(|err| format!("Could not write {:?}", err))?;
-        progress += tmpsize
+        progress += tmpsize;
+        println!("File transmission progress: {:?}%", (progress/filesize*100).to_f32().unwrap().round());
     }
     Ok(())
 }
@@ -367,7 +370,8 @@ pub fn send_file(args: FileArgs) -> Result<(), String> {
         file.read_exact(&mut buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
             .map_err(|err| format!("Could not read {:?}", err))?;
         send_loop(socket_fd, &buf, tmpsize)?;
-        progress += tmpsize
+        progress += tmpsize;
+        println!("File transmission progress: {:?}%", (progress/filesize*100).to_f32().unwrap().round());
     }
 
     Ok(())

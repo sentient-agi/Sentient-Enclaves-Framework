@@ -27,10 +27,5 @@ cargo build --release
 mv -T /app-builder/pipeline-tee.rs/target/release/pipeline /app-builder/pipeline
 EOT
 
-FROM public.ecr.aws/amazonlinux/amazonlinux:2 as enclave_app
-WORKDIR /app
-COPY --from=builder /app-builder/pipeline /app
-
-ENV RUST_LOG="pipeline=debug"
-ENV RUST_BACKTRACE="full"
-CMD ["/app/pipeline", "listen --port 53000"]
+FROM scratch
+COPY --from=builder /app-builder/pipeline /pipeline
