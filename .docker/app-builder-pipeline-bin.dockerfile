@@ -21,7 +21,7 @@ shopt -s extquote
 set -f
 
 cd /app-builder
-git clone -b main https://github.com/sentient-xyz/pipeline-tee.rs.git
+git clone -b main https://github.com/andrcmdr/pipeline-tee.rs.git
 cd /app-builder/pipeline-tee.rs
 cargo build --release
 mv -T /app-builder/pipeline-tee.rs/target/release/pipeline /app-builder/pipeline

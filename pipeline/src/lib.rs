@@ -80,6 +80,8 @@ fn vsock_connect(cid: u32, port: u32) -> Result<VsockSocket, String> {
     Err(err_msg)
 }
 
+// The server-side (residential) functions for trusted enclave part
+
 fn run_server(fd: RawFd, no_wait: bool) -> Result<(), String> {
     // recv command
     let len = recv_u64(fd)?;
@@ -155,7 +157,7 @@ fn recv_file_server(fd: RawFd) -> Result<(), String> {
             .map_err(|err| format!("Could not read {:?}", err))?;
         send_loop(fd, &buf, tmpsize)?;
         progress += tmpsize;
-        println!("File transmission progress: {:?}%", (progress/filesize*100).to_f32().unwrap().round());
+        println!("File transmission progress (sending from enclave): {:?}%", (progress/filesize*100).to_f32().unwrap().round());
     }
 
     Ok(())
@@ -186,7 +188,7 @@ fn send_file_server(fd: RawFd) -> Result<(), String> {
         file.write_all(&buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
             .map_err(|err| format!("Could not write {:?}", err))?;
         progress += tmpsize;
-        println!("File transmission progress: {:?}%", (progress/filesize*100).to_f32().unwrap().round());
+        println!("File transmission progress (receiving into enclave): {:?}%", (progress/filesize*100).to_f32().unwrap().round());
     }
 
     Ok(())
@@ -249,6 +251,8 @@ pub fn listen(args: ListenArgs) -> Result<(), String> {
         }
     }
 }
+
+// The client-side functions for untrusted host part
 
 pub fn run(args: RunArgs) -> Result<i32, String> {
     let vsocket = vsock_connect(args.cid, args.port)?;
@@ -326,7 +330,7 @@ pub fn recv_file(args: FileArgs) -> Result<(), String> {
         file.write_all(&buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
             .map_err(|err| format!("Could not write {:?}", err))?;
         progress += tmpsize;
-        println!("File transmission progress: {:?}%", (progress/filesize*100).to_f32().unwrap().round());
+        println!("File transmission progress (receiving from enclave): {:?}%", (progress/filesize*100).to_f32().unwrap().round());
     }
     Ok(())
 }
@@ -371,7 +375,7 @@ pub fn send_file(args: FileArgs) -> Result<(), String> {
             .map_err(|err| format!("Could not read {:?}", err))?;
         send_loop(socket_fd, &buf, tmpsize)?;
         progress += tmpsize;
-        println!("File transmission progress: {:?}%", (progress/filesize*100).to_f32().unwrap().round());
+        println!("File transmission progress (sending to enclave): {:?}%", (progress/filesize*100).to_f32().unwrap().round());
     }
 
     Ok(())

@@ -21,7 +21,7 @@ shopt -s extquote
 set -f
 
 cd /app-builder
-git clone -b main https://github.com/sentient-xyz/pipeline-tee.rs.git
+git clone -b main https://github.com/andrcmdr/pipeline-tee.rs.git
 cd /app-builder/pipeline-tee.rs
 cargo build --release
 mv -T /app-builder/pipeline-tee.rs/target/release/pipeline /app-builder/pipeline
@@ -29,8 +29,8 @@ EOT
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2 as enclave_app
 WORKDIR /app
-COPY --from=builder /app-builder/pipeline /app
+COPY --from=builder /app-builder/pipeline /app/pipeline
 
 ENV RUST_LOG="pipeline=debug"
 ENV RUST_BACKTRACE="full"
-CMD ["/app/pipeline", "listen --port 53000"]
+CMD /app/pipeline listen --port 53000
