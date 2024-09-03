@@ -38,6 +38,7 @@ ENV VENV_PATH="/injector-app/.venv/bin/"
 
 RUN dnf upgrade -y
 RUN dnf install -y time python3 python3-pip
+RUN dnf install -y findutils procps-ng iputils bind-dnssec-utils net-tools
 
 WORKDIR $APP_DIR
 
@@ -79,6 +80,7 @@ EOT
 RUN mkdir -p /app
 COPY --from=builder /app-builder/pipeline /app/pipeline
 
-ENV RUST_LOG="pipeline=debug"
+# ENV RUST_LOG="pipeline=debug"
+ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
-CMD /app/pipeline listen --port 53000
+CMD /app/pipeline listen --port 53000 >> /app/pipeline.log 2>&1 & disown && tail -f /app/pipeline.log

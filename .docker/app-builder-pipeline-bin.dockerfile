@@ -11,6 +11,9 @@ RUN rustup -v toolchain install nightly --profile minimal
 
 WORKDIR /app-builder
 
+# COPY --link pipeline-tee.rs/ /app-builder/pipeline-tee.rs/
+RUN git clone -b main https://github.com/andrcmdr/pipeline-tee.rs.git
+
 RUN <<EOT
 #!/usr/bin/env bash
 
@@ -20,8 +23,7 @@ shopt -s extquote
 
 set -f
 
-cd /app-builder
-git clone -b main https://github.com/andrcmdr/pipeline-tee.rs.git
+# cd /app-builder
 cd /app-builder/pipeline-tee.rs
 cargo build --release
 mv -T /app-builder/pipeline-tee.rs/target/release/pipeline /app-builder/pipeline

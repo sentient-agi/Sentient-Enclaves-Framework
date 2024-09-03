@@ -48,4 +48,7 @@ EOT
 # CMD ["bash", "-c", "--", "/usr/bin/time -v -o $APP_DIR/runtime.log $VENV_PATH/accelerate", "launch", "--num_cpu_threads_per_process", $OMP_NUM_THREADS, "cpu_benchmarking.py", "--num_backdoors", "10", "--signature_length", "1", "--num_train_epochs", "10", "--batch_size", "10"]
 # CMD ["bash", "-c", "--", "/usr/bin/time -v -o $APP_DIR/runtime.log $VENV_PATH/accelerate launch --num_cpu_threads_per_process $NUM_THREADS cpu_benchmarking.py --num_backdoors 10 --signature_length 1 --num_train_epochs 10 --batch_size 10"]
 
-CMD $APP_DIR/pipeline listen --port 53000
+# ENV RUST_LOG="pipeline=debug"
+ENV RUST_LOG="debug"
+ENV RUST_BACKTRACE="full"
+CMD $APP_DIR/pipeline listen --port 53000 >> /app/pipeline.log 2>&1 & disown && tail -f /app/pipeline.log

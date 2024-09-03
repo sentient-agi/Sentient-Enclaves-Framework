@@ -31,6 +31,7 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2 as enclave_app
 WORKDIR /app
 COPY --from=builder /app-builder/pipeline /app/pipeline
 
-ENV RUST_LOG="pipeline=debug"
+# ENV RUST_LOG="pipeline=debug"
+ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
-CMD /app/pipeline listen --port 53000
+CMD /app/pipeline listen --port 53000 >> /app/pipeline.log 2>&1 & disown && tail -f /app/pipeline.log
