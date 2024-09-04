@@ -10,7 +10,7 @@ use nix::sys::socket::{accept, bind, connect, shutdown, socket};
 use nix::sys::socket::{AddressFamily, Shutdown, SockFlag, SockType, VsockAddr};
 use nix::unistd::close;
 use num_derive::FromPrimitive;
-use num_traits::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive;
 use std::cmp::min;
 use std::convert::TryInto;
 use std::fs::File;
@@ -19,7 +19,9 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::process::Command;
 
 pub const VMADDR_CID_ANY: u32 = 0xFFFFFFFF;
-pub const BUF_MAX_LEN: usize = 8192; // Tunable up to 10485760 bytes == 10 MiBs for best throughput
+// Buffer size is tunable from 8192 and for up to 10485760 bytes == 10 MiBs or more, for best throughput.
+// Should be less than stack size. See `ulimit -sS` and `ulimit -sH` for current stack size soft and hard limits, correspondingly.
+pub const BUF_MAX_LEN: usize = 8388608;
 pub const BACKLOG: usize = 128;
 const MAX_CONNECTION_ATTEMPTS: usize = 10;
 
@@ -157,8 +159,9 @@ fn recv_file_server(fd: RawFd) -> Result<(), String> {
             .map_err(|err| format!("Could not read {:?}", err))?;
         send_loop(fd, &buf, tmpsize)?;
         progress += tmpsize;
-        println!("File transmission progress (sending from enclave): {:?}%", (progress/filesize*100).to_f32().unwrap().round());
+        print!("\rFile transmission progress (sending from enclave): {:.3}%", progress as f32 / filesize as f32 * 100.0);
     }
+    println!("\nFile transmission (sending from enclave) finished.");
 
     Ok(())
 }
@@ -188,8 +191,9 @@ fn send_file_server(fd: RawFd) -> Result<(), String> {
         file.write_all(&buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
             .map_err(|err| format!("Could not write {:?}", err))?;
         progress += tmpsize;
-        println!("File transmission progress (receiving into enclave): {:?}%", (progress/filesize*100).to_f32().unwrap().round());
+        print!("\rFile transmission progress (receiving into enclave): {:.3}%", progress as f32 / filesize as f32 * 100.0);
     }
+    println!("\nFile transmission (receiving into enclave) finished.");
 
     Ok(())
 }
@@ -330,8 +334,10 @@ pub fn recv_file(args: FileArgs) -> Result<(), String> {
         file.write_all(&buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
             .map_err(|err| format!("Could not write {:?}", err))?;
         progress += tmpsize;
-        println!("File transmission progress (receiving from enclave): {:?}%", (progress/filesize*100).to_f32().unwrap().round());
+        print!("\rFile transmission progress (receiving from enclave): {:.3}%", progress as f32 / filesize as f32 * 100.0);
     }
+    println!("\nFile transmission (receiving from enclave) finished.");
+
     Ok(())
 }
 
@@ -375,8 +381,9 @@ pub fn send_file(args: FileArgs) -> Result<(), String> {
             .map_err(|err| format!("Could not read {:?}", err))?;
         send_loop(socket_fd, &buf, tmpsize)?;
         progress += tmpsize;
-        println!("File transmission progress (sending to enclave): {:?}%", (progress/filesize*100).to_f32().unwrap().round());
+        print!("\rFile transmission progress (sending to enclave): {:.3}%", progress as f32 / filesize as f32 * 100.0);
     }
+    println!("\nFile transmission (sending to enclave) finished.");
 
     Ok(())
 }
