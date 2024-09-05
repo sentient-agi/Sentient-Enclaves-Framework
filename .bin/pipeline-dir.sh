@@ -1,0 +1,80 @@
+#!/bin/bash
+##!/usr/bin/env bash
+
+shopt -s extglob
+shopt -s extquote
+# shopt -s xpg_echo
+
+set -f
+
+declare mode="${1}" # send-dir, recv-dir
+declare source_dir="${2}" # source parent directory
+declare destination_dir="${3}" # destination parent directory
+
+send_dir () {
+
+# run remote cmd
+# mkdir -vp "$destination_dir"
+./pipeline run --port 53000 --cid 127 --command "mkdir -vp ${destination_dir}"
+find "${1}" -type d -printf '%P:' -exec echo '{}' \; |
+while read path
+do
+    # run remote cmd
+    # mkdir -vp "$destination_dir/`echo -E $path | cut -d ":" -f1`"
+    ./pipeline run --port 53000 --cid 127 --command "mkdir -vp ${destination_dir}/`echo -E $path | cut -d ":" -f1`"
+done
+
+find "${1}" -type f -printf '%P:' -exec echo '{}' \; |
+while read path
+do
+    # send-file
+    # cp -vr "`echo -E $path | cut -d ":" -f2`" "$destination_dir/`echo -E $path | cut -d ":" -f1`"
+    ./pipeline send-file --port 53000 --cid 127 --localpath "`echo -E $path | cut -d ":" -f2`" --remotepath "$destination_dir/`echo -E $path | cut -d ":" -f1`"
+done
+
+}
+
+recv_dir () {
+
+mkdir -vp "$destination_dir"
+# run remote cmd
+# find "${1}" -type d -printf '%P:' -exec echo '{}' \; |
+./pipeline run --port 53000 --cid 127 --command "find ${1} -type d -printf '%P:' -exec echo '{}' \;" |
+while read path
+do
+    mkdir -vp "$destination_dir/`echo -E $path | cut -d ":" -f1`"
+done
+
+# run remote cmd
+# find "${1}" -type f -printf '%P:' -exec echo '{}' \; |
+./pipeline run --port 53000 --cid 127 --command "find ${1} -type f -printf '%P:' -exec echo '{}' \;" |
+while read path
+do
+    # recv-file
+    # cp -vr "`echo -E $path | cut -d ":" -f2`" "$destination_dir/`echo -E $path | cut -d ":" -f1`"
+    ./pipeline recv-file --port 53000 --cid 127 --localpath "$destination_dir/`echo -E $path | cut -d ":" -f1`" --remotepath "`echo -E $path | cut -d ":" -f2`"
+done
+
+}
+
+if [[ "${1}" == "-h" || "${1}" == "--help" || "${1}" == "h" || "${1}" == "help" ]]; then
+
+    echo -e "usage: pipeline-dir [-h | --help | h | help | mode: send-dir | recv-dir] [source parent dir] [destination parent dir]"
+
+elif [[ "${#@}" -eq 0 ]]; then
+
+    echo -e "usage: pipeline-dir [-h | --help | h | help | mode: send-dir | recv-dir] [source parent dir] [destination parent dir]"
+
+elif [[ "${1}" == "send-dir" ]]; then
+
+    send_dir "${2}" "${3}"
+
+elif [[ "${1}" == "recv-dir" ]]; then
+
+    recv_dir "${2}" "${3}"
+
+else
+
+    echo -e "usage: pipeline-dir [-h | --help | h | help | mode: send-dir | recv-dir] [source parent dir] [destination parent dir]"
+
+fi
