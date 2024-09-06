@@ -1,13 +1,28 @@
-use pipeline::cli_parser::{FileArgs, ListenArgs, RunArgs};
+use std::process::exit;
+use pipeline::cli_parser::{CommandOutput, FileArgs, ListenArgs, RunArgs};
 use pipeline::create_app;
 use pipeline::config::AppConfig;
 use pipeline::{listen, recv_file, run, send_file};
+use pipeline::cats::{GEORGE, PASCAL};
 
 use clap::{App, AppSettings, Arg, SubCommand};
 
 fn main() {
     let app = create_app!();
     let args = app.get_matches();
+
+    if args.contains_id("=(^\">,.•.,<\"^)=") {
+        let output: CommandOutput = CommandOutput::new(String::from(GEORGE), String::new(), 0);
+        print!("{}", output.stdout);
+        eprint!("{}", output.stderr);
+        exit(output.rc.unwrap_or_default());
+    };
+    if args.contains_id("=(^\",..,\"^)=") {
+        let output: CommandOutput = CommandOutput::new(String::from(PASCAL), String::new(), 0);
+        print!("{}", output.stdout);
+        eprint!("{}", output.stderr);
+        exit(output.rc.unwrap_or_default());
+    };
 
     let default_config_path = "./.config/config.toml".to_string();
     let config_path = args

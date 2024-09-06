@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod cli_parser;
 pub mod config;
+pub mod cats;
 pub mod vsock;
 
 use cli_parser::{CommandOutput, FileArgs, ListenArgs, RunArgs};

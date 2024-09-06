@@ -137,5 +137,21 @@ macro_rules! create_app {
                             .required(true),
                     ),
             )
+            .arg(
+                Arg::with_name("=(^\">,.•.,<\"^)=")
+                .short('g')
+                .long("george")
+                .help("Happy Easter from George the BSH cat!")
+                .takes_value(false)
+                .required(false),
+            )
+            .arg(
+                Arg::with_name("=(^\",..,\"^)=")
+                .short('p')
+                .long("pascal")
+                .help("Happy Easter from Pascal the BSH cat!")
+                .takes_value(false)
+                .required(false),
+            )
     };
 }
