@@ -23,6 +23,14 @@ macro_rules! create_app {
             .about("Pipeline vsock secure local channel communication protocol that provides remote control of enclave via running commands inside the enclave and provides bidirectional files transmission into/from encalve's FS.")
             .setting(AppSettings::ArgRequiredElseHelp)
             .version(env!("CARGO_PKG_VERSION"))
+            .arg(
+                Arg::with_name("config")
+                .short('c')
+                .long("config")
+                .help("Configuration settings")
+                .takes_value(true)
+                .required(false),
+            )
             .subcommand(
                 SubCommand::with_name("listen")
                     .about("Listen on a given port")
