@@ -11,8 +11,8 @@ RUN rustup -v toolchain install nightly --profile minimal
 
 WORKDIR /app-builder
 
-# COPY --link pipeline-tee.rs/ /app-builder/pipeline-tee.rs/
-RUN git clone -b main https://github.com/andrcmdr/pipeline-tee.rs.git
+COPY --link pipeline-tee/ /app-builder/pipeline-tee.rs/
+# RUN git clone -b main https://github.com/andrcmdr/pipeline-tee.rs.git
 
 RUN <<EOT
 #!/usr/bin/env bash

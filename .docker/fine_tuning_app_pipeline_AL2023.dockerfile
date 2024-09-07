@@ -9,6 +9,9 @@ RUN rustup -v toolchain install nightly --profile minimal
 
 WORKDIR /app-builder
 
+COPY --link pipeline-tee/ /app-builder/pipeline-tee.rs/
+# RUN git clone -b main https://github.com/andrcmdr/pipeline-tee.rs.git
+
 RUN <<EOT
 #!/usr/bin/env bash
 
@@ -18,11 +21,12 @@ shopt -s extquote
 
 set -f
 
-cd /app-builder
-git clone -b main https://github.com/andrcmdr/pipeline-tee.rs.git
+# cd /app-builder
 cd /app-builder/pipeline-tee.rs
 cargo build --release
 mv -T /app-builder/pipeline-tee.rs/target/release/pipeline /app-builder/pipeline
+mkdir -p /app-builder/.config/
+mv -T /app-builder/pipeline-tee.rs/pipeline/.config/config.toml /app-builder/.config/config.toml
 EOT
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal as enclave_app
@@ -46,13 +50,15 @@ WORKDIR $APP_DIR
 ENV NUM_THREADS="32"
 
 # Copy the requirements for PyTorch app
-COPY --link requirements.txt requirements.txt
+COPY --link fine_tuning_app/requirements.txt requirements.txt
 # Copy the model and dataset
-COPY --link dataset.json dataset.json
+COPY --link fine_tuning_app/dataset.json dataset.json
 RUN mkdir -p $APP_DIR/model/
-# COPY --link model/ model/
+# COPY --link fine_tuning_app/model/ model/
 # Copy the code for fine-tuning the model on CPU
-COPY --link cpu_benchmarking.py cpu_benchmarking.py
+COPY --link fine_tuning_app/cpu_benchmarking.py cpu_benchmarking.py
+COPY --link fine_tuning_app/cpu_benchmarking_offline.py cpu_benchmarking_offline.py
+COPY --link fine_tuning_app/cpu_benchmarking_offline_export.py cpu_benchmarking_offline_export.py
 
 # Prepare the app environment
 RUN <<EOT
@@ -77,10 +83,12 @@ EOT
 # CMD ["bash", "-c", "--", "/usr/bin/time -v -o $APP_DIR/runtime.log $VENV_PATH/accelerate", "launch", "--num_cpu_threads_per_process", $OMP_NUM_THREADS, "cpu_benchmarking.py", "--num_backdoors", "10", "--signature_length", "1", "--num_train_epochs", "10", "--batch_size", "10"]
 # CMD ["bash", "-c", "--", "/usr/bin/time -v -o $APP_DIR/runtime.log $VENV_PATH/accelerate launch --num_cpu_threads_per_process $NUM_THREADS cpu_benchmarking.py --num_backdoors 10 --signature_length 1 --num_train_epochs 10 --batch_size 10"]
 
-RUN mkdir -p /app
+RUN mkdir -p /app/
+RUN mkdir -p /app/.config/
 COPY --from=builder /app-builder/pipeline /app/pipeline
+COPY --from=builder /app-builder/.config/config.toml /app/.config/config.toml
 
 # ENV RUST_LOG="pipeline=debug"
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
-CMD /app/pipeline listen --port 53000 >> /app/pipeline.log 2>&1 & disown && tail -f /app/pipeline.log
+CMD cd /app/; ./pipeline listen --port 53000 >> /app/pipeline.log 2>&1 & disown && tail -f /app/pipeline.log

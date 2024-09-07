@@ -13,36 +13,49 @@ declare destination_dir="${3}" # destination parent directory
 
 send_dir () {
 
+echo -E "${mode}";
+echo -E "${source_dir}";
+echo -E "${destination_dir}";
+pwd
 # run remote cmd
-# mkdir -vp "$destination_dir"
+./pipeline run --port 53000 --cid 127 --command "uname -a"
+# mkdir -vp "${destination_dir}"
 ./pipeline run --port 53000 --cid 127 --command "mkdir -vp ${destination_dir}"
 find "${1}" -type d -printf '%P:' -exec echo '{}' \; |
 while read path
 do
     # run remote cmd
-    # mkdir -vp "$destination_dir/`echo -E $path | cut -d ":" -f1`"
-    ./pipeline run --port 53000 --cid 127 --command "mkdir -vp ${destination_dir}/`echo -E $path | cut -d ":" -f1`"
+    echo -E "${path}";
+    # mkdir -vp "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
+    ./pipeline run --port 53000 --cid 127 --command "mkdir -vp ${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
 done
 
 find "${1}" -type f -printf '%P:' -exec echo '{}' \; |
 while read path
 do
     # send-file
-    # cp -vr "`echo -E $path | cut -d ":" -f2`" "$destination_dir/`echo -E $path | cut -d ":" -f1`"
-    ./pipeline send-file --port 53000 --cid 127 --localpath "`echo -E $path | cut -d ":" -f2`" --remotepath "$destination_dir/`echo -E $path | cut -d ":" -f1`"
+    echo -E "${path}";
+    # cp -vr "`echo -E "${path}" | cut -d ":" -f2`" "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
+    ./pipeline send-file --port 53000 --cid 127 --localpath "`echo -E "${path}" | cut -d ":" -f2`" --remotepath "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
 done
 
 }
 
 recv_dir () {
 
-mkdir -vp "$destination_dir"
+echo -E "${mode}";
+echo -E "${source_dir}";
+echo -E "${destination_dir}";
+pwd
 # run remote cmd
+./pipeline run --port 53000 --cid 127 --command "uname -a"
+mkdir -vp "${destination_dir}"
 # find "${1}" -type d -printf '%P:' -exec echo '{}' \; |
 ./pipeline run --port 53000 --cid 127 --command "find ${1} -type d -printf '%P:' -exec echo '{}' \;" |
 while read path
 do
-    mkdir -vp "$destination_dir/`echo -E $path | cut -d ":" -f1`"
+    echo -E "${path}";
+    mkdir -vp "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
 done
 
 # run remote cmd
@@ -51,8 +64,9 @@ done
 while read path
 do
     # recv-file
-    # cp -vr "`echo -E $path | cut -d ":" -f2`" "$destination_dir/`echo -E $path | cut -d ":" -f1`"
-    ./pipeline recv-file --port 53000 --cid 127 --localpath "$destination_dir/`echo -E $path | cut -d ":" -f1`" --remotepath "`echo -E $path | cut -d ":" -f2`"
+    echo -E "${path}";
+    # cp -vr "`echo -E "${path}" | cut -d ":" -f2`" "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
+    ./pipeline recv-file --port 53000 --cid 127 --localpath "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`" --remotepath "`echo -E "${path}" | cut -d ":" -f2`"
 done
 
 }

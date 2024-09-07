@@ -24,10 +24,10 @@ use std::process::Command;
 pub const VMADDR_CID_ANY: u32 = 0xFFFFFFFF;
 // Buffer size is tunable from 8192 and for up to 10485760 bytes == 10 MiBs or more, for best throughput.
 // Should be less than stack size. See `ulimit -sS` and `ulimit -sH` for current stack size soft and hard limits, correspondingly.
-pub const BUF_MAX_LEN_FILE_IO: usize = 8388608; // Files send and receive buffer.
+pub const BUF_MAX_LEN_FILE_IO: usize = 7340032; // Files send and receive buffer.
 pub const BUF_MAX_LEN_FILE_PATH: usize = 8192; // Buffer for file path.
 pub const BUF_MAX_LEN_CMD: usize = 8192; // Buffer for shell commands.
-pub const BUF_MAX_LEN_CMD_IO: usize = 1048576; // Buffer for shell commands output to STDOUT.
+pub const BUF_MAX_LEN_CMD_IO: usize = 10240; // Buffer for shell commands output to STDOUT.
 pub const BACKLOG: usize = 128;
 pub const MAX_CONNECTION_ATTEMPTS: usize = 10;
 
