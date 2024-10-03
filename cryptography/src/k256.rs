@@ -5,6 +5,8 @@ fn main() {
 mod ecdh_k256_hkdf {
     use k256::{EncodedPoint, PublicKey, ecdh::EphemeralSecret};
     use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
+    use sha3::{Sha3_512, Sha3_256};
+    use hkdf::Hkdf;
 
     pub fn print_shared_keys() {
         let mut random_seed = [0u8; 64];
@@ -44,6 +46,14 @@ mod ecdh_k256_hkdf {
         println!("Cheshire Cat shared with Alice: {:?}\n", cheshire_cat_shared_with_alice.raw_secret_bytes().as_slice());
         println!("Bob shared with Cheshire Cat: {:?}\n", bob_shared_with_cheshire_cat.raw_secret_bytes().as_slice());
         println!("Cheshire Cat shared with Bob: {:?}\n", cheshire_cat_shared_with_bob.raw_secret_bytes().as_slice());
+
+        // HMAC-based Extract-and-Expand Key Derivation Function (HKDF) for authenticated/hashed keys
+
+        let alice_with_bob_shared_secret_authd_hashed = alice_shared_with_bob.extract::<Sha3_512>(Some(&random_seed[..]));
+        let mut alice_with_bob_shared_secret_bytes = [0u8; 64];
+        let _ = alice_with_bob_shared_secret_authd_hashed.expand(&[0u8; 0], &mut alice_with_bob_shared_secret_bytes)
+            .expect("64 bytes + info expand bytes is a valid length for Sha3_512 hash with expanding operation to output");
+        println!("Alice shared secret with Bob (Authd, Hashed, Expanded): {:?}\n", alice_with_bob_shared_secret_bytes);
     }
 }
 

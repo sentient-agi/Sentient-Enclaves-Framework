@@ -14,3 +14,10 @@ path = "src/k256.rs"
 # k256 = { version = "0.14.0-pre.2", default-features = true, features = ["ecdh"] }
 k256 = { git = "ssh://git@github.com/RustCrypto/elliptic-curves.git", branch = "master", version = "0.14.0-pre.2", default-features = true, features = ["ecdh"] }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
+
+hkdf = { version = "0.13.0-pre.4" }
+hmac = "0.13.0-pre.4"
+
+sha3 = "0.11.0-pre.4"
+digest = "=0.11.0-pre.9"
+keccak = "=0.2.0-pre.0"
