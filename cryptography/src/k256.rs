@@ -49,11 +49,56 @@ mod ecdh_k256_hkdf {
 
         // HMAC-based Extract-and-Expand Key Derivation Function (HKDF) for authenticated/hashed keys
 
+        // Correct Example Variant #1
         let alice_with_bob_shared_secret_authd_hashed = alice_shared_with_bob.extract::<Sha3_512>(Some(&random_seed[..]));
         let mut alice_with_bob_shared_secret_bytes = [0u8; 64];
         let _ = alice_with_bob_shared_secret_authd_hashed.expand(&[0u8; 0], &mut alice_with_bob_shared_secret_bytes)
             .expect("64 bytes + info expand bytes is a valid length for Sha3_512 hash with expanding operation to output");
         println!("Alice shared secret with Bob (Authd, Hashed, Expanded): {:?}\n", alice_with_bob_shared_secret_bytes);
+
+
+        // Correct Example Variant #2
+        let (alice_shared_with_bob_prk, alice_shared_with_bob_hk) = Hkdf::<Sha3_512>::extract(Some(&random_seed[..]), alice_shared_with_bob.raw_secret_bytes().as_slice());
+        println!("Alice shared secret with Bob (Authd, Hashed, pseudo-random key bytes): {:?}\n", alice_shared_with_bob_prk.as_slice());
+        let mut alice_shared_with_bob_hk_bytes = [0u8; 64];
+        let _ = alice_shared_with_bob_hk.expand(&[0u8; 0], &mut alice_shared_with_bob_hk_bytes)
+            .expect("64 bytes + info expand bytes is a valid length for Sha3_512 hash with expanding operation to output");
+        println!("Alice shared secret with Bob (Authd, Hashed, Expanded): {:?}\n", alice_shared_with_bob_hk_bytes);
+
+        // Correct Example Variant #3
+        let alice_shared_with_bob_hk_1 = Hkdf::<Sha3_512>::new(Some(&random_seed[..]), alice_shared_with_bob.raw_secret_bytes().as_slice());
+        let mut alice_shared_with_bob_hk_bytes_1 = [0u8; 64];
+        let _ = alice_shared_with_bob_hk_1.expand(&[0u8; 0], &mut alice_shared_with_bob_hk_bytes_1)
+            .expect("64 bytes + info expand bytes is a valid length for Sha3_512 hash with expanding operation to output");
+        println!("Alice shared secret with Bob (Authd, Hashed, Expanded): {:?}\n", alice_shared_with_bob_hk_bytes_1);
+
+        // Misuse of PRK, just for correctness checking
+        let alice_shared_with_bob_hk_2 = Hkdf::<Sha3_512>::new(Some(&random_seed[..]), alice_shared_with_bob_prk.as_slice());
+        let mut alice_shared_with_bob_hk_bytes_2 = [0u8; 64];
+        let _ = alice_shared_with_bob_hk_2.expand(&[0u8; 0], &mut alice_shared_with_bob_hk_bytes_2)
+            .expect("64 bytes + info expand bytes is a valid length for Sha3_512 hash with expanding operation to output");
+        println!("Alice shared secret with Bob (Authd, Hashed, Expanded): {:?}\n", alice_shared_with_bob_hk_bytes_2);
+
+        // Correct Example Variant #4
+        let alice_shared_with_bob_hk_3 = Hkdf::<Sha3_512>::from_prk(alice_shared_with_bob_prk.as_slice())
+            .expect("PRK should be conform the size of hash, i.e. PRK should be large enough and equal to used hash function output");
+        let mut alice_shared_with_bob_hk_bytes_3 = [0u8; 64];
+        let _ = alice_shared_with_bob_hk_3.expand(&[0u8; 0], &mut alice_shared_with_bob_hk_bytes_3)
+            .expect("64 bytes + info expand bytes is a valid length for Sha3_512 hash with expanding operation to output");
+        println!("Alice shared secret with Bob (Authd, Hashed, Expanded): {:?}\n", alice_shared_with_bob_hk_bytes_3);
+
+        // Misuse of PRK, just for correctness checking
+        let alice_shared_with_bob_hk_4 = Hkdf::<Sha3_256>::from_prk(alice_shared_with_bob.raw_secret_bytes().as_slice())
+            .expect("PRK should be conform the size of hash, i.e. PRK should be large enough and equal to used hash function output");
+        let mut alice_shared_with_bob_hk_bytes_4 = [0u8; 32];
+        let _ = alice_shared_with_bob_hk_4.expand(&[0u8; 0], &mut alice_shared_with_bob_hk_bytes_4)
+            .expect("32 bytes + info expand bytes is a valid length for Sha3_256 hash with expanding operation to output");
+        println!("Alice shared secret with Bob (Authd, Hashed, Expanded): {:?}\n", alice_shared_with_bob_hk_bytes_4);
+
+        assert_eq!(alice_with_bob_shared_secret_bytes, alice_shared_with_bob_hk_bytes);
+        assert_eq!(alice_shared_with_bob_hk_bytes, alice_shared_with_bob_hk_bytes_1);
+        assert_eq!(alice_shared_with_bob_hk_bytes_1, alice_shared_with_bob_hk_bytes_3);
+
     }
 }
 
