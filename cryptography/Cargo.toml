@@ -21,6 +21,10 @@ path = "src/p256.rs"
 name = "p384"
 path = "src/p384.rs"
 
+[[bin]]
+name = "p521"
+path = "src/p521.rs"
+
 [dependencies]
 # elliptic-curve = { version = "0.14.0-rc.1", default-features = false, features = ["sec1"] }
 # k256 = { version = "0.14.0-pre.2", default-features = true, features = ["ecdh"] }
@@ -28,6 +32,7 @@ k256 = { git = "ssh://git@github.com/RustCrypto/elliptic-curves.git", branch = "
 p224 = { git = "ssh://git@github.com/RustCrypto/elliptic-curves.git", branch = "master", version = "0.14.0-pre", default-features = true, features = ["ecdh"] }
 p256 = { git = "ssh://git@github.com/RustCrypto/elliptic-curves.git", branch = "master", version = "0.14.0-pre.2", default-features = true, features = ["ecdh"] }
 p384 = { git = "ssh://git@github.com/RustCrypto/elliptic-curves.git", branch = "master", version = "0.14.0-pre.2", default-features = true, features = ["ecdh"] }
+p521 = { git = "ssh://git@github.com/RustCrypto/elliptic-curves.git", branch = "master", version = "0.14.0-pre.2", default-features = true, features = ["ecdh"] }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 
 hkdf = { version = "0.13.0-pre.4" }
