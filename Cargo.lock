@@ -15,9 +15,9 @@ dependencies = [
 
 [[package]]
 name = "autocfg"
-version = "1.3.0"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
+checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "base16ct"
@@ -84,9 +84,9 @@ dependencies = [
 
 [[package]]
 name = "const-oid"
-version = "0.10.0-rc.1"
+version = "0.10.0-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "610947c93f422f713d1ed0570e7c76307aa3bbfd8db723214fed2045a2e32815"
+checksum = "6a0d96d207edbe5135e55038e79ab9ad6d75ba83b14cdf62326ce5b12bc46ab5"
 
 [[package]]
 name = "cpufeatures"
@@ -290,7 +290,7 @@ checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
 [[package]]
 name = "k256"
 version = "0.14.0-pre.2"
-source = "git+ssh://git@github.com/RustCrypto/elliptic-curves.git?branch=master#30b2dafbe86a1aee5baa088e9425c6ea052f4102"
+source = "git+https://github.com/RustCrypto/elliptic-curves.git?branch=master#790ccf38b338054a414f651a25fe03dd6c01ce74"
 dependencies = [
  "cfg-if",
  "ecdsa",
@@ -311,9 +311,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.158"
+version = "0.2.159"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8adc4bb1803a324070e64a98ae98f38934d91957a99cfb3a43dcbc01bc56439"
+checksum = "561d97a539a36e26a9a5fad1ea11a3039a67714694aaa379433e580854bc3dc5"
 
 [[package]]
 name = "log"
@@ -451,7 +451,7 @@ checksum = "e2355d85b9a3786f481747ced0e0ff2ba35213a1f9bd406ed906554d7af805a1"
 [[package]]
 name = "p224"
 version = "0.14.0-pre"
-source = "git+ssh://git@github.com/RustCrypto/elliptic-curves.git?branch=master#30b2dafbe86a1aee5baa088e9425c6ea052f4102"
+source = "git+https://github.com/RustCrypto/elliptic-curves.git?branch=master#790ccf38b338054a414f651a25fe03dd6c01ce74"
 dependencies = [
  "ecdsa",
  "elliptic-curve",
@@ -462,7 +462,7 @@ dependencies = [
 [[package]]
 name = "p256"
 version = "0.14.0-pre.2"
-source = "git+ssh://git@github.com/RustCrypto/elliptic-curves.git?branch=master#30b2dafbe86a1aee5baa088e9425c6ea052f4102"
+source = "git+https://github.com/RustCrypto/elliptic-curves.git?branch=master#790ccf38b338054a414f651a25fe03dd6c01ce74"
 dependencies = [
  "ecdsa",
  "elliptic-curve",
@@ -473,7 +473,7 @@ dependencies = [
 [[package]]
 name = "p384"
 version = "0.14.0-pre.2"
-source = "git+ssh://git@github.com/RustCrypto/elliptic-curves.git?branch=master#30b2dafbe86a1aee5baa088e9425c6ea052f4102"
+source = "git+https://github.com/RustCrypto/elliptic-curves.git?branch=master#790ccf38b338054a414f651a25fe03dd6c01ce74"
 dependencies = [
  "ecdsa",
  "elliptic-curve",
@@ -484,7 +484,7 @@ dependencies = [
 [[package]]
 name = "p521"
 version = "0.14.0-pre.2"
-source = "git+ssh://git@github.com/RustCrypto/elliptic-curves.git?branch=master#30b2dafbe86a1aee5baa088e9425c6ea052f4102"
+source = "git+https://github.com/RustCrypto/elliptic-curves.git?branch=master#790ccf38b338054a414f651a25fe03dd6c01ce74"
 dependencies = [
  "base16ct",
  "ecdsa",
@@ -539,21 +539,21 @@ dependencies = [
 [[package]]
 name = "primefield"
 version = "0.14.0-pre.0"
-source = "git+ssh://git@github.com/RustCrypto/elliptic-curves.git?branch=master#30b2dafbe86a1aee5baa088e9425c6ea052f4102"
+source = "git+https://github.com/RustCrypto/elliptic-curves.git?branch=master#790ccf38b338054a414f651a25fe03dd6c01ce74"
 
 [[package]]
 name = "primeorder"
 version = "0.14.0-pre.2"
-source = "git+ssh://git@github.com/RustCrypto/elliptic-curves.git?branch=master#30b2dafbe86a1aee5baa088e9425c6ea052f4102"
+source = "git+https://github.com/RustCrypto/elliptic-curves.git?branch=master#790ccf38b338054a414f651a25fe03dd6c01ce74"
 dependencies = [
  "elliptic-curve",
 ]
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.86"
+version = "1.0.87"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e719e8df665df0d1c8fbfd238015744736151d4445ec0836b8e628aae103b77"
+checksum = "b3e4daa0dcf6feba26f985457cdf104d4b4256fc5a09547140f3631bb076b19a"
 dependencies = [
  "unicode-ident",
 ]
@@ -608,18 +608,18 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.209"
+version = "1.0.210"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99fce0ffe7310761ca6bf9faf5115afbc19688edd00171d81b1bb1b116c63e09"
+checksum = "c8e3592472072e6e22e0a54d5904d9febf8508f65fb8552499a1abc7d1078c3a"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.209"
+version = "1.0.210"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5831b979fd7b5439637af1752d535ff49f4860c0f341d1baeb6faf0f4242170"
+checksum = "243902eda00fad750862fc144cea25caca5e20d615af0a81bee94ca738f1df1f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -671,9 +671,9 @@ dependencies = [
 
 [[package]]
 name = "spki"
-version = "0.8.0-rc.0"
+version = "0.8.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee3fb1c675852398475928637b3ebbdd7e1d0cc24d27b3bbc81788b4eb51e310"
+checksum = "37ac66481418fd7afdc584adcf3be9aa572cf6c2858814494dc2a01755f050bc"
 dependencies = [
  "base64ct",
  "der",
@@ -693,9 +693,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
-version = "2.0.77"
+version = "2.0.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f35bcdf61fd8e7be6caf75f429fdca8beb3ed76584befb503b1569faee373ed"
+checksum = "89132cd0bf050864e1d38dc3bbc07a0eb8e7530af26344d3d2bbbef83499f590"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -734,9 +734,9 @@ checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.12"
+version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
+checksum = "e91b56cd4cadaeb79bbf1a5645f6b4f8dc5bde8834ad5894a8db35fda9efa1fe"
 
 [[package]]
 name = "wasi"
