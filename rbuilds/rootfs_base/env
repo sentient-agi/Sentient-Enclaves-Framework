@@ -1,0 +1,5 @@
+SHELL='/usr/bin/env bash'
+HOME=/app
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+RUST_LOG=debug
+RUST_BACKTRACE=full
