@@ -6,6 +6,7 @@ members = [
 exclude = [
     "cryptography",
     "web-ra",
+    "fingerprinting_server",
 ]
 # edition = "2021"
 resolver = "2"

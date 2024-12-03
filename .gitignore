@@ -25,4 +25,5 @@ log/
 
 # macOS
 .DS_Store
-
+fingerprinting_server/results/*
+fingerprinting_server/wandb/*
