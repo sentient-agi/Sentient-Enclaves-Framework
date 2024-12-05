@@ -16,6 +16,8 @@ if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "hel
     exit 0
 fi
 
+# Building custom Linux kernel:
+
 docker_kcontainer_clear() {
     docker kill kernel_build_v${kversion} ;
     docker rm --force kernel_build_v${kversion} ;
@@ -23,17 +25,17 @@ docker_kcontainer_clear() {
 
 docker_kimage_clear() {
     # whoami; uname -a; pwd;
-    docker rmi --force app-build-toolkit-al2023:v${kversion} ;
+    docker rmi --force kernel-build-toolkit-al2023:v${kversion} ;
 }
 
 docker_kimage_build() {
-    DOCKER_BUILDKIT=1 docker build --no-cache -f ./rust-build-toolkit-al2023.dockerfile -t "app-build-toolkit-al2023:v${kversion}" ./ ;
+    DOCKER_BUILDKIT=1 docker build --no-cache -f ./rust-build-toolkit-al2023.dockerfile -t "kernel-build-toolkit-al2023:v${kversion}" ./ ;
     # -ti
-    docker create --name kernel_build_v${kversion} app-build-toolkit-al2023:v${kversion} sleep infinity; sleep 1;
-    # docker create --name kernel_build_v${kversion} app-build-toolkit-al2023:v${kversion} tail -f /dev/null; sleep 1;
+    docker create --name kernel_build_v${kversion} kernel-build-toolkit-al2023:v${kversion} sleep infinity; sleep 1;
+    # docker create --name kernel_build_v${kversion} kernel-build-toolkit-al2023:v${kversion} tail -f /dev/null; sleep 1;
     # -tid
-    # docker run -d --name kernel_build_v${kversion} app-build-toolkit-al2023:v${kversion} sleep infinity & disown; sleep 1;
-    # docker run -d --name kernel_build_v${kversion} app-build-toolkit-al2023:v${kversion} tail -f /dev/null & disown; sleep 1;
+    # docker run -d --name kernel_build_v${kversion} kernel-build-toolkit-al2023:v${kversion} sleep infinity & disown; sleep 1;
+    # docker run -d --name kernel_build_v${kversion} kernel-build-toolkit-al2023:v${kversion} tail -f /dev/null & disown; sleep 1;
     # docker stop kernel_build_v${kversion} ;
     docker kill kernel_build_v${kversion} ;
     docker start kernel_build_v${kversion} ;
@@ -107,6 +109,68 @@ docker_kernel_build() {
     cp -vr ./kernel_blobs/artifacts_static/kernel_modules/lib/ ./rootfs_kmods/rootfs/usr/ ;
 }
 
+# Building of enclave's image building/extraction tools and enclave's run-time Rust apps (Sentient Secure Enclaves Framework):
+# Pipeline (SLC protocol),
+# EIF_build & EIF_extract,
+# PF-Proxies,
+# SLC & content encryption (+ encryption/decryption protocol test tools, + multi-hop PRE re-encryption protocol test tools, + KMS test tools),
+# Web-RA (+ NSM & TPM test tools, + KMS test tools),
+# FS-Monitor (inotify) for RA DB,
+# Possibly Nitro-CLI mod.
+
+docker_apps_rs_container_clear() {
+    docker kill apps_rs_build ;
+    docker rm --force apps_rs_build ;
+}
+
+docker_apps_rs_image_clear() {
+    # whoami; uname -a; pwd;
+    docker rmi --force apps-rs-build-toolkit-al2023 ;
+}
+
+docker_apps_rs_image_build() {
+    DOCKER_BUILDKIT=1 docker build --no-cache -f ./rust-build-toolkit-al2023.dockerfile -t "apps-rs-build-toolkit-al2023" ./ ;
+    # -ti
+    docker create --name apps_rs_build apps-rs-build-toolkit-al2023 sleep infinity; sleep 1;
+    # docker create --name apps_rs_build apps-rs-build-toolkit-al2023 tail -f /dev/null; sleep 1;
+    # -tid
+    # docker run -d --name apps_rs_build apps-rs-build-toolkit-al2023 sleep infinity & disown; sleep 1;
+    # docker run -d --name apps_rs_build apps-rs-build-toolkit-al2023 tail -f /dev/null & disown; sleep 1;
+    # docker stop apps_rs_build ;
+    docker kill apps_rs_build ;
+    docker start apps_rs_build ;
+}
+
+docker_prepare_apps_rs_buildenv() {
+    docker exec -ti apps_rs_build bash -cis -- 'whoami; uname -a; pwd;' ;
+    docker exec -ti apps_rs_build bash -cis -- "mkdir -vp /app-builder" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/aws/aws-nitro-enclaves-image-format.git ./eif_build" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format.git ./eif_extract" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/pipeline-tee.rs.git ./sse-sentinel-framework" ;
+}
+
+docker_apps_rs_build() {
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout b26bf69d8ade4e03fa84a0257f6ae6a2c1470a9e; cargo build --release;" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_extract; cargo build --release;" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/sse-sentinel-framework; cargo build --release;" ;
+    mkdir -vp ./eif_build/ ;
+    docker cp apps_rs_build:/app-builder/eif_build/target/release/eif_build ./eif_build/ ;
+    mkdir -vp ./eif_extract/ ;
+    docker cp apps_rs_build:/app-builder/eif_extract/target/release/eif_extract ./eif_extract/ ;
+    docker cp apps_rs_build:/app-builder/eif_extract/target/release/eif_build ./eif_extract/ ;
+    mkdir -vp ./sse-sentinel-framework/ ;
+    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/pipeline ./sse-sentinel-framework/ ;
+    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/ip-to-vsock ./sse-sentinel-framework/ ;
+    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/ip-to-vsock-transparent ./sse-sentinel-framework/ ;
+    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/vsock-to-ip ./sse-sentinel-framework/ ;
+    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/vsock-to-ip-transparent ./sse-sentinel-framework/ ;
+    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/transparent-port-to-vsock ./sse-sentinel-framework/ ;
+    # docker stop apps_rs_build ;
+    docker kill apps_rs_build ;
+}
+
+# Building Init system for enclave:
+
 docker_init_clear() {
     docker kill init-build-blobs ;
     docker rm --force init-build-blobs ;
@@ -118,10 +182,12 @@ docker_init_build() {
     mkdir -vp ./init/ ./init_go/ ;
     cp -vr ./init_build/blobs/init/init ./init/ ;
     cp -vr ./init_build/blobs/init_go/init ./init_go/ ;
-    mkdir -vp ./eif_build/ ;
-    cp -vr ./init_build/blobs/eif_build/eif_build ./eif_build/ ;
-    cp -vr ./init_build/blobs/eif_extract/eif_extract ./eif_build/ ;
+    # mkdir -vp ./eif_build/ ;
+    # cp -vr ./init_build/blobs/eif_build/eif_build ./eif_build/ ;
+    # cp -vr ./init_build/blobs/eif_extract/eif_extract ./eif_build/ ;
 }
+
+# Building enclave image (EIF):
 
 docker_clear() {
     docker kill pipeline_toolkit ;
@@ -180,6 +246,8 @@ while true; do
         continue
     fi
 
+    # EIF enclave image build commands
+
     if [[ $cmd == "docker_clear" ]]; then
         docker_clear ;
         continue
@@ -216,6 +284,8 @@ while true; do
         attach_console_to_enclave ;
         continue
     fi
+
+    # EIF enclave image build automated guide
 
     if [[ $cmd == "make" ]]; then
         read -n 1 -s -p "Clear previous rootfs Docker container and container image first? [y|n] : " choice
@@ -293,6 +363,31 @@ while true; do
         continue
     fi
 
+    # Kernel build commands
+
+    if [[ $cmd == "docker_kcontainer_clear" ]]; then
+        docker_kcontainer_clear ;
+        continue
+    fi
+    if [[ $cmd == "docker_kimage_clear" ]]; then
+        docker_kimage_clear ;
+        continue
+    fi
+    if [[ $cmd == "docker_kimage_build" ]]; then
+        docker_kimage_build ;
+        continue
+    fi
+    if [[ $cmd == "docker_prepare_kbuildenv" ]]; then
+        docker_prepare_kbuildenv ;
+        continue
+    fi
+    if [[ $cmd == "docker_kernel_build" ]]; then
+        docker_kernel_build ;
+        continue
+    fi
+
+    # Kernel build automated guide
+
     if [[ $cmd == "make kernel" ]]; then
         read -n 1 -s -p "Clear previous 'kernel_build' Docker container first? [y|n] : " choice
         if [[ $choice == "y" ]]; then
@@ -339,26 +434,87 @@ while true; do
         continue
     fi
 
-    if [[ $cmd == "docker_kcontainer_clear" ]]; then
-        docker_kcontainer_clear ;
+    # Enclave's image building and run-time Rust apps build commands
+
+    if [[ $cmd == "docker_apps_rs_container_clear" ]]; then
+        docker_apps_rs_container_clear ;
         continue
     fi
-    if [[ $cmd == "docker_kimage_clear" ]]; then
-        docker_kimage_clear ;
+    if [[ $cmd == "docker_apps_rs_image_clear" ]]; then
+        docker_apps_rs_image_clear ;
         continue
     fi
-    if [[ $cmd == "docker_kimage_build" ]]; then
-        docker_kimage_build ;
+    if [[ $cmd == "docker_apps_rs_image_build" ]]; then
+        docker_apps_rs_image_build ;
         continue
     fi
-    if [[ $cmd == "docker_prepare_kbuildenv" ]]; then
-        docker_prepare_kbuildenv ;
+    if [[ $cmd == "docker_prepare_apps_rs_buildenv" ]]; then
+        docker_prepare_apps_rs_buildenv ;
         continue
     fi
-    if [[ $cmd == "docker_kernel_build" ]]; then
-        docker_kernel_build ;
+    if [[ $cmd == "docker_apps_rs_build" ]]; then
+        docker_apps_rs_build ;
         continue
     fi
+
+    # Enclave's image building and run-time Rust apps build automated guide
+
+    if [[ $cmd == "make apps" ]]; then
+        read -n 1 -s -p "Clear previous 'apps_rs_build' Docker container first? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_apps_rs_container_clear ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Clear previous 'apps_rs_build' Docker container image? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_apps_rs_image_clear ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Build new 'apps_rs_build' Docker image and create container from it? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_apps_rs_image_build ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Prepare apps repositories and environment in 'apps_rs_build' Docker container? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_prepare_apps_rs_buildenv ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Build all apps for EIF enclave image building and enclave's run-time in 'apps_rs_build' Docker container isolated environment? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_apps_rs_build ; wait
+        else
+            echo -e "\n"
+        fi
+
+        continue
+    fi
+
+    # Init system build commands
+
+    if [[ $cmd == "docker_init_clear" ]]; then
+        docker_init_clear ;
+        continue
+    fi
+    if [[ $cmd == "docker_init_build" ]]; then
+        docker_init_build ;
+        continue
+    fi
+
+    # Init system build automated guide
 
     if [[ $cmd == "make init" ]]; then
         read -n 1 -s -p "Clear previous 'init_build' Docker container and container image first? [y|n] : " choice
@@ -377,15 +533,6 @@ while true; do
             echo -e "\n"
         fi
 
-        continue
-    fi
-
-    if [[ $cmd == "docker_init_clear" ]]; then
-        docker_init_clear ;
-        continue
-    fi
-    if [[ $cmd == "docker_init_build" ]]; then
-        docker_init_build ;
         continue
     fi
 
