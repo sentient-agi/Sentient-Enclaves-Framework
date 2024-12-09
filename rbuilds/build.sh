@@ -10,9 +10,56 @@ set -f
 declare kversion='6.12'
 
 if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "help" || "$1" == "--help" ]]; then
-    echo -e "Simple shell to build enclave images (EIF)."
-    echo -e "Input 'make' command to start building image."
-    echo -e "Enter 'break' or 'exit' for exit from this shell."
+    echo -e "\nShell script to build custom kernel, Rust apps (SSE Framework) for eclave's run-time, init system for enclave, and to build enclave images (EIF) reproducibly.\n"
+    echo -e "Input 'make kernel' command to start building custom Linux kernel.\n"
+    echo -e "Input 'make apps' command to start building Rust apps (SSE Framework) for enclave's run-time and to build enclave's image creation and extraction tools.\n"
+    echo -e "Input 'make init' command to start building init system for enclave.\n"
+    echo -e "Input 'make' command to start building enclave image (EIF).\n"
+    echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
+    echo -e "Enter 'break' or 'exit' for exit from this shell.\n"
+    exit 0
+fi
+
+if [[ "$1" == "??" || "$1" == "-??" || "$1" == "he" || "$1" == "-he" || "$1" == "helpext" || "$1" == "help-ext" || "$1" == "--help-ext" ]]; then
+
+    echo -e "\nCommands for manual stages execution:
+
+        Build custom kernel stages:
+
+        docker_kcontainer_clear
+        docker_kimage_clear
+        docker_kimage_build
+        docker_prepare_kbuildenv
+        docker_kernel_build
+
+        Build Rust apps (SSE Framework) for enclave's run-time and enclave image build tools, stages are:
+
+        docker_apps_rs_container_clear
+        docker_apps_rs_image_clear
+        docker_apps_rs_image_build
+        docker_prepare_apps_rs_buildenv
+        docker_apps_rs_build
+
+        Build custom init system for enclave, stages are:
+
+        docker_init_clear
+        docker_init_build
+
+        Build enclave image file (EIF) stages:
+
+        docker_clear
+        docker_build
+        init_and_rootfs_base_images_build
+        docker_to_rootfs_fs_image_build
+        ramdisk_image_build
+        eif_build_with_initc
+        eif_build_with_initgo
+
+        Run enclave image file (EIF) and connect/attach local terminal to enclave's console output:
+
+        run_eif_image
+        attach_console_to_enclave
+    "
     exit 0
 fi
 
@@ -51,8 +98,8 @@ docker_prepare_kbuildenv() {
     docker exec -ti kernel_build_v${kversion} bash -cis -- "mkdir -vp /kbuilder; cd /kbuilder; wget https://github.com/gregkh/linux/archive/v${kversion}.tar.gz" ;
     docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; tar --same-owner --acls --xattrs --selinux -vpxf v${kversion}.tar.gz -C ./" ;
     docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; mv -v ./linux-${kversion} ./linux-v${kversion}" ;
-    # docker cp ./kernel/artifacts_static/.config kernel_build_v${kversion}:/kbuilder/ ;
-    docker cp ./kernel/artifacts_kmods/.config kernel_build_v${kversion}:/kbuilder/ ;
+    # docker cp ./kernel_config/artifacts_static/.config kernel_build_v${kversion}:/kbuilder/ ;
+    docker cp ./kernel_config/artifacts_kmods/.config kernel_build_v${kversion}:/kbuilder/ ;
     docker exec -ti kernel_build_v${kversion} bash -cis -- "cp -vr /kbuilder/.config /kbuilder/linux-v${kversion}/.config" ;
 }
 
@@ -249,39 +296,101 @@ while true; do
     # EIF enclave image build commands
 
     if [[ $cmd == "docker_clear" ]]; then
-        docker_clear ;
+        read -n 1 -s -p "Clear previous rootfs Docker container and container image first? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_clear ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "docker_build" ]]; then
-        docker_build ;
+        read -n 1 -s -p "Build rootfs Docker container image and create a container from it? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_build ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "init_and_rootfs_base_images_build" ]]; then
-        init_and_rootfs_base_images_build ;
+        read -n 1 -s -p "Build or rebuild init.c, init.go and rootfs base CPIO images? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            init_and_rootfs_base_images_build ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "docker_to_rootfs_fs_image_build" ]]; then
-        docker_to_rootfs_fs_image_build ;
+        read -n 1 -s -p "Export Docker image rootfs filesystem to CPIO image? (And make an mtree listing of CPIO archive) [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_to_rootfs_fs_image_build ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "ramdisk_image_build" ]]; then
-        ramdisk_image_build ;
+        read -n 1 -s -p "Make a rootfs ramdisk image from rootfs base image and rootfs filesystem image (rootfs from Docker image, and including rootfs base image with Linux kernel modules)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            ramdisk_image_build ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "eif_build_with_initc" ]]; then
-        eif_build_with_initc ;
+        read -n 1 -s -p "Assemble and build EIF image from CPIO archive/image segments (with init.c)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            eif_build_with_initc ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "eif_build_with_initgo" ]]; then
-        eif_build_with_initgo ;
+        read -n 1 -s -p "Assemble and build EIF image from CPIO archive/image segments (with init.go)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            eif_build_with_initgo ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "run_eif_image" ]]; then
-        run_eif_image ;
+        read -n 1 -s -p "Run EIF image in enclave (Nitro KVM based VM)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            run_eif_image ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "attach_console_to_enclave" ]]; then
-        attach_console_to_enclave ;
+        read -n 1 -s -p "Attach local console to enclave's debug dump (stdout)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            attach_console_to_enclave ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
 
@@ -366,23 +475,58 @@ while true; do
     # Kernel build commands
 
     if [[ $cmd == "docker_kcontainer_clear" ]]; then
-        docker_kcontainer_clear ;
+        read -n 1 -s -p "Clear previous 'kernel_build' Docker container first? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_kcontainer_clear ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "docker_kimage_clear" ]]; then
-        docker_kimage_clear ;
+        read -n 1 -s -p "Clear previous 'kernel_build' Docker container image? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_kimage_clear ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "docker_kimage_build" ]]; then
-        docker_kimage_build ;
+        read -n 1 -s -p "Build new 'kernel_build' Docker image and create container from it? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_kimage_build ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "docker_prepare_kbuildenv" ]]; then
-        docker_prepare_kbuildenv ;
+        read -n 1 -s -p "Prepare 'kernel_build' environment in Docker container? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_prepare_kbuildenv ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "docker_kernel_build" ]]; then
-        docker_kernel_build ;
+        read -n 1 -s -p "Build custom Linux kernel in Docker 'kernel_build' container isolated environment? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_kernel_build ; wait
+            echo -e "\nMaking of a kernel successfully done!\n"
+        else
+            echo -e "\n"
+        fi
         continue
     fi
 
@@ -425,39 +569,72 @@ while true; do
         if [[ $choice == "y" ]]; then
             echo -e "\n"
             docker_kernel_build ; wait
+            echo -e "\nMaking of a kernel successfully done!\n"
         else
             echo -e "\n"
         fi
 
-        echo -e "\nMaking of a kernel successfully done!\n"
-
         continue
     fi
 
-    # Enclave's image building and run-time Rust apps build commands
+    # Build commands for enclave's run-time Rust apps (SSE Framework) and for enclave's image (EIF) building tools
 
     if [[ $cmd == "docker_apps_rs_container_clear" ]]; then
-        docker_apps_rs_container_clear ;
-        continue
-    fi
-    if [[ $cmd == "docker_apps_rs_image_clear" ]]; then
-        docker_apps_rs_image_clear ;
-        continue
-    fi
-    if [[ $cmd == "docker_apps_rs_image_build" ]]; then
-        docker_apps_rs_image_build ;
-        continue
-    fi
-    if [[ $cmd == "docker_prepare_apps_rs_buildenv" ]]; then
-        docker_prepare_apps_rs_buildenv ;
-        continue
-    fi
-    if [[ $cmd == "docker_apps_rs_build" ]]; then
-        docker_apps_rs_build ;
+        read -n 1 -s -p "Clear previous 'apps_rs_build' Docker container first? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_apps_rs_container_clear ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
 
-    # Enclave's image building and run-time Rust apps build automated guide
+    if [[ $cmd == "docker_apps_rs_image_clear" ]]; then
+        read -n 1 -s -p "Clear previous 'apps_rs_build' Docker container image? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_apps_rs_image_clear ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
+    if [[ $cmd == "docker_apps_rs_image_build" ]]; then
+        read -n 1 -s -p "Build new 'apps_rs_build' Docker image and create container from it? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_apps_rs_image_build ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
+    if [[ $cmd == "docker_prepare_apps_rs_buildenv" ]]; then
+        read -n 1 -s -p "Prepare apps repositories and environment in 'apps_rs_build' Docker container? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_prepare_apps_rs_buildenv ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
+    if [[ $cmd == "docker_apps_rs_build" ]]; then
+        read -n 1 -s -p "Build all apps for EIF enclave image building and enclave's run-time in 'apps_rs_build' Docker container isolated environment? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_apps_rs_build ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
+    # Build automated guide for enclave's run-time Rust apps (SSE Framework) and for enclave's image (EIF) building tools
 
     if [[ $cmd == "make apps" ]]; then
         read -n 1 -s -p "Clear previous 'apps_rs_build' Docker container first? [y|n] : " choice
@@ -506,11 +683,24 @@ while true; do
     # Init system build commands
 
     if [[ $cmd == "docker_init_clear" ]]; then
-        docker_init_clear ;
+        read -n 1 -s -p "Clear previous 'init_build' Docker container and container image first? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_init_clear ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
+
     if [[ $cmd == "docker_init_build" ]]; then
-        docker_init_build ;
+        read -n 1 -s -p "Build custom init system for enclave image in Docker 'init_build' container isolated environment? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            docker_init_build ; wait
+        else
+            echo -e "\n"
+        fi
         continue
     fi
 
