@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "pipeline",
+    "pf-proxy",
 ]
 exclude = [
     "cryptography",
