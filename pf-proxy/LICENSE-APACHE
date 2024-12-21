@@ -1,3 +1,6 @@
+Based on:
+https://github.com/linkerd/linkerd2-proxy/blob/release/v2.187.0/linkerd/proxy/transport/src/orig_dst.rs
+
                               Apache License
                         Version 2.0, January 2004
                      http://www.apache.org/licenses/
@@ -186,7 +189,7 @@ APPENDIX: How to apply the Apache License to your work.
    same "printed page" as the copyright notice for easier
    identification within third-party archives.
 
-Copyright (c) 2024-2025 Sentient contributors
+Copyright (c) 2024-2025 linkerd2-proxy contributors, Sentient contributors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

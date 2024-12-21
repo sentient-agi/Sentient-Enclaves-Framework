@@ -1,4 +1,13 @@
-Copyright (c) 2024-2025 Sentient contributors
+Based on:
+https://github.com/tokio-rs/tokio/blob/master/examples/proxy.rs
+https://github.com/tokio-rs/tokio/blob/tokio-1.43.0/examples/proxy.rs
+https://github.com/rust-vsock/tokio-vsock
+https://github.com/rust-vsock/vsock-rs
+
+Copyright (c) 2024-2025 Tokio contributors,
+Rust VSock (rust-vsock) project contributors,
+Marlin contributors,
+Sentient contributors
 
 The MIT License (MIT)
 
