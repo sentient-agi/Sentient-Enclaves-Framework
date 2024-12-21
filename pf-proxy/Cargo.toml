@@ -1,0 +1,41 @@
+[package]
+name = "pf-proxy"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "vsock-to-ip"
+path = "src/vsock_to_ip.rs"
+
+[[bin]]
+name = "ip-to-vsock"
+path = "src/ip_to_vsock.rs"
+
+[[bin]]
+name = "ip-to-vsock-transparent"
+path = "src/ip_to_vsock_transparent.rs"
+
+[[bin]]
+name = "vsock-to-ip-transparent"
+path = "src/vsock_to_ip_transparent.rs"
+
+[[bin]]
+name = "transparent-port-to-vsock"
+path = "src/transparent_port_to_vsock.rs"
+
+[dependencies]
+anyhow = "1.0.80"
+clap = { version = "4.5.1", features = ["derive"] }
+futures = "0.3"
+thiserror = "1.0.57"
+tokio = { version = "1.36.0", features = ["full"] }
+tokio-vsock = "0.5.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[profile.release]
+strip = true
+lto = true
+panic = "abort"
+codegen-units = 1
