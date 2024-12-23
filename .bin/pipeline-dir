@@ -7,6 +7,9 @@ shopt -s extquote
 
 set -f
 
+declare port=53000
+declare cid=127
+
 declare mode="${1}" # send-dir, recv-dir
 declare source_dir="${2}" # source parent directory
 declare destination_dir="${3}" # destination parent directory
@@ -18,16 +21,16 @@ echo -E "${source_dir}";
 echo -E "${destination_dir}";
 pwd
 # run remote cmd
-./pipeline run --port 53000 --cid 127 --command "uname -a"
+./pipeline run --port $port --cid $cid --command "uname -a"
 # mkdir -vp "${destination_dir}"
-./pipeline run --port 53000 --cid 127 --command "mkdir -vp ${destination_dir}"
+./pipeline run --port $port --cid $cid --command "mkdir -vp ${destination_dir}"
 find "${1}" -type d -printf '%P:' -exec echo '{}' \; |
 while read path
 do
     # run remote cmd
     echo -E "${path}";
     # mkdir -vp "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
-    ./pipeline run --port 53000 --cid 127 --command "mkdir -vp ${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
+    ./pipeline run --port $port --cid $cid --command "mkdir -vp ${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
 done
 
 find "${1}" -type f -printf '%P:' -exec echo '{}' \; |
@@ -36,7 +39,7 @@ do
     # send-file
     echo -E "${path}";
     # cp -vr "`echo -E "${path}" | cut -d ":" -f2`" "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
-    ./pipeline send-file --port 53000 --cid 127 --localpath "`echo -E "${path}" | cut -d ":" -f2`" --remotepath "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
+    ./pipeline send-file --port $port --cid $cid --localpath "`echo -E "${path}" | cut -d ":" -f2`" --remotepath "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
 done
 
 }
@@ -48,10 +51,10 @@ echo -E "${source_dir}";
 echo -E "${destination_dir}";
 pwd
 # run remote cmd
-./pipeline run --port 53000 --cid 127 --command "uname -a"
+./pipeline run --port $port --cid $cid --command "uname -a"
 mkdir -vp "${destination_dir}"
 # find "${1}" -type d -printf '%P:' -exec echo '{}' \; |
-./pipeline run --port 53000 --cid 127 --command "find ${1} -type d -printf '%P:' -exec echo '{}' \;" |
+./pipeline run --port $port --cid $cid --command "find ${1} -type d -printf '%P:' -exec echo '{}' \;" |
 while read path
 do
     echo -E "${path}";
@@ -60,13 +63,13 @@ done
 
 # run remote cmd
 # find "${1}" -type f -printf '%P:' -exec echo '{}' \; |
-./pipeline run --port 53000 --cid 127 --command "find ${1} -type f -printf '%P:' -exec echo '{}' \;" |
+./pipeline run --port $port --cid $cid --command "find ${1} -type f -printf '%P:' -exec echo '{}' \;" |
 while read path
 do
     # recv-file
     echo -E "${path}";
     # cp -vr "`echo -E "${path}" | cut -d ":" -f2`" "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`"
-    ./pipeline recv-file --port 53000 --cid 127 --localpath "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`" --remotepath "`echo -E "${path}" | cut -d ":" -f2`"
+    ./pipeline recv-file --port $port --cid $cid --localpath "${destination_dir}/`echo -E "${path}" | cut -d ":" -f1`" --remotepath "`echo -E "${path}" | cut -d ":" -f2`"
 done
 
 }
