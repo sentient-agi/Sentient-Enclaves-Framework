@@ -1,0 +1,24 @@
+[package]
+name = "web-server-for-ra"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+axum = { git = "ssh://git@github.com/tokio-rs/axum.git", branch = "main" }
+axum-extra = { git = "ssh://git@github.com/tokio-rs/axum.git", branch = "main" }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+aws-nitro-enclaves-nsm-api = { path = "./nsm-sdk" }
+aws-nitro-enclaves-cose = { path = "./cose", version = "0.5.2", features = ["key_openssl_pkey"] }
+serde_bytes = "0.11"
+serde_cbor = "0.11"
+hex = "0.4"
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+
+[workspace]
+members = [ "." ]
+default-members = [ "." ]
+exclude = [ "nsm-sdk", "cose" ]
