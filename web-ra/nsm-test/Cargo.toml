@@ -1,0 +1,22 @@
+[package]
+name = "nsm-test"
+version = "0.4.0"
+authors = ["The AWS Nitro Enclaves Team <aws-nitro-enclaves-devel@amazon.com>"]
+edition = "2018"
+
+[features]
+config_emulated = []
+
+[dependencies]
+serde_bytes = "0.11"
+serde_cbor = "0.11"
+aws-nitro-enclaves-nsm-api = { path = "../nsm-sdk" }
+nsm-lib = { path = "../nsm-sdk/nsm-lib" }
+nix = "0.26"
+threadpool = "1.7"
+signal-hook = "0.3"
+vsock = "0.3"
+aws-nitro-enclaves-cose = { path = "../cose", version = "0.5.2", features = ["key_openssl_pkey"] }
+hex = "0.4"
+
+[workspace]
