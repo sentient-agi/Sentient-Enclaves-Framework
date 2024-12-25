@@ -1,5 +1,10 @@
 # Rust artifacts
 target/
+*/target/
+
+# Embedded Git repositories
+.git/
+*/.git/
 
 log/
 *pwd
@@ -7,10 +12,12 @@ log/
 
 # Visual Studio Code
 .vscode/
+*/.vscode/
 .run/
 
 # JetBrains IDEs
 .idea/
+*/.idea/
 .run/
 
 # Editor backup files
