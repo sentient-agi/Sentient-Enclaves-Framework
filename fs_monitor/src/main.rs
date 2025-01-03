@@ -7,7 +7,7 @@ use std::fs;
 use sha2::{Sha256, Digest};
 use std::sync::{Arc, Mutex};
 use std::thread;
-
+use dashmap::DashMap;
 // Import the FileState and FileInfo structs
 mod state;
 use state::{FileState, FileInfo, FileType};
@@ -15,7 +15,7 @@ use state::{FileState, FileInfo, FileType};
 fn main() -> Result<()> {
     let (tx, rx) = mpsc::channel::<Result<Event>>();
     // Use Arc and Mutex for thread-safe shared state
-    let file_infos: Arc<Mutex<HashMap<String, FileInfo>>> = Arc::new(Mutex::new(HashMap::new()));
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     
     // Clone for the closure
     let file_infos_clone = Arc::clone(&file_infos);
@@ -54,39 +54,37 @@ loop {
 }
 }
 
-fn retrieve_hash(path: &str, file_infos: &Arc<Mutex<HashMap<String, FileInfo>>>) -> Result<String> {
-    let infos = file_infos.lock().unwrap();
-    
+fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>) -> Result<String> {
     // if path is directory, return all hashes in directory
-    let mut hashes = String::new();
     if fs::metadata(path)?.is_dir() {
-        for (key, value) in infos.iter() {
-            if key.contains(path) {
-                eprintln!("Hash of {}: {}", key, value.hash.as_ref().unwrap());
-                hashes.push_str(&value.hash.as_ref().unwrap().clone());
-                hashes.push_str("\n");
+        let mut hashes = String::new();
+        // Still need to iterate for directories
+        for ref_multi in file_infos.iter() {
+            if ref_multi.key().starts_with(path) {
+                if let Some(hash) = &ref_multi.value().hash {
+                    hashes.push_str(&format!("{}: {}\n", ref_multi.key(), hash));
+                }
             }
         }
         return Ok(hashes);
     }
 
-    // if path is file, return hash of file
-    else {
-        for (key, value) in infos.iter() {
-            if key == path {
-                return Ok(value.hash.as_ref().unwrap().clone());
-            }
-        }
+    // For single files, use direct lookup instead of iteration
+    match file_infos.get(path) {
+        Some(info) => match &info.hash {
+            Some(hash) => Ok(hash.clone()),
+            None => Ok(format!("File found but no hash available: {}", path))
+        },
+        None => Ok(format!("File not found: {}", path))
     }
-    Ok(format!("File not found: {}", path))
 }
 
-fn handle_event(event: Event, file_infos: &Arc<Mutex<HashMap<String, FileInfo>>>) -> Result<()> {
+fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Result<()> {
     let paths: Vec<String> = event.paths.iter()
         .filter_map(|p| p.to_str().map(|s| s.to_string()))
         .collect();
 
-    let mut infos = file_infos.lock().unwrap();
+    let mut infos = file_infos;
 
     match event.kind {
         EventKind::Create(kind) => {
@@ -107,7 +105,7 @@ fn handle_event(event: Event, file_infos: &Arc<Mutex<HashMap<String, FileInfo>>>
                 match modify_kind {
                     ModifyKind::Data(DataChange::Any) => {
                         // println!("File modified: {}", path);
-                        if let Some(file_info) = infos.get_mut(&path) {
+                        if let Some(mut file_info) = infos.get_mut(&path) {
                             if file_info.file_type == FileType::File {
                                 file_info.state = FileState::Modified;
                                 file_info.hash = None; // Reset hash since file is modified
@@ -119,23 +117,28 @@ fn handle_event(event: Event, file_infos: &Arc<Mutex<HashMap<String, FileInfo>>>
             }
         }
         // Need to handle Rename, Delete, etc.
+
         // Handling end of file write
         EventKind::Access(access_kind) => {
             if let AccessKind::Close(AccessMode::Write) = access_kind {
-                // This marks the file has been written to.
+                // This marks the file has been written to and is now closed.
                 for path in paths {
                     // Skip files in .cache directory
                     if !path.contains("/.cache/") {
-                        if let Some(file_info) = infos.get_mut(&path) {
+                        if let Some(mut file_info) = infos.get_mut(&path) {
                             if file_info.file_type == FileType::File && file_info.state == FileState::Modified {
                                 eprintln!("File closed after write: {}", path);
 
                             // Make the file immutable (implementation dependent)
                             make_file_immutable(&path)?;
                             eprintln!("File {} is now immutable.", path);
-                            // Calculate hash
-                            let hash = calculate_hash(&path)?;
-                            eprintln!("Hash calculated for {}: {}", path, hash);
+                            // Calculate hash using a new thread
+                            let hash = thread::spawn(move || -> Result<String> {
+                                let hash = calculate_hash(&path)?;
+                                eprintln!("Hash calculated for {}: {}", path, hash);
+                                Ok(hash)
+                            }).join().unwrap()?;
+                            
                             // Update state to Immutable and store hash
                             file_info.state = FileState::Immutable;
                             file_info.hash = Some(hash.clone());
