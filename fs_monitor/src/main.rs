@@ -2,15 +2,14 @@ use notify::{recommended_watcher, Event, RecursiveMode, Result, Watcher, EventKi
 use notify::event::{ModifyKind, DataChange, CreateKind, AccessKind, AccessMode};
 use std::sync::mpsc;
 use std::path::Path;
-use std::collections::HashMap;
 use std::fs;
 use sha2::{Sha256, Digest};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use dashmap::DashMap;
 // Import the FileState and FileInfo structs
 mod state;
-use state::{FileState, FileInfo, FileType};
+use state::{FileState, FileInfo, FileType, HashState, HashInfo};
 
 fn main() -> Result<()> {
     let (tx, rx) = mpsc::channel::<Result<Event>>();
@@ -61,7 +60,7 @@ fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>) -> Res
         // Still need to iterate for directories
         for ref_multi in file_infos.iter() {
             if ref_multi.key().starts_with(path) {
-                if let Some(hash) = &ref_multi.value().hash {
+                if let Some(hash) = &ref_multi.value().hash_info.as_ref().unwrap().hash_string {
                     hashes.push_str(&format!("{}: {}\n", ref_multi.key(), hash));
                 }
             }
@@ -71,7 +70,7 @@ fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>) -> Res
 
     // For single files, use direct lookup instead of iteration
     match file_infos.get(path) {
-        Some(info) => match &info.hash {
+        Some(info) => match &info.hash_info.as_ref().unwrap().hash_string {
             Some(hash) => Ok(hash.clone()),
             None => Ok(format!("File found but no hash available: {}", path))
         },
@@ -94,7 +93,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
                     infos.insert(path.clone(), FileInfo {
                         file_type: FileType::File,
                         state: FileState::Created,
-                        hash: None,
+                        hash_info: None,
                     });
                 }
             }
@@ -108,7 +107,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
                         if let Some(mut file_info) = infos.get_mut(&path) {
                             if file_info.file_type == FileType::File {
                                 file_info.state = FileState::Modified;
-                                file_info.hash = None; // Reset hash since file is modified
+                                file_info.hash_info = None; // Reset hash since file is modified
                             }
                         }
                     }
@@ -129,21 +128,45 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
                             if file_info.file_type == FileType::File && file_info.state == FileState::Modified {
                                 eprintln!("File closed after write: {}", path);
 
-                            // Make the file immutable (implementation dependent)
+                            // Make the file immutable
                             make_file_immutable(&path)?;
                             eprintln!("File {} is now immutable.", path);
-                            // Calculate hash using a new thread
-                            let hash = thread::spawn(move || -> Result<String> {
-                                let hash = calculate_hash(&path)?;
-                                eprintln!("Hash calculated for {}: {}", path, hash);
-                                Ok(hash)
-                            }).join().unwrap()?;
-                            
-                            // Update state to Immutable and store hash
                             file_info.state = FileState::Immutable;
-                            file_info.hash = Some(hash.clone());
                             
-                            
+                            file_info.hash_info = Some(HashInfo {
+                                hash_state: HashState::InProgress,
+                                hash_string: None,
+                            });
+
+                            // Calculate hash using a new thread
+                            let path_clone = path.clone();
+                            let infos_clone = Arc::clone(&infos);
+                            thread::spawn(move || -> Result<String> {
+                                match calculate_hash(&path_clone) {
+                                    Ok(hash) => {
+                                       if let Some(mut file_info) = infos_clone.get_mut(&path_clone) {
+                                            file_info.state = FileState::Immutable;
+                                            file_info.hash_info = Some(HashInfo {
+                                                hash_state: HashState::Complete,
+                                                hash_string: Some(hash.clone()),
+                                            });
+                                        }
+                                        eprintln!("Hash calculated for {}: {}", path_clone, hash);
+                                        Ok(hash)
+                                    }
+                                    Err(e) => {
+                                        if let Some(mut file_info) = infos_clone.get_mut(&path_clone) {
+                                            file_info.state = FileState::Immutable;
+                                            file_info.hash_info = Some(HashInfo {
+                                                hash_state: HashState::Error,
+                                                hash_string: None,
+                                            });
+                                        }
+                                        eprintln!("Error calculating hash for {}: {}", path_clone, e);
+                                        Ok("Failed to calculate hash".to_string())
+                                    }
+                                }
+                            });
                         }
                     }
                 }
