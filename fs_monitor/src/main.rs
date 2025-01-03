@@ -128,48 +128,19 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
                             if file_info.file_type == FileType::File && file_info.state == FileState::Modified {
                                 eprintln!("File closed after write: {}", path);
 
-                            // Make the file immutable
-                            make_file_immutable(&path)?;
-                            eprintln!("File {} is now immutable.", path);
-                            file_info.state = FileState::Immutable;
-                            
-                            file_info.hash_info = Some(HashInfo {
-                                hash_state: HashState::InProgress,
-                                hash_string: None,
-                            });
-
-                            // Calculate hash using a new thread
-                            let path_clone = path.clone();
-                            let infos_clone = Arc::clone(&infos);
-                            thread::spawn(move || -> Result<String> {
-                                match calculate_hash(&path_clone) {
-                                    Ok(hash) => {
-                                       if let Some(mut file_info) = infos_clone.get_mut(&path_clone) {
-                                            file_info.state = FileState::Immutable;
-                                            file_info.hash_info = Some(HashInfo {
-                                                hash_state: HashState::Complete,
-                                                hash_string: Some(hash.clone()),
-                                            });
-                                        }
-                                        eprintln!("Hash calculated for {}: {}", path_clone, hash);
-                                        Ok(hash)
-                                    }
-                                    Err(e) => {
-                                        if let Some(mut file_info) = infos_clone.get_mut(&path_clone) {
-                                            file_info.state = FileState::Immutable;
-                                            file_info.hash_info = Some(HashInfo {
-                                                hash_state: HashState::Error,
-                                                hash_string: None,
-                                            });
-                                        }
-                                        eprintln!("Error calculating hash for {}: {}", path_clone, e);
-                                        Ok("Failed to calculate hash".to_string())
-                                    }
-                                }
-                            });
+                                // Make the file immutable
+                                make_file_immutable(&path)?;
+                                eprintln!("File {} is now immutable.", path);
+                                file_info.state = FileState::Immutable;
+                                
+                                file_info.hash_info = Some(HashInfo {
+                                    hash_state: HashState::InProgress,
+                                    hash_string: None,
+                                });
+                                initilize_hashing(path.clone(), infos);
+                            }
                         }
                     }
-                }
                 }
             }
         }
@@ -183,6 +154,35 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
     Ok(())
 }
 
+fn initilize_hashing(path: String, infos: &Arc<DashMap<String, FileInfo>>) {
+    let infos_clone = Arc::clone(&infos);
+    thread::spawn(move || -> Result<String> {
+        match calculate_hash(&path) {
+            Ok(hash) => {
+                if let Some(mut file_info) = infos_clone.get_mut(&path) {
+                    file_info.state = FileState::Immutable;
+                    file_info.hash_info = Some(HashInfo {
+                        hash_state: HashState::Complete,
+                        hash_string: Some(hash.clone()),
+                    });
+                }
+                eprintln!("Hash calculated for {}: {}", path, hash);
+                Ok(hash)
+            }
+            Err(e) => {
+                if let Some(mut file_info) = infos_clone.get_mut(&path) {
+                    file_info.state = FileState::Immutable;
+                    file_info.hash_info = Some(HashInfo {
+                        hash_state: HashState::Error,
+                        hash_string: None,
+                    });
+                }
+                eprintln!("Error calculating hash for {}: {}", path, e);
+                Ok("Failed to calculate hash".to_string())
+            }
+        }
+    });
+}
 
 fn calculate_hash(path: &str) -> Result<String> {
     let mut file = fs::File::open(path)?;
