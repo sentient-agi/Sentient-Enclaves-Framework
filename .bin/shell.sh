@@ -13,7 +13,7 @@ declare no_wait=1
 
 if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "help" || "$1" == "--help" ]]; then
     echo -e "Simple shell to communicate with enclave through Pipeline."
-    echo -e "Input 'nw' command to enable local or remote console output."
+    echo -e "Input 'nw' (stands for 'no-wait') command to enable local or remote console output."
     echo -e "Enter 'break' or 'exit' for exit from this shell."
     exit 0
 fi
