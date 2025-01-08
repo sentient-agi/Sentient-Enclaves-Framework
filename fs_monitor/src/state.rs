@@ -9,6 +9,7 @@ pub enum FileState {
     Created,
     Modified,
     Immutable,
+    Closed,
     // Deleted,
 }
 
@@ -30,4 +31,5 @@ pub struct FileInfo {
     pub file_type: FileType,
     pub state: FileState,
     pub hash_info: Option<HashInfo>,
+    pub version: i32,
 } 

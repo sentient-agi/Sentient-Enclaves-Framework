@@ -13,7 +13,7 @@ use state::{FileState, FileInfo, FileType, HashState, HashInfo};
 
 fn main() -> Result<()> {
     let (tx, rx) = mpsc::channel::<Result<Event>>();
-    // Use Arc and Mutex for thread-safe shared state
+
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     
     // Clone for the closure
@@ -95,6 +95,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
                         file_type: FileType::File,
                         state: FileState::Created,
                         hash_info: None,
+                        version: 0,
                     });
                 }
             }
@@ -129,9 +130,8 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
                             if file_info.file_type == FileType::File && file_info.state == FileState::Modified {
                                 eprintln!("File closed after write: {}", path);
 
-                                // Make the file immutable
-                                make_file_immutable(&path)?;
-                                eprintln!("File {} is now immutable.", path);
+                                file_info.version += 1;
+                                eprintln!("File {} is ready for hashing.", path);
                                 file_info.state = FileState::Immutable;
                                 perform_file_hashing(path.clone(), &file_infos);
                             }
@@ -188,15 +188,4 @@ fn calculate_hash(path: &str) -> Result<String> {
     std::io::copy(&mut file, &mut hasher)?;
     let hash_result = hasher.finalize();
     Ok(format!("{:x}", hash_result))
-}
-
-fn make_file_immutable(path: &str) -> Result<()> {
-    // Implementation depends on the operating system.
-    // For Unix-based systems, remove write permissions.
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(path)?.permissions();
-        // Remove write permissions for owner, group, and others
-        perms.set_mode(perms.mode() & !(0o222));
-        fs::set_permissions(path, perms)?;
-    Ok(())
 }
