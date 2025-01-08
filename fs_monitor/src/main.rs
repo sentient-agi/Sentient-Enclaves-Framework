@@ -132,7 +132,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
 
                                 file_info.version += 1;
                                 eprintln!("File {} is ready for hashing.", path);
-                                file_info.state = FileState::Immutable;
+                                file_info.state = FileState::Closed;
                                 perform_file_hashing(path.clone(), &file_infos);
                             }
                         }
@@ -161,7 +161,6 @@ fn perform_file_hashing(path: String, file_infos: &Arc<DashMap<String, FileInfo>
         });
         match calculate_hash(&path) {
             Ok(hash) => {
-                file_infos.get_mut(&path).unwrap().state = FileState::Immutable;
                 file_infos.get_mut(&path).unwrap().hash_info = Some(HashInfo {
                     hash_state: HashState::Complete,
                     hash_string: Some(hash.clone()),
@@ -170,7 +169,6 @@ fn perform_file_hashing(path: String, file_infos: &Arc<DashMap<String, FileInfo>
                 Ok(hash)
             }
             Err(e) => {
-                file_infos.get_mut(&path).unwrap().state = FileState::Immutable;
                 file_infos.get_mut(&path).unwrap().hash_info = Some(HashInfo {
                     hash_state: HashState::Error,
                         hash_string: None,
