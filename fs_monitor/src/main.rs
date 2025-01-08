@@ -47,7 +47,7 @@ loop {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
     let path = input.trim();
-
+    println!("path: {}", path);
     let hash = retrieve_hash(path, &file_infos)?;
     println!("Hash of {}: {}", path, hash);
 }
@@ -56,6 +56,7 @@ loop {
 fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>) -> Result<String> {
     // if path is directory, return all hashes in directory
     if fs::metadata(path)?.is_dir() {
+        eprintln!("path is directory: {}", path);
         let mut hashes = String::new();
         // Still need to iterate for directories
         for ref_multi in file_infos.iter() {
@@ -83,7 +84,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
         .filter_map(|p| p.to_str().map(|s| s.to_string()))
         .collect();
 
-    let mut infos = file_infos;
+    let infos = file_infos.clone();
 
     match event.kind {
         EventKind::Create(kind) => {
@@ -132,12 +133,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
                                 make_file_immutable(&path)?;
                                 eprintln!("File {} is now immutable.", path);
                                 file_info.state = FileState::Immutable;
-                                
-                                file_info.hash_info = Some(HashInfo {
-                                    hash_state: HashState::InProgress,
-                                    hash_string: None,
-                                });
-                                initilize_hashing(path.clone(), infos);
+                                perform_file_hashing(path.clone(), &file_infos);
                             }
                         }
                     }
@@ -154,29 +150,31 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Re
     Ok(())
 }
 
-fn initilize_hashing(path: String, infos: &Arc<DashMap<String, FileInfo>>) {
-    let infos_clone = Arc::clone(&infos);
+fn perform_file_hashing(path: String, file_infos: &Arc<DashMap<String, FileInfo>>) {
+    eprintln!("path: {}", path);
+    // let file_info = Arc::clone(&file_infos);
+    let file_infos = Arc::clone(&file_infos);
     thread::spawn(move || -> Result<String> {
+        file_infos.get_mut(&path).unwrap().hash_info = Some(HashInfo {
+            hash_state: HashState::InProgress,
+            hash_string: None,
+        });
         match calculate_hash(&path) {
             Ok(hash) => {
-                if let Some(mut file_info) = infos_clone.get_mut(&path) {
-                    file_info.state = FileState::Immutable;
-                    file_info.hash_info = Some(HashInfo {
-                        hash_state: HashState::Complete,
-                        hash_string: Some(hash.clone()),
-                    });
-                }
+                file_infos.get_mut(&path).unwrap().state = FileState::Immutable;
+                file_infos.get_mut(&path).unwrap().hash_info = Some(HashInfo {
+                    hash_state: HashState::Complete,
+                    hash_string: Some(hash.clone()),
+                });
                 eprintln!("Hash calculated for {}: {}", path, hash);
                 Ok(hash)
             }
             Err(e) => {
-                if let Some(mut file_info) = infos_clone.get_mut(&path) {
-                    file_info.state = FileState::Immutable;
-                    file_info.hash_info = Some(HashInfo {
-                        hash_state: HashState::Error,
+                file_infos.get_mut(&path).unwrap().state = FileState::Immutable;
+                file_infos.get_mut(&path).unwrap().hash_info = Some(HashInfo {
+                    hash_state: HashState::Error,
                         hash_string: None,
-                    });
-                }
+                });
                 eprintln!("Error calculating hash for {}: {}", path, e);
                 Ok("Failed to calculate hash".to_string())
             }
