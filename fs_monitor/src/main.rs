@@ -10,6 +10,8 @@ use dashmap::DashMap;
 // Import the FileState and FileInfo structs
 mod state;
 use state::{FileState, FileInfo, FileType, HashState, HashInfo};
+mod fs_ignore;
+use fs_ignore::IgnoreList;
 
 fn main() -> Result<()> {
     let (tx, rx) = mpsc::channel::<Result<Event>>();
@@ -27,13 +29,15 @@ fn main() -> Result<()> {
     watcher.watch(Path::new("."), RecursiveMode::Recursive)?;
     println!("Started watching current directory for changes...");
     
-
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list("/home/ec2-user/pipeline-tee.rs/fs_monitor/fs_ignore");
+    
     // Start a thread to handle events
     thread::spawn(move || {
         for res in rx {
             match res {
                 Ok(event) => {
-                handle_event(event, &file_infos_clone).unwrap_or_else(|e| {
+                handle_event(event, &file_infos_clone, &ignore_list).unwrap_or_else(|e| {
                     eprintln!("Error handling event: {}", e);
                 });
             }
@@ -79,12 +83,34 @@ fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>) -> Res
     }
 }
 
-fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>) -> Result<()> {
+fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignore_list: &IgnoreList) -> Result<()> {
     let paths: Vec<String> = event.paths.iter()
         .filter_map(|p| p.to_str().map(|s| s.to_string()))
         .collect();
 
+    if paths.is_empty() {
+        return Ok(());
+    }
+    if paths.len() == 1 {
+        // eprintln!("Single path in event: {:?} {:?}", event.kind, paths);
+        let path = paths[0].clone();
+        // Ignore this event if it matches the regex pattern specified in fs_ignore
+        if ignore_list.is_ignored(&path) {
+            if event.kind == EventKind::Create(CreateKind::File) {
+                eprintln!("Ignoring event {:?} for path: {}", event.kind, path);
+            }
+            eprintln!("Ignoring event {:?} for path: {}", event.kind, path);
+            return Ok(());
+        }
+    }
+
+    if paths.len() > 1 {
+        eprintln!("Multiple paths in event: {:?} {:?}", event.kind, paths);
+    }
+
+
     let infos = file_infos.clone();
+    
 
     match event.kind {
         EventKind::Create(kind) => {
