@@ -105,7 +105,12 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignor
     }
 
     if paths.len() > 1 {
-        eprintln!("Multiple paths in event: {:?} {:?}", event.kind, paths);
+
+        // If all paths in event are ignored, skip the event
+        if paths.iter().all(|path| ignore_list.is_ignored(path)) {
+            return Ok(());
+        }
+
     }
 
 
@@ -113,58 +118,24 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignor
     
 
     match event.kind {
-        EventKind::Create(kind) => {
-            for path in paths {
-                if let CreateKind::File = kind {
-                    eprintln!("File created: {}", path);
-                    infos.insert(path.clone(), FileInfo {
-                        file_type: FileType::File,
-                        state: FileState::Created,
-                        hash_info: None,
-                        version: 0,
-                    });
-                }
-            }
+        EventKind::Create(CreateKind::File) => {
+            handle_file_creation(paths.clone(), &file_infos);
         }
 
-        EventKind::Modify(modify_kind) => {
-            for path in paths {
-                match modify_kind {
-                    ModifyKind::Data(DataChange::Any) => {
-                        // println!("File modified: {}", path);
-                        if let Some(mut file_info) = infos.get_mut(&path) {
-                            if file_info.file_type == FileType::File {
-                                file_info.state = FileState::Modified;
-                                file_info.hash_info = None; // Reset hash since file is modified
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
+
+        EventKind::Modify(ModifyKind::Data(DataChange::Any) ) => {
+           handle_file_data_modification(paths.clone(), &file_infos); 
         }
         // Need to handle Rename, Delete, etc.
+        // EventKind::Modify(modify_kind) => {
+        //     for path in paths {
+        //         eprintln!("File renamed: {}", path);
+        //     }
+        // }
 
         // Handling end of file write
-        EventKind::Access(access_kind) => {
-            if let AccessKind::Close(AccessMode::Write) = access_kind {
-                // This marks the file has been written to and is now closed.
-                for path in paths {
-                    // Skip files in .cache directory
-                    if !path.contains("/.cache/") {
-                        if let Some(mut file_info) = infos.get_mut(&path) {
-                            if file_info.file_type == FileType::File && file_info.state == FileState::Modified {
-                                eprintln!("File closed after write: {}", path);
-
-                                file_info.version += 1;
-                                eprintln!("File {} is ready for hashing.", path);
-                                file_info.state = FileState::Closed;
-                                perform_file_hashing(path.clone(), &file_infos);
-                            }
-                        }
-                    }
-                }
-            }
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
+            handle_file_save_on_write(paths.clone(), &file_infos);
         }
         _ => {
             for path in paths {
@@ -174,6 +145,54 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignor
     }
 
     Ok(())
+}
+
+fn handle_file_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
+    if paths.len() != 1 {
+        eprintln!("Create event has multiple paths: {:?}", paths);
+        return;
+    }
+    let path = paths[0].clone();
+    eprintln!("File created: {}", path);
+    file_infos.insert(path.clone(), FileInfo {
+            file_type: FileType::File,
+            state: FileState::Created,
+            hash_info: None,
+            version: 0,
+    });
+}
+
+fn handle_file_data_modification(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
+    if paths.len() != 1 {
+        eprintln!("Modify event has multiple paths: {:?}", paths);
+        return;
+    }
+    let path = paths[0].clone();
+    // eprintln!("File modified: {}", path);
+    if let Some(mut file_info) = file_infos.get_mut(&path) {
+        if file_info.file_type == FileType::File {
+            file_info.state = FileState::Modified;
+            file_info.hash_info = None; // Reset hash since file is modified
+        }
+    }
+}
+
+fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
+    if paths.len() != 1 {
+        eprintln!("Save on write event has multiple paths: {:?}", paths);
+        return;
+    }
+    let path = paths[0].clone();
+    if let Some(mut file_info) = file_infos.get_mut(&path) {
+        if file_info.file_type == FileType::File && file_info.state == FileState::Modified {
+            eprintln!("File closed after write: {}", path);
+
+            file_info.version += 1;
+            eprintln!("File {} is ready for hashing.", path);
+            file_info.state = FileState::Closed;
+            perform_file_hashing(path.clone(), &file_infos);
+        }
+    }
 }
 
 fn perform_file_hashing(path: String, file_infos: &Arc<DashMap<String, FileInfo>>) {
