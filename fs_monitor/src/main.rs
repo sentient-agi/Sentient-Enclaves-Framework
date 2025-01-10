@@ -12,7 +12,7 @@ mod state;
 use state::{FileState, FileInfo, FileType, HashState, HashInfo};
 mod fs_ignore;
 use fs_ignore::IgnoreList;
-
+use std::io::Write;
 fn main() -> Result<()> {
     let (tx, rx) = mpsc::channel::<Result<Event>>();
 
@@ -47,14 +47,19 @@ fn main() -> Result<()> {
 });
 
 loop {
+    
+    
     println!("Enter path relative to current working directory to get hash of file");
+    print!(">>> ");
+    std::io::stdout().flush().unwrap();
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
     let path = input.trim();
     let path = handle_path(path);
-    println!("path: {}", path);
+    // println!("path: {}", path);
     let hash = retrieve_hash(&path, &file_infos)?;
-    println!("Hash of {}: {}", path, hash);
+    println!("{}", hash);
+    println!("================================================");
 }
 }
 
@@ -78,7 +83,15 @@ fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>) -> Res
     match file_infos.get(path) {
         Some(info) => match &info.hash_info.as_ref().unwrap().hash_string {
             Some(hash) => Ok(hash.clone()),
-            None => Ok(format!("File found but no hash available: {}", path))
+            None => {
+                // check if hash state value is present and is in progress
+                if info.hash_info.as_ref().unwrap().hash_state == HashState::InProgress {
+                    Ok(format!("Hash calculation in progress for: {}", path))
+                }
+                else {
+                    Ok(format!("File Hashing is yet to be done for: {}", path))
+                }
+            }
         },
         None => Ok(format!("File not found: {}", path))
     }
@@ -116,7 +129,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignor
 
     }
 
-    let infos = file_infos.clone();    
+    // let infos = file_infos.clone();    
 
     match event.kind {
         EventKind::Create(CreateKind::File) => {
@@ -143,9 +156,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignor
             handle_file_save_on_write(paths.clone(), &file_infos);
         }
         _ => {
-            for path in paths {
-                eprintln!("#Unhandled event {:?} for: {}", event.kind, path);
-            }
+            // eprintln!("#Unhandled event {:?} for: {}", event.kind, path);
         }
     }
 
@@ -289,9 +300,11 @@ fn handle_path(path: &str) -> String {
         let current_dir = std::env::current_dir().unwrap();
         let relative_path = Path::new(&path).strip_prefix(current_dir).unwrap();
         // // if there is ./ in the path then remove it
-        if relative_path.starts_with("./") {
-            let relative_path = relative_path.strip_prefix("./").unwrap();
-        }
+        let relative_path = if relative_path.starts_with("./") {
+            relative_path.strip_prefix("./").unwrap()
+        } else {
+            relative_path
+        };
         // update the path with the relative path
         let path = relative_path.to_str().unwrap();
         // eprintln!("Relative path: {}", path);

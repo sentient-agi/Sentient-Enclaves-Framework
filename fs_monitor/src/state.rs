@@ -8,7 +8,7 @@ pub enum FileType {
 pub enum FileState {
     Created,
     Modified,
-    Immutable,
+    // Immutable,
     Closed,
     Renamed,
     // Deleted,
@@ -20,7 +20,7 @@ pub struct HashInfo {
     pub hash_string: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HashState {
     InProgress,
     Complete,
