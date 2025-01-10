@@ -27,7 +27,7 @@ impl IgnoreList {
         // eprintln!("Checking path: '{}' against patterns", path);
         for pattern in &self.patterns {
             if pattern.matches(path) {
-                eprintln!("{} -> Matched to {}", path, pattern);
+                // eprintln!("{} -> Matched to {}", path, pattern);
                 return true;
             }
         }

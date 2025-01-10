@@ -10,6 +10,7 @@ pub enum FileState {
     Modified,
     Immutable,
     Closed,
+    Renamed,
     // Deleted,
 }
 

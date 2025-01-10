@@ -1,5 +1,5 @@
 use notify::{recommended_watcher, Event, RecursiveMode, Result, Watcher, EventKind};
-use notify::event::{ModifyKind, DataChange, CreateKind, AccessKind, AccessMode};
+use notify::event::{ModifyKind, DataChange, CreateKind, AccessKind, AccessMode, RenameMode};
 use std::sync::mpsc;
 use std::path::Path;
 use std::fs;
@@ -96,10 +96,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignor
         let path = paths[0].clone();
         // Ignore this event if it matches the regex pattern specified in fs_ignore
         if ignore_list.is_ignored(&path) {
-            if event.kind == EventKind::Create(CreateKind::File) {
-                eprintln!("Ignoring event {:?} for path: {}", event.kind, path);
-            }
-            eprintln!("Ignoring event {:?} for path: {}", event.kind, path);
+            // eprintln!("Ignoring event {:?} for path: {}", event.kind, path);
             return Ok(());
         }
     }
@@ -113,9 +110,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignor
 
     }
 
-
-    let infos = file_infos.clone();
-    
+    let infos = file_infos.clone();    
 
     match event.kind {
         EventKind::Create(CreateKind::File) => {
@@ -127,19 +122,23 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignor
            handle_file_data_modification(paths.clone(), &file_infos); 
         }
         // Need to handle Rename, Delete, etc.
-        // EventKind::Modify(modify_kind) => {
-        //     for path in paths {
-        //         eprintln!("File renamed: {}", path);
-        //     }
-        // }
-
+        EventKind::Modify(ModifyKind::Name(rename_mode)) => {
+            match rename_mode {
+                RenameMode::Both => {
+                    handle_file_rename(paths.clone(), &file_infos, &ignore_list);
+                },
+                _ => {
+                    // eprintln!("Unhandled rename mode: {:?} for paths: {:?}", rename_mode, paths);
+                }
+            }
+        },
         // Handling end of file write
         EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
             handle_file_save_on_write(paths.clone(), &file_infos);
         }
         _ => {
             for path in paths {
-                eprintln!("Unhandled event {:?} for: {}", event.kind, path);
+                eprintln!("Unhandled event {:?} for: {}", event, path);
             }
         }
     }
@@ -192,6 +191,50 @@ fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<String
             file_info.state = FileState::Closed;
             perform_file_hashing(path.clone(), &file_infos);
         }
+    }
+}
+
+
+// TODO: Handle rename events
+fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, ignore_list: &IgnoreList) {
+    if paths.len() != 2 {
+        eprintln!("Rename event should have 2 paths: {:?}", paths);
+        return;
+    }
+    let from_path = paths[0].clone();
+    let to_path = paths[1].clone();
+    if ignore_list.is_ignored(&to_path) {
+        // This means the already monitored file is being renamed to something that is ignored
+        // We can ignore this event right now but ideally this should remove the entry from the file_infos
+        // We can ignore this event right now but ideally this should remove the entry from the file_infos
+        eprintln!("Ignoring rename event for path: {}", to_path);
+        return;
+    }
+    else if ignore_list.is_ignored(&from_path) {
+        // This marks that an ignored file is being renamed to something that should be monitored.
+        // This won't usually trigger create or modify events for smaller files.
+        // We need to create a new entry in file_infos for the new path if it doesn't exist
+        // and then add the hash of the file to the new path
+        eprintln!("Handling rename event for paths: {} -> {}", from_path, to_path);
+        if !file_infos.contains_key(&to_path) {
+            file_infos.insert(to_path.clone(), FileInfo {
+                file_type: FileType::File,
+                state: FileState::Renamed,
+                hash_info: None,
+                version: 0,
+            });
+            perform_file_hashing(to_path.clone(), &file_infos);
+
+        }
+
+        return;
+    }
+    else {
+        // This is a normal rename event where the file is being renamed to some other name.
+        // We need to update the entry in file_infos for the new path. The hash of the file should be recalculated?
+        // Currently this event is also ignored.
+        eprintln!("File renamed from {} to {}", from_path, to_path);
+       
     }
 }
 
