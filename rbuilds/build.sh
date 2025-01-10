@@ -7,7 +7,10 @@ shopt -s extquote
 
 set -f
 
-declare kversion='6.12'
+declare kversion='6.12' # Linux kernel version
+declare enclave_cpus='64' # Number of CPUs allocated for Nitro Enclaves runt-time
+declare enclave_mem='838656' # MiBs of memory allocated for Nitro Enclaves runt-time
+declare enclave_cid='127' # Enclave's VSock CID for data connect
 
 if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "help" || "$1" == "--help" ]]; then
     echo -e "\nShell script to build custom kernel, Rust apps (SSE Framework) for eclave's run-time, init system for enclave, and to build enclave images (EIF) reproducibly.\n"
@@ -15,6 +18,7 @@ if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "hel
     echo -e "Input 'make apps' command to start building Rust apps (SSE Framework) for enclave's run-time and to build enclave's image creation and extraction tools.\n"
     echo -e "Input 'make init' command to start building init system for enclave.\n"
     echo -e "Input 'make' command to start building enclave image (EIF).\n"
+    echo -e "Input 'make enclave' command to manage encalves run-time: run enclave, attach debug console to enclave, list running enclaves and terminate one or all enclaves.\n"
     echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
     echo -e "Enter 'break' or 'exit' for exit from this shell.\n"
     exit 0
@@ -55,10 +59,18 @@ if [[ "$1" == "??" || "$1" == "-??" || "$1" == "he" || "$1" == "-he" || "$1" == 
         eif_build_with_initc
         eif_build_with_initgo
 
-        Run enclave image file (EIF) and connect/attach local terminal to enclave's console output:
+        Run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves:
 
+        run_eif_image_debugmode_cli
+        run_eif_image_debugmode
         run_eif_image
+        attach_console_to_recent_enclave
         attach_console_to_enclave
+        list_enclaves
+        drop_recent_enclave
+        drop_enclave
+        drop_enclaves_all
+
     "
     exit 0
 fi
@@ -191,15 +203,15 @@ docker_apps_rs_image_build() {
 docker_prepare_apps_rs_buildenv() {
     docker exec -ti apps_rs_build bash -cis -- 'whoami; uname -a; pwd;' ;
     docker exec -ti apps_rs_build bash -cis -- "mkdir -vp /app-builder" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/aws/aws-nitro-enclaves-image-format.git ./eif_build" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format.git ./eif_extract" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format.git ./eif_build" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format-build-extract.git ./eif_extract" ;
     docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/pipeline-tee.rs.git ./sse-sentinel-framework" ;
 }
 
 docker_apps_rs_build() {
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout b26bf69d8ade4e03fa84a0257f6ae6a2c1470a9e; cargo build --release;" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_extract; cargo build --release;" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/sse-sentinel-framework; cargo build --release;" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout 2fb5bc408357259eb30c6682429f252f8992c405; cargo build --all --release;" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_extract; cargo build --all --release;" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/sse-sentinel-framework; cargo build --all --release;" ;
     mkdir -vp ./eif_build/ ;
     docker cp apps_rs_build:/app-builder/eif_build/target/release/eif_build ./eif_build/ ;
     mkdir -vp ./eif_extract/ ;
@@ -273,13 +285,45 @@ eif_build_with_initgo() {
     /usr/bin/time -v -o ./describe-eif.log nitro-cli describe-eif --eif-path ./app-builder-pipeline.eif 2>&1 | tee app-builder-pipeline.eif.desc;
 }
 
+# Enclave run-time management commands:
+# run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.
+
+run_eif_image_debugmode_cli() {
+    /usr/bin/time -v -o ./run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./app-builder-pipeline.eif --debug-mode --attach-console --enclave-cid $enclave_cid --enclave-name pipeline_toolkit 2>&1 | tee app-builder-pipeline.output
+}
+
+run_eif_image_debugmode() {
+    /usr/bin/time -v -o ./run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./app-builder-pipeline.eif --debug-mode --enclave-cid $enclave_cid --enclave-name pipeline_toolkit 2>&1 | tee app-builder-pipeline.output
+}
+
 run_eif_image() {
-    /usr/bin/time -v -o ./run-enclave.log nitro-cli run-enclave --cpu-count 64 --memory 838656 --eif-path ./app-builder-pipeline.eif --debug-mode --attach-console --enclave-cid 127  --enclave-name pipeline_toolkit 2>&1 | tee app-builder-pipeline.output
+    /usr/bin/time -v -o ./run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./app-builder-pipeline.eif --enclave-cid $enclave_cid --enclave-name pipeline_toolkit 2>&1 | tee app-builder-pipeline.output
+}
+
+attach_console_to_recent_enclave() {
+    ENCLAVE_ID=$(nitro-cli describe-enclaves | jq -r ".[0].EnclaveID"); \
+    nitro-cli console --enclave-id "${ENCLAVE_ID}" 2>&1 | tee -a app-builder-pipeline.output
 }
 
 attach_console_to_enclave() {
+    nitro-cli console --enclave-name pipeline_toolkit 2>&1 | tee -a app-builder-pipeline.output
+}
+
+list_enclaves() {
+    nitro-cli describe-enclaves--metadata 2>&1 | tee -a enclaves.list
+}
+
+drop_recent_enclave() {
     ENCLAVE_ID=$(nitro-cli describe-enclaves | jq -r ".[0].EnclaveID"); \
-    nitro-cli console --enclave-id "${ENCLAVE_ID}" 2>&1 | tee -a app-builder-pipeline.output
+    sudo nitro-cli terminate-enclave --enclave-id "${ENCLAVE_ID}"
+}
+
+drop_enclave() {
+    sudo nitro-cli terminate-enclave --enclave-name pipeline_toolkit
+}
+
+drop_enclaves_all() {
+    sudo nitro-cli terminate-enclave --all
 }
 
 while true; do
@@ -372,8 +416,33 @@ while true; do
         continue
     fi
 
+    # Enclave run-time management commands:
+    # run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.
+
+    if [[ $cmd == "run_eif_image_debugmode_cli" ]]; then
+        read -n 1 -s -p "Run EIF image in enclave (Nitro Enclaves, KVM based VM) in debug mode (with attaching console for enclave debug output)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            run_eif_image_debugmode_cli ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
+    if [[ $cmd == "run_eif_image_debugmode" ]]; then
+        read -n 1 -s -p "Run EIF image in enclave (Nitro Enclaves, KVM based VM) in debug mode (without attaching console for enclave debug output)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            run_eif_image_debugmode ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
     if [[ $cmd == "run_eif_image" ]]; then
-        read -n 1 -s -p "Run EIF image in enclave (Nitro KVM based VM)? [y|n] : " choice
+        read -n 1 -s -p "Run EIF image in enclave (Nitro Enclaves, KVM based VM) in production mode? [y|n] : " choice
         if [[ $choice == "y" ]]; then
             echo -e "\n"
             run_eif_image ; wait
@@ -383,11 +452,66 @@ while true; do
         continue
     fi
 
+    if [[ $cmd == "attach_console_to_recent_enclave" ]]; then
+        read -n 1 -s -p "Attach local console to recently created and running enclave for debug CLI dump (stdout)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            attach_console_to_recent_enclave ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
     if [[ $cmd == "attach_console_to_enclave" ]]; then
-        read -n 1 -s -p "Attach local console to enclave's debug dump (stdout)? [y|n] : " choice
+        read -n 1 -s -p "Attach local console to created and running enclave for debug CLI dump (stdout)? [y|n] : " choice
         if [[ $choice == "y" ]]; then
             echo -e "\n"
             attach_console_to_enclave ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
+    if [[ $cmd == "list_enclaves" ]]; then
+        read -n 1 -s -p "List all running enclaves including its metadata? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            list_enclaves ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
+    if [[ $cmd == "drop_recent_enclave" ]]; then
+        read -n 1 -s -p "Terminate recently created and running enclave? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            drop_recent_enclave ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
+    if [[ $cmd == "drop_enclave" ]]; then
+        read -n 1 -s -p "Terminate created and running enclave? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            drop_enclave ; wait
+        else
+            echo -e "\n"
+        fi
+        continue
+    fi
+
+    if [[ $cmd == "drop_enclaves_all" ]]; then
+        read -n 1 -s -p "Terminate all running enclaves? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            drop_enclaves_all ; wait
         else
             echo -e "\n"
         fi
@@ -453,7 +577,30 @@ while true; do
             echo -e "\n"
         fi
 
-        read -n 1 -s -p "Run EIF image in enclave (Nitro KVM based VM)? [y|n] : " choice
+        continue
+    fi
+
+    # Enclave run-time management automated guide:
+    # run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.
+
+    if [[ $cmd == "make enclave" ]]; then
+        read -n 1 -s -p "Run EIF image in enclave (Nitro Enclaves, KVM based VM) in debug mode (with attaching console for enclave debug output)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            run_eif_image_debugmode_cli ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Run EIF image in enclave (Nitro Enclaves, KVM based VM) in debug mode (without attaching console for enclave debug output)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            run_eif_image_debugmode ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Run EIF image in enclave (Nitro Enclaves, KVM based VM) in production mode? [y|n] : " choice
         if [[ $choice == "y" ]]; then
             echo -e "\n"
             run_eif_image ; wait
@@ -461,10 +608,50 @@ while true; do
             echo -e "\n"
         fi
 
-        read -n 1 -s -p "Attach local console to enclave's debug dump (stdout)? [y|n] : " choice
+        read -n 1 -s -p "Attach local console to recently created and running enclave for debug CLI dump (stdout)? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            attach_console_to_recent_enclave ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Attach local console to created and running enclave for debug CLI dump (stdout)? [y|n] : " choice
         if [[ $choice == "y" ]]; then
             echo -e "\n"
             attach_console_to_enclave ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "List all running enclaves including its metadata? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            list_enclaves ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Terminate recently created and running enclave? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            drop_recent_enclave ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Terminate created and running enclave? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            drop_enclave ; wait
+        else
+            echo -e "\n"
+        fi
+
+        read -n 1 -s -p "Terminate all running enclaves? [y|n] : " choice
+        if [[ $choice == "y" ]]; then
+            echo -e "\n"
+            drop_enclaves_all ; wait
         else
             echo -e "\n"
         fi

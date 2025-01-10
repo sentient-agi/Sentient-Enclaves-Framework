@@ -4,7 +4,7 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as builder
 ENV SHELL="/usr/bin/env bash"
 
 RUN dnf upgrade -y
-RUN dnf install -y git gcc
+RUN dnf install -y git gcc pkgconfig openssl openssl-devel openssl-libs
 RUN dnf install -y time which hostname
 
 ENV RUST_LOG="debug"
