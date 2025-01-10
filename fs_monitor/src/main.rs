@@ -47,12 +47,13 @@ fn main() -> Result<()> {
 });
 
 loop {
-    println!("Enter absolute path to get hash of file");
+    println!("Enter path relative to current working directory to get hash of file");
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
     let path = input.trim();
+    let path = handle_path(path);
     println!("path: {}", path);
-    let hash = retrieve_hash(path, &file_infos)?;
+    let hash = retrieve_hash(&path, &file_infos)?;
     println!("Hash of {}: {}", path, hash);
 }
 }
@@ -84,10 +85,15 @@ fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>) -> Res
 }
 
 fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignore_list: &IgnoreList) -> Result<()> {
-    let paths: Vec<String> = event.paths.iter()
+    let paths_old: Vec<String> = event.paths.iter()
         .filter_map(|p| p.to_str().map(|s| s.to_string()))
         .collect();
 
+    let mut paths = Vec::new();
+    for path in paths_old {
+        let path = handle_path(&path);
+        paths.push(path);
+    }
     if paths.is_empty() {
         return Ok(());
     }
@@ -138,7 +144,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, ignor
         }
         _ => {
             for path in paths {
-                eprintln!("Unhandled event {:?} for: {}", event, path);
+                eprintln!("#Unhandled event {:?} for: {}", event.kind, path);
             }
         }
     }
@@ -239,7 +245,7 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
 }
 
 fn perform_file_hashing(path: String, file_infos: &Arc<DashMap<String, FileInfo>>) {
-    eprintln!("path: {}", path);
+    // eprintln!("path: {}", path);
     // let file_info = Arc::clone(&file_infos);
     let file_infos = Arc::clone(&file_infos);
     thread::spawn(move || -> Result<String> {
@@ -274,4 +280,24 @@ fn calculate_hash(path: &str) -> Result<String> {
     std::io::copy(&mut file, &mut hasher)?;
     let hash_result = hasher.finalize();
     Ok(format!("{:x}", hash_result))
+}
+fn handle_path(path: &str) -> String {
+    // check if path is absolute
+    // if it is then make it relative
+    // with respect to the current working directory
+    if path.starts_with("/") {
+        let current_dir = std::env::current_dir().unwrap();
+        let relative_path = Path::new(&path).strip_prefix(current_dir).unwrap();
+        // // if there is ./ in the path then remove it
+        if relative_path.starts_with("./") {
+            let relative_path = relative_path.strip_prefix("./").unwrap();
+        }
+        // update the path with the relative path
+        let path = relative_path.to_str().unwrap();
+        // eprintln!("Relative path: {}", path);
+        path.to_string()
+    }
+    else {
+        path.to_string()
+    }    
 }
