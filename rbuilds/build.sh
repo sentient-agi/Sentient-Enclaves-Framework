@@ -8,6 +8,8 @@ shopt -s extquote
 set -f
 
 declare kversion='6.12' # Linux kernel version
+declare kbuild_user="sentient_build" # Username for kernel build
+declare kbuild_host="sentient_builder" #Hostname for kernel build
 declare enclave_cpus='64' # Number of CPUs allocated for Nitro Enclaves runt-time
 declare enclave_mem='838656' # MiBs of memory allocated for Nitro Enclaves runt-time
 declare enclave_cid='127' # Enclave's VSock CID for data connect
@@ -20,13 +22,18 @@ if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "hel
     echo -e "Input 'make' command to start building enclave image (EIF).\n"
     echo -e "Input 'make enclave' command to manage encalves run-time: run enclave, attach debug console to enclave, list running enclaves and terminate one or all enclaves.\n"
     echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
-    echo -e "Enter 'break' or 'exit' for exit from this shell.\n"
+    echo -e "Enter 'break' or 'exit', or push 'Ctrl+C' key sequence, for exit from this shell.\n"
     exit 0
 fi
 
 if [[ "$1" == "??" || "$1" == "-??" || "$1" == "he" || "$1" == "-he" || "$1" == "helpext" || "$1" == "help-ext" || "$1" == "--help-ext" ]]; then
 
     echo -e "\nCommands for manual stages execution:
+
+        Print help commands:
+
+        help
+        help_ext
 
         Build custom kernel stages:
 
@@ -75,6 +82,73 @@ if [[ "$1" == "??" || "$1" == "-??" || "$1" == "he" || "$1" == "-he" || "$1" == 
     exit 0
 fi
 
+# Print help commands
+
+help() {
+    echo -e "\nShell script to build custom kernel, Rust apps (SSE Framework) for eclave's run-time, init system for enclave, and to build enclave images (EIF) reproducibly.\n"
+    echo -e "Input 'make kernel' command to start building custom Linux kernel.\n"
+    echo -e "Input 'make apps' command to start building Rust apps (SSE Framework) for enclave's run-time and to build enclave's image creation and extraction tools.\n"
+    echo -e "Input 'make init' command to start building init system for enclave.\n"
+    echo -e "Input 'make' command to start building enclave image (EIF).\n"
+    echo -e "Input 'make enclave' command to manage encalves run-time: run enclave, attach debug console to enclave, list running enclaves and terminate one or all enclaves.\n"
+    echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
+    echo -e "Enter 'break' or 'exit' for exit from this shell.\n"
+}
+
+help_ext() {
+    echo -e "\nCommands for manual stages execution:
+
+        Print help commands:
+
+        help
+        help_ext
+
+        Build custom kernel stages:
+
+        docker_kcontainer_clear
+        docker_kimage_clear
+        docker_kimage_build
+        docker_prepare_kbuildenv
+        docker_kernel_build
+
+        Build Rust apps (SSE Framework) for enclave's run-time and enclave image build tools, stages are:
+
+        docker_apps_rs_container_clear
+        docker_apps_rs_image_clear
+        docker_apps_rs_image_build
+        docker_prepare_apps_rs_buildenv
+        docker_apps_rs_build
+
+        Build custom init system for enclave, stages are:
+
+        docker_init_clear
+        docker_init_build
+
+        Build enclave image file (EIF) stages:
+
+        docker_clear
+        docker_build
+        init_and_rootfs_base_images_build
+        docker_to_rootfs_fs_image_build
+        ramdisk_image_build
+        eif_build_with_initc
+        eif_build_with_initgo
+
+        Run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves:
+
+        run_eif_image_debugmode_cli
+        run_eif_image_debugmode
+        run_eif_image
+        attach_console_to_recent_enclave
+        attach_console_to_enclave
+        list_enclaves
+        drop_recent_enclave
+        drop_enclave
+        drop_enclaves_all
+
+    "
+}
+
 # Building custom Linux kernel:
 
 docker_kcontainer_clear() {
@@ -121,8 +195,8 @@ docker_kernel_build() {
         mkdir -vp ./kernel_modules; \
         mkdir -vp ./kernel_headers; \
         export KBUILD_BUILD_TIMESTAMP="$(date -u '+%FT%T.%N%:z')"; \
-        export KBUILD_BUILD_USER="sentient_build"; \
-        export KBUILD_BUILD_HOST="sentient_builder"; \
+        export KBUILD_BUILD_USER="${kbuild_user}"; \
+        export KBUILD_BUILD_HOST="${kbuild_host}"; \
         export INSTALL_MOD_PATH="/kbuilder/linux-v${kversion}/kernel_modules/"; \
         export INSTALL_HDR_PATH="/kbuilder/linux-v${kversion}/kernel_headers/"; \
         export KBUILD_EXTRA_SYMBOLS="/kbuilder/linux-v${kversion}/Module.symvers"; \
@@ -310,7 +384,7 @@ attach_console_to_enclave() {
 }
 
 list_enclaves() {
-    nitro-cli describe-enclaves--metadata 2>&1 | tee -a enclaves.list
+    nitro-cli describe-enclaves --metadata 2>&1 | tee -a enclaves.list
 }
 
 drop_recent_enclave() {
@@ -329,9 +403,12 @@ drop_enclaves_all() {
 while true; do
     read -p "$(whoami | tr -d '\n')@$(hostname -s | tr -d '\n'):$(pwd | tr -d '\n') $( [[ "$(whoami | tr -d '\n')" == "root" ]] && echo -e "#" || echo -e "\$" )> " cmd
 
+    # Type 'break' or 'exit', or push 'Ctrl+C' key sequence to exit from this shell
     if [[ $cmd == "break" || $cmd == "exit" ]]; then
         break
     fi
+
+    # Print the filename of the terminal connected/attached to the standard input (to this shell)
     if [[ $cmd == "tty" ]]; then
         tty ;
         continue

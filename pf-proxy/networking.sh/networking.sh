@@ -20,9 +20,18 @@ if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "hel
     echo -e "Also includes shell to communicate with enclave through Pipeline SLC protocol, to run commands and transfer files.\n"
     echo -e "Input 'nw' (stands for 'no-wait') command to enable local or remote console output.\n"
     echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
-    echo -e "Enter 'break' or 'exit' for exit from this shell.\n"
+    echo -e "Enter 'break' or 'exit', or push 'Ctrl+C' key sequence, for exit from this shell.\n"
     exit 0
 fi
+
+help() {
+    echo -e "\nShell script to deploy and run networking components (proxies and apps) in enclave, and to support networking capabilities inside the enclave.\n"
+    echo -e "Input 'make' command to start testing and benchmarking of networking capabilities inside enclave, using various networking tools (aws-cli, s5cmd, rclone, huggingface-cli and hf-transfer) for higher level networking protocols (http/https, ssh).\n"
+    echo -e "Also includes shell to communicate with enclave through Pipeline SLC protocol, to run commands and transfer files.\n"
+    echo -e "Input 'nw' (stands for 'no-wait') command to enable local or remote console output.\n"
+    echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
+    echo -e "Enter 'break' or 'exit' for exit from this shell.\n"
+}
 
 runcmd() {
     ./pipeline run --port $port --cid $cid --command "${@}"
@@ -116,10 +125,12 @@ ul_models_rclone() {
 while true; do
     read -p "$(runcmd whoami | tr -d '\n')@$(runcmd 'hostname -s' | tr -d '\n'):${cid}:${port}:$(runcmd pwd | tr -d '\n') $( [[ "$(runcmd whoami | tr -d '\n')" == "root" ]] && echo -e "#" || echo -e "\$" )> " cmd
 
+    # Type 'break' or 'exit', or push 'Ctrl+C' key sequence to exit from this shell
     if [[ $cmd == "break" || $cmd == "exit" ]]; then
         break
     fi
 
+    # Print the filename of the terminal connected/attached to the standard input (to this shell)
     if [[ $cmd == "tty" ]]; then
         tty ;
         continue
