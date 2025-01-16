@@ -64,7 +64,7 @@ RUN yum install -y iputils iproute dnsmasq bind bind-utils bind-dnssec-utils tra
 RUN yum install -y kmod kmod-libs
 RUN yum install -y nftables iptables iptables-nft iptables-libs iptables-utils iptables-legacy iptables-legacy-libs
 RUN yum install -y lsof perf iperf iperf3
-RUN yum install -y --allowerasing curl
+RUN yum install -y curl
 RUN yum install -y jq wget openssh git rsync
 RUN yum install -y lynx w3m
 RUN yum install -y awscli

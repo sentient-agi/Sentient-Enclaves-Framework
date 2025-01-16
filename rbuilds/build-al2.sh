@@ -16,11 +16,14 @@ declare enclave_cid='127' # Enclave's VSock CID for data connect
 
 if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "help" || "$1" == "--help" ]]; then
     echo -e "\nShell script to build custom kernel, Rust apps (SSE Framework) for eclave's run-time, init system for enclave, and to build enclave images (EIF) reproducibly.\n"
+    echo -e "Type 'help' to print help and 'help_ext' to print extended help.\n"
+    echo -e "\n"
     echo -e "Input 'make kernel' command to start building custom Linux kernel.\n"
     echo -e "Input 'make apps' command to start building Rust apps (SSE Framework) for enclave's run-time and to build enclave's image creation and extraction tools.\n"
     echo -e "Input 'make init' command to start building init system for enclave.\n"
     echo -e "Input 'make' command to start building enclave image (EIF).\n"
     echo -e "Input 'make enclave' command to manage encalves run-time: run enclave, attach debug console to enclave, list running enclaves and terminate one or all enclaves.\n"
+    echo -e "\n"
     echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
     echo -e "Enter 'break' or 'exit', or push 'Ctrl+C' key sequence, for exit from this shell.\n"
     exit 0
@@ -30,7 +33,7 @@ if [[ "$1" == "??" || "$1" == "-??" || "$1" == "he" || "$1" == "-he" || "$1" == 
 
     echo -e "\nCommands for manual stages execution:
 
-        Print help commands:
+        Print help and print extended help commands:
 
         help
         help_ext
@@ -86,19 +89,22 @@ fi
 
 help() {
     echo -e "\nShell script to build custom kernel, Rust apps (SSE Framework) for eclave's run-time, init system for enclave, and to build enclave images (EIF) reproducibly.\n"
+    echo -e "Type 'help' to print help and 'help_ext' to print extended help.\n"
+    echo -e "\n"
     echo -e "Input 'make kernel' command to start building custom Linux kernel.\n"
     echo -e "Input 'make apps' command to start building Rust apps (SSE Framework) for enclave's run-time and to build enclave's image creation and extraction tools.\n"
     echo -e "Input 'make init' command to start building init system for enclave.\n"
     echo -e "Input 'make' command to start building enclave image (EIF).\n"
     echo -e "Input 'make enclave' command to manage encalves run-time: run enclave, attach debug console to enclave, list running enclaves and terminate one or all enclaves.\n"
+    echo -e "\n"
     echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
-    echo -e "Enter 'break' or 'exit' for exit from this shell.\n"
+    echo -e "Enter 'break' or 'exit', or push 'Ctrl+C' key sequence, for exit from this shell.\n"
 }
 
 help_ext() {
     echo -e "\nCommands for manual stages execution:
 
-        Print help commands:
+        Print help and print extended help commands:
 
         help
         help_ext
