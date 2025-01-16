@@ -500,7 +500,7 @@ runner_fn() {
     if [[ ${debug} == "--debug" ]]; then
         echo -e "Function name to call: $1\n"
         echo -e "Current function name length: ${#1}\n"
-        if [[ -n functions[$1] && ${#functions[$1]} -ne 0 ]]; then
+        if [[ ${#functions[$1]} -ne 0 ]]; then
             echo -e "Current function signature length: ${#functions[$1]}\n"
         else
             echo -e "Current function signature length: ${#1}\n"
@@ -508,7 +508,7 @@ runner_fn() {
         echo -e "Functions associative array contains ${#functions[@]} functions\n"
     fi
 
-    if [[ -n functions[$1] && ${#functions[$1]} -ne 0 && local_shell -eq 0 ]]; then
+    if [[ ${#functions[$1]} -ne 0 && local_shell -eq 0 ]]; then
         if [[ question -eq 1 ]]; then
             read -n 1 -s -p "${functions[$1]}? [y|n] :" choice
             if [[ $choice == "y" ]]; then
