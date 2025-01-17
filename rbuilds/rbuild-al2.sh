@@ -577,6 +577,8 @@ while true; do
 
     # EIF enclave image build automated guide
     if [[ $cmd == "make" ]]; then
+        question=1
+
         runner_fn docker_clear
 
         runner_fn docker_build
@@ -591,12 +593,16 @@ while true; do
 
         runner_fn eif_build_with_initgo
 
+        question=0
+
         continue
     fi
 
     # Enclave run-time management automated guide:
     # run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.
     if [[ $cmd == "make enclave" ]]; then
+        question=1
+
         runner_fn run_eif_image_debugmode_cli
 
         runner_fn run_eif_image_debugmode
@@ -615,11 +621,15 @@ while true; do
 
         runner_fn drop_enclaves_all
 
+        question=0
+
         continue
     fi
 
     # Kernel build automated guide
     if [[ $cmd == "make kernel" ]]; then
+        question=1
+
         runner_fn docker_kcontainer_clear
 
         runner_fn docker_kimage_clear
@@ -630,11 +640,16 @@ while true; do
 
         runner_fn docker_kernel_build
 
+        question=0
+
         continue
     fi
 
     # Build automated guide for enclave's run-time Rust apps (SSE Framework) and for enclave's image (EIF) building tools
     if [[ $cmd == "make apps" ]]; then
+
+        question=1
+
         runner_fn docker_apps_rs_container_clear
 
         runner_fn docker_apps_rs_image_clear
@@ -645,14 +660,20 @@ while true; do
 
         runner_fn docker_apps_rs_build
 
+        question=0
+
         continue
     fi
 
     # Init system build automated guide
     if [[ $cmd == "make init" ]]; then
+        question=1
+
         runner_fn docker_init_clear
 
         runner_fn docker_init_build
+
+        question=0
 
         continue
     fi
