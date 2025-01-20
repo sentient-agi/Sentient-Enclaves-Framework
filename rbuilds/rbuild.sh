@@ -199,7 +199,7 @@ install_nitro_enclaves() {
     id $USER | grep -iP --color "(docker)|(ne)"
     groups | grep -iP --color "(docker)|(ne)"
 
-sudo cat | tee /etc/nitro_enclaves/allocator.yaml << EOF
+sudo tee /etc/nitro_enclaves/allocator.yaml << CONF
 ---
 # Enclave configuration file.
 # How much memory to allocate for enclaves (in MiB).
@@ -212,7 +212,7 @@ cpu_count: ${enclave_cpus}
 # cpu_pool: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47
 # cpu_pool: 8-15,32-47
 # cpu_pool: 8-47
-EOF
+CONF
 
     sudo systemctl enable docker && sudo systemctl start docker
     sudo systemctl enable nitro-enclaves-allocator.service && sudo systemctl start nitro-enclaves-allocator.service
