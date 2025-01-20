@@ -662,7 +662,7 @@ while true; do
 
     # Setup Nitro Enclaves into system, automated guide
     if [[ $cmd == "make nitro" ]]; then
-        echo -n "Setup Nitro Enclaves into system, automated guide\n"
+        echo -e "Setup Nitro Enclaves into system, automated guide\n"
 
         question=1
 
@@ -675,7 +675,7 @@ while true; do
 
     # Kernel build automated guide
     if [[ $cmd == "make kernel" ]]; then
-        echo -n "Kernel build automated guide\n"
+        echo -e "Kernel build automated guide\n"
 
         question=1
 
@@ -696,7 +696,7 @@ while true; do
 
     # Build automated guide for enclave's run-time Rust apps (SSE Framework) and for enclave's image (EIF) building tools
     if [[ $cmd == "make apps" ]]; then
-        echo -n "Build automated guide for enclave's run-time Rust apps (SSE Framework) and for enclave's image (EIF) building tools\n"
+        echo -e "Build automated guide for enclave's run-time Rust apps (SSE Framework) and for enclave's image (EIF) building tools\n"
 
         question=1
 
@@ -717,7 +717,7 @@ while true; do
 
     # Init system build automated guide
     if [[ $cmd == "make init" ]]; then
-        echo -n "Init system build automated guide\n"
+        echo -e "Init system build automated guide\n"
 
         question=1
 
@@ -732,7 +732,7 @@ while true; do
 
     # EIF enclave image build automated guide
     if [[ $cmd == "make eif" ]]; then
-        echo -n "EIF enclave image build automated guide\n"
+        echo -e "EIF enclave image build automated guide\n"
 
         question=1
 
@@ -758,8 +758,8 @@ while true; do
     # Enclave run-time management automated guide:
     # run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.
     if [[ $cmd == "make enclave" ]]; then
-        echo -n "Enclave run-time management automated guide:\n"
-        echo -n "run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.\n"
+        echo -e "Enclave run-time management automated guide:\n"
+        echo -e "run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.\n"
 
         question=1
 
@@ -788,7 +788,7 @@ while true; do
 
     #  Automatically setup, build, deploy and run all stack components in unattended mode
     if [[ $cmd == "make" ]]; then
-        echo -n "Automatically setup, build, deploy and run all stack components in unattended mode\n"
+        echo -e "Automatically setup, build, deploy and run all stack components in unattended mode\n"
 
         question=0
 
