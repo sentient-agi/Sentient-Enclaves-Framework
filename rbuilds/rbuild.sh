@@ -12,8 +12,8 @@ declare debug=${1:-""}
 declare kversion='6.12' # Linux kernel version
 declare kbuild_user="sentient_build" # Username for kernel build
 declare kbuild_host="sentient_builder" #Hostname for kernel build
-declare enclave_cpus='64' # Number of CPUs allocated for Nitro Enclaves runt-time
 declare enclave_mem='838656' # MiBs of memory allocated for Nitro Enclaves runt-time
+declare enclave_cpus='64' # Number of CPUs allocated for Nitro Enclaves runt-time
 declare enclave_cid='127' # Enclave's VSock CID for data connect
 
 declare question=0; # Ask a question before execution of any command
@@ -25,10 +25,14 @@ if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "hel
     echo -e "Type 'q' to switch on/off questions before execution of any command.\n"
     echo -e "Type 'lsh' to switch on/off local shell access, to evaluate and execute local shell commands as well in current shell.\n"
     echo -e "\n"
+    echo -e "Input 'make' to automatically setup, build, deploy and run all stack components in unattended mode.\n"
+    echo -e "\n"
+    echo -e "Specific 'make' commands for step by step guided setup, build and run all components:\n"
+    echo -e "Input 'make nitro' command to setup Nitro Enclaves into system.\n"
     echo -e "Input 'make kernel' command to start building custom Linux kernel.\n"
     echo -e "Input 'make apps' command to start building Rust apps (SSE Framework) for enclave's run-time and to build enclave's image creation and extraction tools.\n"
     echo -e "Input 'make init' command to start building init system for enclave.\n"
-    echo -e "Input 'make' command to start building enclave image (EIF).\n"
+    echo -e "Input 'make eif' command to start building enclave image (EIF).\n"
     echo -e "Input 'make enclave' command to manage encalves run-time: run enclave, attach debug console to enclave, list running enclaves and terminate one or all enclaves.\n"
     echo -e "\n"
     echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
@@ -44,6 +48,10 @@ if [[ "$1" == "??" || "$1" == "-??" || "$1" == "he" || "$1" == "-he" || "$1" == 
 
         help
         help_ext
+
+        Setup Nitro Enclaves into system:
+
+        install_nitro_enclaves
 
         Build custom kernel stages:
 
@@ -100,10 +108,14 @@ help() {
     echo -e "Type 'q' to switch on/off questions before execution of any command.\n"
     echo -e "Type 'lsh' to switch on/off local shell access, to evaluate and execute local shell commands as well in current shell.\n"
     echo -e "\n"
+    echo -e "Input 'make' to automatically setup, build, deploy and run all stack components in unattended mode.\n"
+    echo -e "\n"
+    echo -e "Specific 'make' commands for step by step guided setup, build and run all components:\n"
+    echo -e "Input 'make nitro' command to setup Nitro Enclaves into system.\n"
     echo -e "Input 'make kernel' command to start building custom Linux kernel.\n"
     echo -e "Input 'make apps' command to start building Rust apps (SSE Framework) for enclave's run-time and to build enclave's image creation and extraction tools.\n"
     echo -e "Input 'make init' command to start building init system for enclave.\n"
-    echo -e "Input 'make' command to start building enclave image (EIF).\n"
+    echo -e "Input 'make eif' command to start building enclave image (EIF).\n"
     echo -e "Input 'make enclave' command to manage encalves run-time: run enclave, attach debug console to enclave, list running enclaves and terminate one or all enclaves.\n"
     echo -e "\n"
     echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
@@ -117,6 +129,10 @@ help_ext() {
 
         help
         help_ext
+
+        Setup Nitro Enclaves into system:
+
+        install_nitro_enclaves
 
         Build custom kernel stages:
 
@@ -162,6 +178,52 @@ help_ext() {
         drop_enclaves_all
 
     "
+}
+
+# Setup Nitro Enclaves into system
+
+install_nitro_enclaves() {
+    if [[ $(uname -r | grep -iPo "\.amzn2\.") == '.amzn2.' ]]; then
+        sudo yum install -y docker
+        sudo amazon-linux-extras install -y aws-nitro-enclaves-cli
+        sudo yum install -y aws-nitro-enclaves-cli-devel
+        sudo yum install -y awscli
+    elif [[ $(uname -r | grep -iPo "\.amzn2023\.") == '.amzn2023.' ]]; then
+        sudo dnf install -y docker
+        sudo dnf install -y aws-nitro-enclaves-cli aws-nitro-enclaves-cli-devel
+        sudo dnf install -y awscli
+    fi
+
+    sudo usermod -aG docker $USER
+    sudo usermod -aG ne $USER
+    id $USER | grep -iP --color "(docker)|(ne)"
+    groups | grep -iP --color "(docker)|(ne)"
+
+sudo cat | tee /etc/nitro_enclaves/allocator.yaml << EOF
+---
+# Enclave configuration file.
+# How much memory to allocate for enclaves (in MiB).
+memory_mib: ${enclave_mem}
+# How many CPUs to reserve for enclaves.
+cpu_count: ${enclave_cpus}
+# Alternatively, the exact CPUs to be reserved for the enclave can be explicitly
+# configured by using 'cpu_pool' (like below), instead of 'cpu_count'.
+# Note: cpu_count and cpu_pool conflict with each other. Only use exactly one of them.
+# cpu_pool: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47
+# cpu_pool: 8-15,32-47
+# cpu_pool: 8-47
+EOF
+
+    sudo systemctl enable docker && sudo systemctl start docker
+    sudo systemctl enable nitro-enclaves-allocator.service && sudo systemctl start nitro-enclaves-allocator.service
+
+    read -n 1 -s -p "Nitro Enclaves setup done, reboot system? [y|n] :" choice
+    if [[ $choice == "y" ]]; then
+        # sudo reboot
+        sudo shutdown -r now
+    else
+        echo -e "Nitro Enclaves setup successfully done.\n"
+    fi
 }
 
 # Building custom Linux kernel:
@@ -245,16 +307,16 @@ docker_kernel_build() {
     docker cp kernel_build_v${kversion}:/kbuilder/artifacts_static/ ./kernel_blobs/ ;
     # docker stop kernel_build_v${kversion} ;
     docker kill kernel_build_v${kversion} ;
-    mkdir -vp ./blobs/ ;
-    cp -vr ./kernel_blobs/artifacts_static/bzImage ./blobs/bzImage ;
-    cp -vr ./kernel_blobs/artifacts_static/.config ./blobs/bzImage.config ;
-    cp -vr ./kernel_blobs/artifacts_static/nsm.ko ./blobs/nsm.ko ;
-    echo "reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on" > ./blobs/cmdline ;
-    mkdir -vp ./init/ ./init_go/ ;
-    cp -vr ./kernel_blobs/artifacts_static/nsm.ko ./init/nsm.ko ;
-    cp -vr ./kernel_blobs/artifacts_static/nsm.ko ./init_go/nsm.ko ;
-    mkdir -vp ./rootfs_kmods/rootfs/usr/ ;
-    cp -vr ./kernel_blobs/artifacts_static/kernel_modules/lib/ ./rootfs_kmods/rootfs/usr/ ;
+    mkdir -vp ./kernel/ ;
+    cp -vr ./kernel_blobs/artifacts_static/bzImage ./kernel/bzImage ;
+    cp -vr ./kernel_blobs/artifacts_static/.config ./kernel/bzImage.config ;
+    cp -vr ./kernel_blobs/artifacts_static/nsm.ko ./kernel/nsm.ko ;
+    echo "reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on" > ./kernel/cmdline ;
+    mkdir -vp ./cpio/ ./cpio/init/ ./cpio/init_go/ ;
+    cp -vr ./kernel_blobs/artifacts_static/nsm.ko ./cpio/init/nsm.ko ;
+    cp -vr ./kernel_blobs/artifacts_static/nsm.ko ./cpio/init_go/nsm.ko ;
+    mkdir -vp ./cpio/rootfs_kmods/rootfs/usr/ ;
+    cp -vr ./kernel_blobs/artifacts_static/kernel_modules/lib/ ./cpio/rootfs_kmods/rootfs/usr/ ;
 }
 
 # Building of enclave's image building/extraction tools and enclave's run-time Rust apps (Sentient Secure Enclaves Framework):
@@ -264,7 +326,7 @@ docker_kernel_build() {
 # SLC & content encryption (+ encryption/decryption protocol test tools, + multi-hop PRE re-encryption protocol test tools, + KMS test tools),
 # Web-RA (+ NSM & TPM test tools, + KMS test tools),
 # FS-Monitor (inotify) for RA DB,
-# Possibly Nitro-CLI mod.
+# Nitro-CLI mod, etc.
 
 docker_apps_rs_container_clear() {
     docker kill apps_rs_build ;
@@ -294,25 +356,25 @@ docker_prepare_apps_rs_buildenv() {
     docker exec -ti apps_rs_build bash -cis -- "mkdir -vp /app-builder" ;
     docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format.git ./eif_build" ;
     docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format-build-extract.git ./eif_extract" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/pipeline-tee.rs.git ./sse-sentinel-framework" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/pipeline-tee.rs.git ./secure-enclaves-framework" ;
 }
 
 docker_apps_rs_build() {
     docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout 2fb5bc408357259eb30c6682429f252f8992c405; cargo build --all --release;" ;
     docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_extract; cargo build --all --release;" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/sse-sentinel-framework; cargo build --all --release;" ;
+    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/secure-enclaves-framework; cargo build --all --release;" ;
     mkdir -vp ./eif_build/ ;
     docker cp apps_rs_build:/app-builder/eif_build/target/release/eif_build ./eif_build/ ;
     mkdir -vp ./eif_extract/ ;
     docker cp apps_rs_build:/app-builder/eif_extract/target/release/eif_extract ./eif_extract/ ;
     docker cp apps_rs_build:/app-builder/eif_extract/target/release/eif_build ./eif_extract/ ;
-    mkdir -vp ./sse-sentinel-framework/ ;
-    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/pipeline ./sse-sentinel-framework/ ;
-    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/ip-to-vsock ./sse-sentinel-framework/ ;
-    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/ip-to-vsock-transparent ./sse-sentinel-framework/ ;
-    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/vsock-to-ip ./sse-sentinel-framework/ ;
-    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/vsock-to-ip-transparent ./sse-sentinel-framework/ ;
-    docker cp apps_rs_build:/app-builder/sse-sentinel-framework/target/release/transparent-port-to-vsock ./sse-sentinel-framework/ ;
+    mkdir -vp ./secure-enclaves-framework/ ;
+    docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/pipeline ./secure-enclaves-framework/ ;
+    docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/ip-to-vsock ./secure-enclaves-framework/ ;
+    docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/ip-to-vsock-transparent ./secure-enclaves-framework/ ;
+    docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/vsock-to-ip ./secure-enclaves-framework/ ;
+    docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/vsock-to-ip-transparent ./secure-enclaves-framework/ ;
+    docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/transparent-port-to-vsock ./secure-enclaves-framework/ ;
     # docker stop apps_rs_build ;
     docker kill apps_rs_build ;
 }
@@ -327,12 +389,13 @@ docker_init_clear() {
 
 docker_init_build() {
     DOCKER_BUILDKIT=1 docker build --no-cache --output ./init_build/ --build-arg TARGET=all -f ./init_build/init-build-blobs.dockerfile -t "init-build-blobs" ./init_build/
-    mkdir -vp ./init/ ./init_go/ ;
-    cp -vr ./init_build/blobs/init/init ./init/ ;
-    cp -vr ./init_build/blobs/init_go/init ./init_go/ ;
-    # mkdir -vp ./eif_build/ ;
+    mkdir -vp ./cpio/ ./cpio/init/ ./cpio/init_go/ ;
+    cp -vr ./init_build/blobs/init/init ./cpio/init/ ;
+    cp -vr ./init_build/blobs/init_go/init ./cpio/init_go/ ;
+    # mkdir -vp ./eif_build/ ./eif_extract/;
     # cp -vr ./init_build/blobs/eif_build/eif_build ./eif_build/ ;
-    # cp -vr ./init_build/blobs/eif_extract/eif_extract ./eif_build/ ;
+    # cp -vr ./init_build/blobs/eif_extract/eif_build ./eif_extract/ ;
+    # cp -vr ./init_build/blobs/eif_extract/eif_extract ./eif_extract/ ;
 }
 
 # Building enclave image (EIF):
@@ -341,65 +404,82 @@ docker_clear() {
     docker kill pipeline_toolkit ;
     docker rm --force pipeline_toolkit ;
     docker rmi --force pipeline-al2023 ;
+
+    docker kill eif_build_toolkit ;
+    docker rm --force eif_build_toolkit ;
+    docker rmi --force eif-builder-al2023 ;
 }
 
 docker_build() {
     DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f ./pipeline-al2023.dockerfile -t "pipeline-al2023" ./ ;
     docker create --name pipeline_toolkit pipeline-al2023:latest ;
+    
+    DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f ./eif-builder-al2023.dockerfile -t "eif-builder-al2023" ./ ;
+    # docker create --name eif_build_toolkit eif-builder-al2023:latest ;
 }
 
 init_and_rootfs_base_images_build() {
-    bsdtar -vpcf init.cpio --fflags --acls --xattrs --format newc -C ./init/ . ;
-    bsdtar -vpcf init_go.cpio --fflags --acls --xattrs --format newc -C ./init_go/ . ;
-    bsdtar -vpcf rootfs_base.cpio --fflags --acls --xattrs --format newc -C ./rootfs_base/ . ;
-    bsdtar -vpcf rootfs_kmods.cpio --fflags --acls --xattrs --format newc -C ./rootfs_kmods/ . ;
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf init.cpio --fflags --acls --xattrs --format newc -C ./init/ . 2>&1"
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf init.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @init.cpio 2>&1 ;"
+
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf init_go.cpio --fflags --acls --xattrs --format newc -C ./init_go/ . 2>&1"
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf init_go.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @init_go.cpio 2>&1 ;"
+
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_base.cpio --fflags --acls --xattrs --format newc -C ./rootfs_base/ . 2>&1"
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_base.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @rootfs_base.cpio 2>&1 ;"
+
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_kmods.cpio --fflags --acls --xattrs --format newc -C ./rootfs_kmods/ . 2>&1"
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_kmods.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @rootfs_kmods.cpio 2>&1 ;"
 }
 
 docker_to_rootfs_fs_image_build() {
-    docker export pipeline_toolkit | bsdtar -vpcf rootfs.cpio --fflags --acls --xattrs --format newc -X patterns -s ",^,rootfs/,S" @- ;
-    bsdtar -vpcf rootfs.mtree --fflags --xattrs --format=mtree --options="mtree:all,mtree:indent" @rootfs.cpio ;
+    docker export pipeline_toolkit | docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "bsdtar -vpcf ./cpio/rootfs.cpio --fflags --acls --xattrs --format newc -X patterns -s ',^,rootfs/,S' @- 2>&1"
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @rootfs.cpio 2>&1 ;"
 }
 
 ramdisk_image_build() {
-    bsdtar -vpcf rootfs_ramdisk.cpio --fflags --acls --xattrs --format newc @rootfs_base.cpio @rootfs.cpio @rootfs_kmods.cpio ;
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_ramdisk.cpio --fflags --acls --xattrs --format newc @rootfs_base.cpio @rootfs.cpio @rootfs_kmods.cpio 2>&1"
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_ramdisk.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @rootfs_ramdisk.cpio 2>&1 ;"
 }
 
 eif_build_with_initc() {
-    /usr/bin/time -v -o ./eif_build.log ./eif_build/eif_build --arch "x86_64" --build-time "$(date '+%FT%T.%N%:z')" --cmdline "reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on" --kernel ./blobs/bzImage --kernel_config ./blobs/bzImage.config --name "app-builder-pipeline" --output ./app-builder-pipeline.eif --ramdisk ./init.cpio --ramdisk ./rootfs_ramdisk.cpio 2>&1 | tee app-builder-pipeline.eif.pcr; \
-    /usr/bin/time -v -o ./describe-eif.log nitro-cli describe-eif --eif-path ./app-builder-pipeline.eif 2>&1 | tee app-builder-pipeline.eif.desc;
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ --mount type=bind,src="$(pwd)"/eif/,dst=/eif_builder/eif/ --mount type=bind,src="$(pwd)"/kernel/,dst=/eif_builder/kernel/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/; \
+    /usr/bin/time -v -o ./eif/eif_build.log ./eif_build --arch 'x86_64' --build-time "$(date '+%FT%T.%N%:z')" --cmdline 'reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on' --kernel ./kernel/bzImage --kernel_config ./kernel/bzImage.config --name 'app-builder-secure-enclaves-framework' --output ./eif/app-builder-secure-enclaves-framework.eif --ramdisk ./cpio/init.cpio --ramdisk ./cpio/rootfs_ramdisk.cpio 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.eif.pcr; \
+    /usr/bin/time -v -o ./eif/describe-eif.log nitro-cli describe-eif --eif-path ./eif/app-builder-secure-enclaves-framework.eif 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.eif.desc;"
 }
 
 eif_build_with_initgo() {
-    /usr/bin/time -v -o ./eif_build.log ./eif_build/eif_build --arch "x86_64" --build-time "$(date '+%FT%T.%N%:z')" --cmdline "reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on" --kernel ./blobs/bzImage --kernel_config ./blobs/bzImage.config --name "app-builder-pipeline" --output ./app-builder-pipeline.eif --ramdisk ./init_go.cpio --ramdisk ./rootfs_ramdisk.cpio 2>&1 | tee app-builder-pipeline.eif.pcr; \
-    /usr/bin/time -v -o ./describe-eif.log nitro-cli describe-eif --eif-path ./app-builder-pipeline.eif 2>&1 | tee app-builder-pipeline.eif.desc;
+    docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ --mount type=bind,src="$(pwd)"/eif/,dst=/eif_builder/eif/ --mount type=bind,src="$(pwd)"/kernel/,dst=/eif_builder/kernel/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/; \
+    /usr/bin/time -v -o ./eif/eif_build.log ./eif_build --arch 'x86_64' --build-time "$(date '+%FT%T.%N%:z')" --cmdline 'reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on' --kernel ./kernel/bzImage --kernel_config ./kernel/bzImage.config --name 'app-builder-secure-enclaves-framework' --output ./eif/app-builder-secure-enclaves-framework.eif --ramdisk ./cpio/init_go.cpio --ramdisk ./cpio/rootfs_ramdisk.cpio 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.eif.pcr; \
+    /usr/bin/time -v -o ./eif/describe-eif.log nitro-cli describe-eif --eif-path ./eif/app-builder-secure-enclaves-framework.eif 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.eif.desc;"
 }
 
 # Enclave run-time management commands:
 # run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.
 
 run_eif_image_debugmode_cli() {
-    /usr/bin/time -v -o ./run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./app-builder-pipeline.eif --debug-mode --attach-console --enclave-cid $enclave_cid --enclave-name pipeline_toolkit 2>&1 | tee app-builder-pipeline.output
+    /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/app-builder-secure-enclaves-framework.eif --debug-mode --attach-console --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
 }
 
 run_eif_image_debugmode() {
-    /usr/bin/time -v -o ./run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./app-builder-pipeline.eif --debug-mode --enclave-cid $enclave_cid --enclave-name pipeline_toolkit 2>&1 | tee app-builder-pipeline.output
+    /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/app-builder-secure-enclaves-framework.eif --debug-mode --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
 }
 
 run_eif_image() {
-    /usr/bin/time -v -o ./run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./app-builder-pipeline.eif --enclave-cid $enclave_cid --enclave-name pipeline_toolkit 2>&1 | tee app-builder-pipeline.output
+    /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/app-builder-secure-enclaves-framework.eif --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
 }
 
 attach_console_to_recent_enclave() {
     ENCLAVE_ID=$(nitro-cli describe-enclaves | jq -r ".[0].EnclaveID"); \
-    nitro-cli console --enclave-id "${ENCLAVE_ID}" 2>&1 | tee -a app-builder-pipeline.output
+    nitro-cli console --enclave-id "${ENCLAVE_ID}" 2>&1 | tee -a ./eif/app-builder-secure-enclaves-framework.output
 }
 
 attach_console_to_enclave() {
-    nitro-cli console --enclave-name pipeline_toolkit 2>&1 | tee -a app-builder-pipeline.output
+    nitro-cli console --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee -a ./eif/app-builder-secure-enclaves-framework.output
 }
 
 list_enclaves() {
-    nitro-cli describe-enclaves --metadata 2>&1 | tee -a enclaves.list
+    nitro-cli describe-enclaves --metadata 2>&1 | tee -a ./eif/enclaves.list
 }
 
 drop_recent_enclave() {
@@ -408,7 +488,7 @@ drop_recent_enclave() {
 }
 
 drop_enclave() {
-    sudo nitro-cli terminate-enclave --enclave-name pipeline_toolkit
+    sudo nitro-cli terminate-enclave --enclave-name app_builder_secure_enclaves_framework_toolkit
 }
 
 drop_enclaves_all() {
@@ -425,6 +505,11 @@ runner_fn() {
         ["help_success"]="\nFunction successfully executed!\n"
         ["help_ext"]="Print extended help"
         ["help_ext_success"]="\nFunction successfully executed!\n"
+
+        # Setup Nitro Enclaves into system
+
+        ["install_nitro_enclaves"]="Setup Nitro Enclaves into system"
+        ["install_nitro_enclaves_success"]="\nNitro Enclaves setup command execution has been successfully done!\n"
 
         # Kernel build commands
 
@@ -575,8 +660,80 @@ while true; do
         continue
     fi
 
+    # Setup Nitro Enclaves into system, automated guide
+    if [[ $cmd == "make nitro" ]]; then
+        echo -n "Setup Nitro Enclaves into system, automated guide\n"
+
+        question=1
+
+        runner_fn install_nitro_enclaves
+
+        question=0
+
+        continue
+    fi
+
+    # Kernel build automated guide
+    if [[ $cmd == "make kernel" ]]; then
+        echo -n "Kernel build automated guide\n"
+
+        question=1
+
+        runner_fn docker_kcontainer_clear
+
+        runner_fn docker_kimage_clear
+
+        runner_fn docker_kimage_build
+
+        runner_fn docker_prepare_kbuildenv
+
+        runner_fn docker_kernel_build
+
+        question=0
+
+        continue
+    fi
+
+    # Build automated guide for enclave's run-time Rust apps (SSE Framework) and for enclave's image (EIF) building tools
+    if [[ $cmd == "make apps" ]]; then
+        echo -n "Build automated guide for enclave's run-time Rust apps (SSE Framework) and for enclave's image (EIF) building tools\n"
+
+        question=1
+
+        runner_fn docker_apps_rs_container_clear
+
+        runner_fn docker_apps_rs_image_clear
+
+        runner_fn docker_apps_rs_image_build
+
+        runner_fn docker_prepare_apps_rs_buildenv
+
+        runner_fn docker_apps_rs_build
+
+        question=0
+
+        continue
+    fi
+
+    # Init system build automated guide
+    if [[ $cmd == "make init" ]]; then
+        echo -n "Init system build automated guide\n"
+
+        question=1
+
+        runner_fn docker_init_clear
+
+        runner_fn docker_init_build
+
+        question=0
+
+        continue
+    fi
+
     # EIF enclave image build automated guide
-    if [[ $cmd == "make" ]]; then
+    if [[ $cmd == "make eif" ]]; then
+        echo -n "EIF enclave image build automated guide\n"
+
         question=1
 
         runner_fn docker_clear
@@ -601,6 +758,9 @@ while true; do
     # Enclave run-time management automated guide:
     # run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.
     if [[ $cmd == "make enclave" ]]; then
+        echo -n "Enclave run-time management automated guide:\n"
+        echo -n "run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.\n"
+
         question=1
 
         runner_fn run_eif_image_debugmode_cli
@@ -626,9 +786,11 @@ while true; do
         continue
     fi
 
-    # Kernel build automated guide
-    if [[ $cmd == "make kernel" ]]; then
-        question=1
+    #  Automatically setup, build, deploy and run all stack components in unattended mode
+    if [[ $cmd == "make" ]]; then
+        echo -n "Automatically setup, build, deploy and run all stack components in unattended mode\n"
+
+        question=0
 
         runner_fn docker_kcontainer_clear
 
@@ -640,16 +802,6 @@ while true; do
 
         runner_fn docker_kernel_build
 
-        question=0
-
-        continue
-    fi
-
-    # Build automated guide for enclave's run-time Rust apps (SSE Framework) and for enclave's image (EIF) building tools
-    if [[ $cmd == "make apps" ]]; then
-
-        question=1
-
         runner_fn docker_apps_rs_container_clear
 
         runner_fn docker_apps_rs_image_clear
@@ -660,23 +812,31 @@ while true; do
 
         runner_fn docker_apps_rs_build
 
-        question=0
-
-        continue
-    fi
-
-    # Init system build automated guide
-    if [[ $cmd == "make init" ]]; then
-        question=1
-
         runner_fn docker_init_clear
 
         runner_fn docker_init_build
 
+        runner_fn docker_clear
+
+        runner_fn docker_build
+
+        runner_fn init_and_rootfs_base_images_build
+
+        runner_fn docker_to_rootfs_fs_image_build
+
+        runner_fn ramdisk_image_build
+
+        runner_fn eif_build_with_initc
+
+        sleep 3;
+
+        runner_fn run_eif_image_debugmode_cli
+
         question=0
 
         continue
     fi
+
 
     if [[ ${#cmd} -ne 0 ]]; then
         runner_fn $cmd ; wait ; continue

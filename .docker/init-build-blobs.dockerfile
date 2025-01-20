@@ -2,9 +2,9 @@ FROM nixos/nix:2.21.4 as build
 ARG TARGET=all
 ENV TARGET=${TARGET}
 
-RUN mkdir /build
+RUN mkdir -vp /build/
 ADD ./ /build/
-WORKDIR /build
+WORKDIR /build/
 
 RUN nix-build -A ${TARGET}
 
