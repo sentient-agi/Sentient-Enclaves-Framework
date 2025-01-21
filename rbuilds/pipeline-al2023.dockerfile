@@ -4,7 +4,7 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as builder
 ENV SHELL="/usr/bin/env bash"
 
 RUN dnf upgrade -y
-RUN dnf install -y git gcc
+RUN dnf install -y git gcc pkgconfig openssl openssl-devel openssl-libs
 
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
@@ -15,8 +15,8 @@ RUN curl -fsSL https://sh.rustup.rs | bash -is -- -y --verbose --no-modify-path 
 
 WORKDIR /app-builder
 
-# COPY --link pipeline-tee/ /app-builder/pipeline-tee.rs/
-RUN git clone -b main https://github.com/andrcmdr/pipeline-tee.rs.git
+# COPY --link secure-enclaves-framework/ /app-builder/secure-enclaves-framework/
+RUN git clone -b main https://github.com/andrcmdr/secure-enclaves-framework.git
 
 RUN <<EOT
 #!/usr/bin/env bash
@@ -28,11 +28,11 @@ shopt -s extquote
 set -f
 
 # cd /app-builder
-cd /app-builder/pipeline-tee.rs
-cargo build --release
-mv -T /app-builder/pipeline-tee.rs/target/release/pipeline /app-builder/pipeline
+cd /app-builder/secure-enclaves-framework
+cargo build --release --all
+mv -T /app-builder/secure-enclaves-framework/target/release/pipeline /app-builder/pipeline
 mkdir -p /app-builder/.config/
-mv -T /app-builder/pipeline-tee.rs/pipeline/.config/config.toml /app-builder/.config/config.toml
+mv -T /app-builder/secure-enclaves-framework/pipeline/.config/config.toml /app-builder/.config/config.toml
 EOT
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as enclave_app

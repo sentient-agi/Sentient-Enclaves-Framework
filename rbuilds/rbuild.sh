@@ -7,14 +7,25 @@ shopt -s extquote
 
 set -f
 
-declare debug=${1:-""}
+declare debug=${1:-""} # Verbose messages mode for debugging
 
-declare kversion='6.12' # Linux kernel version
+# Kernel full version, either substituted from CLI as second parameter to 'rbuild.sh' shell build script, or default version will be substituted
+declare kversion_full=${2:-'6.12.0'}  # Linux kernel full version, including major.minor.patch, from Semantic Versioning notation
+# Validation of kernel full version, using PCRE pattern matching
+declare kversion="$(echo -E "${kversion_full}" | grep -iP '^(0|[1-9][0-9]*)(\.)(0|[1-9][0-9]*)(\.([1-9][0-9]*|0))?$')"
+# Validation of kernel version, using PCRE pattern matching, for downloading kernel archive
+# Linux kernel archive version, including major.minor version (from Semantic Versioning notation),
+# but excluding x.x.patch version for x.x.0 versions of the kernel
+declare kversion_archive="$(echo -E "${kversion}" | grep -iPo '^(0|[1-9][0-9]*)(\.)(0|[1-9][0-9]*)(\.[1-9][0-9]*|(?=\.0))?')"
+
 declare kbuild_user="sentient_build" # Username for kernel build
 declare kbuild_host="sentient_builder" #Hostname for kernel build
+
 declare enclave_mem='838656' # MiBs of memory allocated for Nitro Enclaves runt-time
 declare enclave_cpus='64' # Number of CPUs allocated for Nitro Enclaves runt-time
 declare enclave_cid='127' # Enclave's VSock CID for data connect
+
+declare eif_init='init_c_eif/'; # Run enclave EIF image with init.c or with init.go, 'init_c_eif/' or 'init_go_eif/'
 
 declare question=0; # Ask a question before execution of any command
 declare local_shell=0; # Evaluate and execute local shell commands as well in current shell
@@ -34,6 +45,7 @@ if [[ "$1" == "?" || "$1" == "-?" || "$1" == "h" || "$1" == "-h" || "$1" == "hel
     echo -e "Input 'make init' command to start building init system for enclave.\n"
     echo -e "Input 'make eif' command to start building enclave image (EIF).\n"
     echo -e "Input 'make enclave' command to manage encalves run-time: run enclave, attach debug console to enclave, list running enclaves and terminate one or all enclaves.\n"
+    echo -e "Input 'make clear' to automatically clear all Docker containers and all Docker images.\n"
     echo -e "\n"
     echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
     echo -e "Enter 'break' or 'exit', or push 'Ctrl+C' key sequence, for exit from this shell.\n"
@@ -117,6 +129,7 @@ help() {
     echo -e "Input 'make init' command to start building init system for enclave.\n"
     echo -e "Input 'make eif' command to start building enclave image (EIF).\n"
     echo -e "Input 'make enclave' command to manage encalves run-time: run enclave, attach debug console to enclave, list running enclaves and terminate one or all enclaves.\n"
+    echo -e "Input 'make clear' to automatically clear all Docker containers and all Docker images.\n"
     echo -e "\n"
     echo -e "Type 'tty' to print the filename of the terminal connected/attached to the standard input (to this shell).\n"
     echo -e "Enter 'break' or 'exit', or push 'Ctrl+C' key sequence, for exit from this shell.\n"
@@ -258,17 +271,21 @@ docker_prepare_kbuildenv() {
         kmod openssl openssl-devel openssl-libs bc perl gawk wget cpio tar bsdtar xz bzip2 gzip xmlto \
         ncurses ncurses-devel diffutils rsync' ;
     docker exec -ti kernel_build_v${kversion} bash -cis -- 'dnf install -y --allowerasing curl' ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- "mkdir -vp /kbuilder; cd /kbuilder; wget https://github.com/gregkh/linux/archive/v${kversion}.tar.gz" ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; tar --same-owner --acls --xattrs --selinux -vpxf v${kversion}.tar.gz -C ./" ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; mv -v ./linux-${kversion} ./linux-v${kversion}" ;
+    docker exec -ti kernel_build_v${kversion} bash -cis -- "mkdir -vp /kbuilder; cd /kbuilder; \
+        wget https://github.com/gregkh/linux/archive/v${kversion_archive}.tar.gz" ;
+    docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; tar --same-owner --acls --xattrs --selinux -vpxf v${kversion_archive}.tar.gz -C ./" ;
+    docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; mv -v ./linux-${kversion_archive} ./linux-v${kversion}" ;
+    # Configurations to make kernel modules (mainly for networking) compiled statically with the kernel
     # docker cp ./kernel_config/artifacts_static/.config kernel_build_v${kversion}:/kbuilder/ ;
+    # or as kernel modules, that are loaded dynamically into kernel space by kernel itself
+    # docker cp ./kernel_config/artifacts_kmods/.config kernel_build_v${kversion}:/kbuilder/ ;
+    # Make kernel with kernel modules loaded dynamically:
     docker cp ./kernel_config/artifacts_kmods/.config kernel_build_v${kversion}:/kbuilder/ ;
     docker exec -ti kernel_build_v${kversion} bash -cis -- "cp -vr /kbuilder/.config /kbuilder/linux-v${kversion}/.config" ;
 }
 
 docker_kernel_build() {
     docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder/linux-v${kversion}/; \
-        mkdir -vp ./kernel_blobs; \
         mkdir -vp ./kernel_modules; \
         mkdir -vp ./kernel_headers; \
         export KBUILD_BUILD_TIMESTAMP="$(date -u '+%FT%T.%N%:z')"; \
@@ -286,37 +303,40 @@ docker_kernel_build() {
         make olddefconfig headers_install; \
     " ;
     docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; \
-        mkdir -vp ./artifacts_static/; \
-        cp -vr /kbuilder/linux-v${kversion}/.config ./artifacts_static/; \
-        cp -vr /kbuilder/linux-v${kversion}/drivers/misc/nsm.ko ./artifacts_static/; \
-        cp -vr /kbuilder/linux-v${kversion}/kernel_modules/lib/modules/${kversion}/kernel/drivers/misc/nsm.ko ./artifacts_static/; \
-        cp -vr /kbuilder/linux-v${kversion}/kernel_modules/ ./artifacts_static/; \
-        mkdir -vp ./artifacts_static/kernel_headers/arch/x86/; \
-        cp -vr /kbuilder/linux-v${kversion}/arch/x86/include/ ./artifacts_static/kernel_headers/arch/x86/; \
-        mkdir -vp ./artifacts_static/kernel_headers/; \
-        cp -vr /kbuilder/linux-v${kversion}/include/ ./artifacts_static/kernel_headers/; \
-        mkdir -vp ./artifacts_static/kernel_headers/usr/; \
-        cp -vr /kbuilder/linux-v${kversion}/usr/dummy-include/ ./artifacts_static/kernel_headers/usr/; \
-        mkdir -vp ./artifacts_static/kernel_headers/usr/; \
-        cp -vr /kbuilder/linux-v${kversion}/usr/include/ ./artifacts_static/kernel_headers/usr/; \
-        cp -vr /kbuilder/linux-v${kversion}/arch/x86/boot/bzImage ./artifacts_static/; \
-        cp -vr /kbuilder/linux-v${kversion}/arch/x86/boot/compressed/vmlinux ./artifacts_static/; \
-        cp -vr /kbuilder/linux-v${kversion}/arch/x86/boot/compressed/vmlinux.bin ./artifacts_static/; \
-        cp -vr /kbuilder/linux-v${kversion}/arch/x86/boot/compressed/vmlinux.bin.gz ./artifacts_static/; \
+        mkdir -vp ./kartifacts/ ./kartifacts/ne/; \
+        cp -vr /kbuilder/linux-v${kversion}/.config ./kartifacts/; \
+        cp -vr /kbuilder/linux-v${kversion}/drivers/misc/nsm.ko ./kartifacts/ne/; \
+        cp -vr /kbuilder/linux-v${kversion}/kernel_modules/lib/modules/${kversion}/kernel/drivers/misc/nsm.ko ./kartifacts/; \
+        cp -vr /kbuilder/linux-v${kversion}/kernel_modules/ ./kartifacts/; \
+        cp -vr /kbuilder/linux-v${kversion}/kernel_modules/lib/modules/${kversion}/kernel/drivers/misc/nsm.ko ./kartifacts/kernel_modules/; \
+        mkdir -vp ./kartifacts/kernel_headers/arch/x86/; \
+        cp -vr /kbuilder/linux-v${kversion}/arch/x86/include/ ./kartifacts/kernel_headers/arch/x86/; \
+        mkdir -vp ./kartifacts/kernel_headers/; \
+        cp -vr /kbuilder/linux-v${kversion}/include/ ./kartifacts/kernel_headers/; \
+        mkdir -vp ./kartifacts/kernel_headers/usr/; \
+        cp -vr /kbuilder/linux-v${kversion}/usr/dummy-include/ ./kartifacts/kernel_headers/usr/; \
+        mkdir -vp ./kartifacts/kernel_headers/usr/; \
+        cp -vr /kbuilder/linux-v${kversion}/usr/include/ ./kartifacts/kernel_headers/usr/; \
+        cp -vr /kbuilder/linux-v${kversion}/arch/x86/boot/bzImage ./kartifacts/; \
+        cp -vr /kbuilder/linux-v${kversion}/arch/x86/boot/compressed/vmlinux ./kartifacts/; \
+        cp -vr /kbuilder/linux-v${kversion}/arch/x86/boot/compressed/vmlinux.bin ./kartifacts/; \
+        cp -vr /kbuilder/linux-v${kversion}/arch/x86/boot/compressed/vmlinux.bin.gz ./kartifacts/; \
     " ;
-    docker cp kernel_build_v${kversion}:/kbuilder/artifacts_static/ ./kernel_blobs/ ;
+    docker cp kernel_build_v${kversion}:/kbuilder/kartifacts/ ./kernel_blobs/ ;
     # docker stop kernel_build_v${kversion} ;
     docker kill kernel_build_v${kversion} ;
     mkdir -vp ./kernel/ ;
-    cp -vr ./kernel_blobs/artifacts_static/bzImage ./kernel/bzImage ;
-    cp -vr ./kernel_blobs/artifacts_static/.config ./kernel/bzImage.config ;
-    cp -vr ./kernel_blobs/artifacts_static/nsm.ko ./kernel/nsm.ko ;
+    cp -vr ./kernel_blobs/bzImage ./kernel/bzImage ;
+    cp -vr ./kernel_blobs/.config ./kernel/bzImage.config ;
+    cp -vr ./kernel_blobs/nsm.ko ./kernel/nsm.ko ; chmod -v +x ./kernel/nsm.ko ;
     echo "reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on" > ./kernel/cmdline ;
     mkdir -vp ./cpio/ ./cpio/init/ ./cpio/init_go/ ;
-    cp -vr ./kernel_blobs/artifacts_static/nsm.ko ./cpio/init/nsm.ko ;
-    cp -vr ./kernel_blobs/artifacts_static/nsm.ko ./cpio/init_go/nsm.ko ;
+    cp -vr ./kernel_blobs/nsm.ko ./cpio/init/nsm.ko ; chmod -v +x ./cpio/init/nsm.ko ;
+    cp -vr ./kernel_blobs/nsm.ko ./cpio/init_go/nsm.ko ; chmod -v +x ./cpio/init_go/nsm.ko ;
     mkdir -vp ./cpio/rootfs_kmods/rootfs/usr/ ;
-    cp -vr ./kernel_blobs/artifacts_static/kernel_modules/lib/ ./cpio/rootfs_kmods/rootfs/usr/ ;
+    cp -vr ./kernel_blobs/kernel_modules/lib/ ./cpio/rootfs_kmods/rootfs/usr/ ;
+    mkdir -vp ./cpio/ ./rootfs_base/ ./rootfs_base/dev/ ./rootfs_base/proc/ ./rootfs_base/rootfs/ ./rootfs_base/sys/ ;
+    cp -vr ./rootfs_base/ ./cpio/ ;
 }
 
 # Building of enclave's image building/extraction tools and enclave's run-time Rust apps (Sentient Secure Enclaves Framework):
@@ -388,14 +408,15 @@ docker_init_clear() {
 }
 
 docker_init_build() {
-    DOCKER_BUILDKIT=1 docker build --no-cache --output ./init_build/ --build-arg TARGET=all -f ./init_build/init-build-blobs.dockerfile -t "init-build-blobs" ./init_build/
+    mkdir -vp ./init_build/init_blobs/eif_build/ ./init_build/init_blobs/eif_extract/ ./init_build/init_blobs/init/ ./init_build/init_blobs/init_go/ ;
+    DOCKER_BUILDKIT=1 sudo docker build --no-cache --output ./init_build/ --build-arg TARGET=all -f ./init_build/init-build-blobs.dockerfile -t "init-build-blobs" ./init_build/
     mkdir -vp ./cpio/ ./cpio/init/ ./cpio/init_go/ ;
-    cp -vr ./init_build/blobs/init/init ./cpio/init/ ;
-    cp -vr ./init_build/blobs/init_go/init ./cpio/init_go/ ;
+    cp -vr ./init_build/init_blobs/init/init ./cpio/init/ ;
+    cp -vr ./init_build/init_blobs/init_go/init ./cpio/init_go/ ;
     # mkdir -vp ./eif_build/ ./eif_extract/;
-    # cp -vr ./init_build/blobs/eif_build/eif_build ./eif_build/ ;
-    # cp -vr ./init_build/blobs/eif_extract/eif_build ./eif_extract/ ;
-    # cp -vr ./init_build/blobs/eif_extract/eif_extract ./eif_extract/ ;
+    # cp -vr ./init_build/init_blobs/eif_build/eif_build ./eif_build/ ;
+    # cp -vr ./init_build/init_blobs/eif_extract/eif_build ./eif_extract/ ;
+    # cp -vr ./init_build/init_blobs/eif_extract/eif_extract ./eif_extract/ ;
 }
 
 # Building enclave image (EIF):
@@ -413,7 +434,7 @@ docker_clear() {
 docker_build() {
     DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f ./pipeline-al2023.dockerfile -t "pipeline-al2023" ./ ;
     docker create --name pipeline_toolkit pipeline-al2023:latest ;
-    
+
     DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f ./eif-builder-al2023.dockerfile -t "eif-builder-al2023" ./ ;
     # docker create --name eif_build_toolkit eif-builder-al2023:latest ;
 }
@@ -425,6 +446,8 @@ init_and_rootfs_base_images_build() {
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf init_go.cpio --fflags --acls --xattrs --format newc -C ./init_go/ . 2>&1"
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf init_go.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @init_go.cpio 2>&1 ;"
 
+    mkdir -vp ./cpio/ ./rootfs_base/ ./rootfs_base/dev/ ./rootfs_base/proc/ ./rootfs_base/rootfs/ ./rootfs_base/sys/ ;
+    cp -vr ./rootfs_base/ ./cpio/ ;
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_base.cpio --fflags --acls --xattrs --format newc -C ./rootfs_base/ . 2>&1"
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_base.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @rootfs_base.cpio 2>&1 ;"
 
@@ -443,30 +466,36 @@ ramdisk_image_build() {
 }
 
 eif_build_with_initc() {
+    mkdir -vp ./eif/ ./eif/init_c_eif/ ;
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ --mount type=bind,src="$(pwd)"/eif/,dst=/eif_builder/eif/ --mount type=bind,src="$(pwd)"/kernel/,dst=/eif_builder/kernel/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/; \
-    /usr/bin/time -v -o ./eif/eif_build.log ./eif_build --arch 'x86_64' --build-time "$(date '+%FT%T.%N%:z')" --cmdline 'reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on' --kernel ./kernel/bzImage --kernel_config ./kernel/bzImage.config --name 'app-builder-secure-enclaves-framework' --output ./eif/app-builder-secure-enclaves-framework.eif --ramdisk ./cpio/init.cpio --ramdisk ./cpio/rootfs_ramdisk.cpio 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.eif.pcr; \
-    /usr/bin/time -v -o ./eif/describe-eif.log nitro-cli describe-eif --eif-path ./eif/app-builder-secure-enclaves-framework.eif 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.eif.desc;"
+    /usr/bin/time -v -o ./eif/init_c_eif/eif_build.log ./eif_build --arch 'x86_64' --build-time "$(date '+%FT%T.%N%:z')" --cmdline 'reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on' --kernel ./kernel/bzImage --kernel_config ./kernel/bzImage.config --name 'app-builder-secure-enclaves-framework' --output ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif --ramdisk ./cpio/init.cpio --ramdisk ./cpio/rootfs_ramdisk.cpio 2>&1 | tee ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif.pcr; \
+    /usr/bin/time -v -o ./eif/init_c_eif/describe-eif.log nitro-cli describe-eif --eif-path ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif 2>&1 | tee ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif.desc;"
+    ln -vf -rs ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif ./eif/app-builder-secure-enclaves-framework.eif
+    eif_init='init_c_eif/';
 }
 
 eif_build_with_initgo() {
+    mkdir -vp ./eif/ ./eif/init_go_eif/ ;
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ --mount type=bind,src="$(pwd)"/eif/,dst=/eif_builder/eif/ --mount type=bind,src="$(pwd)"/kernel/,dst=/eif_builder/kernel/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/; \
-    /usr/bin/time -v -o ./eif/eif_build.log ./eif_build --arch 'x86_64' --build-time "$(date '+%FT%T.%N%:z')" --cmdline 'reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on' --kernel ./kernel/bzImage --kernel_config ./kernel/bzImage.config --name 'app-builder-secure-enclaves-framework' --output ./eif/app-builder-secure-enclaves-framework.eif --ramdisk ./cpio/init_go.cpio --ramdisk ./cpio/rootfs_ramdisk.cpio 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.eif.pcr; \
-    /usr/bin/time -v -o ./eif/describe-eif.log nitro-cli describe-eif --eif-path ./eif/app-builder-secure-enclaves-framework.eif 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.eif.desc;"
+    /usr/bin/time -v -o ./eif/init_go_eif/eif_build.log ./eif_build --arch 'x86_64' --build-time "$(date '+%FT%T.%N%:z')" --cmdline 'reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on' --kernel ./kernel/bzImage --kernel_config ./kernel/bzImage.config --name 'app-builder-secure-enclaves-framework' --output ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif --ramdisk ./cpio/init_go.cpio --ramdisk ./cpio/rootfs_ramdisk.cpio 2>&1 | tee ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif.pcr; \
+    /usr/bin/time -v -o ./eif/init_go_eif/describe-eif.log nitro-cli describe-eif --eif-path ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif 2>&1 | tee ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif.desc;"
+    ln -vf -rs ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif ./eif/app-builder-secure-enclaves-framework.eif
+    eif_init='init_go_eif/';
 }
 
 # Enclave run-time management commands:
 # run enclave image file (EIF), connect/attach local terminal to enclave's console output, list running enclaves, terminate enclaves.
 
 run_eif_image_debugmode_cli() {
-    /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/app-builder-secure-enclaves-framework.eif --debug-mode --attach-console --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
+    /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/${eif_init}app-builder-secure-enclaves-framework.eif --debug-mode --attach-console --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
 }
 
 run_eif_image_debugmode() {
-    /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/app-builder-secure-enclaves-framework.eif --debug-mode --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
+    /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/${eif_init}app-builder-secure-enclaves-framework.eif --debug-mode --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
 }
 
 run_eif_image() {
-    /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/app-builder-secure-enclaves-framework.eif --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
+    /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/${eif_init}app-builder-secure-enclaves-framework.eif --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
 }
 
 attach_console_to_recent_enclave() {
@@ -495,7 +524,7 @@ drop_enclaves_all() {
     sudo nitro-cli terminate-enclave --all
 }
 
-# Templace executor facade function.
+# Template executor facade function.
 runner_fn() {
     declare -rA functions=(
 
@@ -828,7 +857,11 @@ while true; do
 
         runner_fn eif_build_with_initc
 
+        runner_fn eif_build_with_initgo
+
         sleep 3;
+
+        eif_init='init_c_eif/';
 
         runner_fn run_eif_image_debugmode_cli
 
@@ -837,6 +870,29 @@ while true; do
         continue
     fi
 
+    # Automatically clear all Docker containers and all Docker images
+    # created during automated unattended installation process of setup, build, deploy and run all Secure Enclaves Framework stack components
+    if [[ $cmd == "make clear" ]]; then
+        echo -e "Automatically clear all Docker containers and all Docker images\n"
+
+        question=0
+
+        runner_fn docker_kcontainer_clear
+
+        runner_fn docker_kimage_clear
+
+        runner_fn docker_apps_rs_container_clear
+
+        runner_fn docker_apps_rs_image_clear
+
+        runner_fn docker_init_clear
+
+        runner_fn docker_clear
+
+        question=0
+
+        continue
+    fi
 
     if [[ ${#cmd} -ne 0 ]]; then
         runner_fn $cmd ; wait ; continue
