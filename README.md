@@ -56,6 +56,10 @@ Build system operates with custom but standard Unix/BSD and Linux tools, not rel
 
 Build system rebuild reproducibly custom Linux kernel for networking stack support, and rebuild reproducibly of custom Init system for running apps processes inside enclave and for KVM hypervisor interaction during enclave's boot process, during enclave's run-time and termination at the enclave's EOL.
 
+#### Reproducible builds demo:
+
+[![Reproducible builds demo](https://img.youtube.com/vi/14TKF8niaoU/maxresdefault.jpg)](https://www.youtube.com/watch?v=14TKF8niaoU)
+
 ## Visualization of SSE Framework infrastructure, components and its interaction:
 
 ### Whole Infrastructure bird-eye view:
