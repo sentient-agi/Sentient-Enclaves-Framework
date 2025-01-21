@@ -88,8 +88,8 @@ if [[ "$1" == "??" || "$1" == "-??" || "$1" == "he" || "$1" == "-he" || "$1" == 
 
         Build enclave image file (EIF) stages:
 
-        docker_clear
-        docker_build
+        docker_eif_build_clear
+        docker_eif_build
         init_and_rootfs_base_images_build
         docker_to_rootfs_fs_image_build
         ramdisk_image_build
@@ -170,8 +170,8 @@ help_ext() {
 
         Build enclave image file (EIF) stages:
 
-        docker_clear
-        docker_build
+        docker_eif_build_clear
+        docker_eif_build
         init_and_rootfs_base_images_build
         docker_to_rootfs_fs_image_build
         ramdisk_image_build
@@ -421,7 +421,7 @@ docker_init_build() {
 
 # Building enclave image (EIF):
 
-docker_clear() {
+docker_eif_build_clear() {
     docker kill pipeline_toolkit ;
     docker rm --force pipeline_toolkit ;
     docker rmi --force pipeline-al2023 ;
@@ -431,7 +431,7 @@ docker_clear() {
     docker rmi --force eif-builder-al2023 ;
 }
 
-docker_build() {
+docker_eif_build() {
     DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f ./pipeline-al2023.dockerfile -t "pipeline-al2023" ./ ;
     docker create --name pipeline_toolkit pipeline-al2023:latest ;
 
@@ -573,9 +573,9 @@ runner_fn() {
 
         # EIF enclave image build commands
 
-        ["docker_clear"]="Clear previous rootfs Docker container and container image first"
+        ["docker_eif_build_clear"]="Clear previous rootfs Docker container and container image first"
 
-        ["docker_build"]="Build rootfs Docker container image and create a container from it"
+        ["docker_eif_build"]="Build rootfs Docker container image and create a container from it"
 
         ["init_and_rootfs_base_images_build"]="Build or rebuild init.c, init.go and rootfs base CPIO images"
 
@@ -787,9 +787,9 @@ while true; do
 
         question=1
 
-        runner_fn docker_clear
+        runner_fn docker_eif_build_clear
 
-        runner_fn docker_build
+        runner_fn docker_eif_build
 
         runner_fn init_and_rootfs_base_images_build
 
@@ -867,9 +867,9 @@ while true; do
 
         runner_fn docker_init_build
 
-        runner_fn docker_clear
+        runner_fn docker_eif_build_clear
 
-        runner_fn docker_build
+        runner_fn docker_eif_build
 
         runner_fn init_and_rootfs_base_images_build
 
@@ -909,7 +909,7 @@ while true; do
 
         runner_fn docker_init_clear
 
-        runner_fn docker_clear
+        runner_fn docker_eif_build_clear
 
         question=0
 
