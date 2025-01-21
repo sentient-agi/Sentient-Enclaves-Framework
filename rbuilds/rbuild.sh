@@ -265,27 +265,27 @@ docker_kimage_build() {
 }
 
 docker_prepare_kbuildenv() {
-    docker exec -ti kernel_build_v${kversion} bash -cis -- 'whoami; uname -a; pwd;' ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- 'dnf install -y time which hostname git patch make gcc flex bison \
+    docker exec -i kernel_build_v${kversion} bash -cis -- 'whoami; uname -a; pwd;' ;
+    docker exec -i kernel_build_v${kversion} bash -cis -- 'dnf install -y time which hostname git patch make gcc flex bison \
         elfutils elfutils-devel elfutils-libelf elfutils-libelf-devel elfutils-libs \
         kmod openssl openssl-devel openssl-libs bc perl gawk wget cpio tar bsdtar xz bzip2 gzip xmlto \
         ncurses ncurses-devel diffutils rsync' ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- 'dnf install -y --allowerasing curl' ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- "mkdir -vp /kbuilder; cd /kbuilder; \
+    docker exec -i kernel_build_v${kversion} bash -cis -- 'dnf install -y --allowerasing curl' ;
+    docker exec -i kernel_build_v${kversion} bash -cis -- "mkdir -vp /kbuilder; cd /kbuilder; \
         wget https://github.com/gregkh/linux/archive/v${kversion_archive}.tar.gz" ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; tar --same-owner --acls --xattrs --selinux -vpxf v${kversion_archive}.tar.gz -C ./" ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; mv -v ./linux-${kversion_archive} ./linux-v${kversion}" ;
+    docker exec -i kernel_build_v${kversion} bash -cis -- "cd /kbuilder; tar --same-owner --acls --xattrs --selinux -vpxf v${kversion_archive}.tar.gz -C ./" ;
+    docker exec -i kernel_build_v${kversion} bash -cis -- "cd /kbuilder; mv -v ./linux-${kversion_archive} ./linux-v${kversion}" ;
     # Configurations to make kernel modules (mainly for networking) compiled statically with the kernel
     # docker cp ./kernel_config/artifacts_static/.config kernel_build_v${kversion}:/kbuilder/ ;
     # or as kernel modules, that are loaded dynamically into kernel space by kernel itself
     # docker cp ./kernel_config/artifacts_kmods/.config kernel_build_v${kversion}:/kbuilder/ ;
     # Make kernel with kernel modules loaded dynamically:
     docker cp ./kernel_config/artifacts_kmods/.config kernel_build_v${kversion}:/kbuilder/ ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- "cp -vr /kbuilder/.config /kbuilder/linux-v${kversion}/.config" ;
+    docker exec -i kernel_build_v${kversion} bash -cis -- "cp -vr /kbuilder/.config /kbuilder/linux-v${kversion}/.config" ;
 }
 
 docker_kernel_build() {
-    docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder/linux-v${kversion}/; \
+    docker exec -i kernel_build_v${kversion} bash -cis -- "cd /kbuilder/linux-v${kversion}/; \
         mkdir -vp ./kernel_modules; \
         mkdir -vp ./kernel_headers; \
         export KBUILD_BUILD_TIMESTAMP="$(date -u '+%FT%T.%N%:z')"; \
@@ -302,7 +302,7 @@ docker_kernel_build() {
         make headers_install; \
         make olddefconfig headers_install; \
     " ;
-    docker exec -ti kernel_build_v${kversion} bash -cis -- "cd /kbuilder; \
+    docker exec -i kernel_build_v${kversion} bash -cis -- "cd /kbuilder; \
         mkdir -vp ./kartifacts/ ./kartifacts/ne/; \
         cp -vr /kbuilder/linux-v${kversion}/.config ./kartifacts/; \
         cp -vr /kbuilder/linux-v${kversion}/drivers/misc/nsm.ko ./kartifacts/ne/; \
@@ -372,17 +372,17 @@ docker_apps_rs_image_build() {
 }
 
 docker_prepare_apps_rs_buildenv() {
-    docker exec -ti apps_rs_build bash -cis -- 'whoami; uname -a; pwd;' ;
-    docker exec -ti apps_rs_build bash -cis -- "mkdir -vp /app-builder" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format.git ./eif_build" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format-build-extract.git ./eif_extract" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/pipeline-tee.rs.git ./secure-enclaves-framework" ;
+    docker exec -i apps_rs_build bash -cis -- 'whoami; uname -a; pwd;' ;
+    docker exec -i apps_rs_build bash -cis -- "mkdir -vp /app-builder" ;
+    docker exec -i apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format.git ./eif_build" ;
+    docker exec -i apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format-build-extract.git ./eif_extract" ;
+    docker exec -i apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/pipeline-tee.rs.git ./secure-enclaves-framework" ;
 }
 
 docker_apps_rs_build() {
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout 2fb5bc408357259eb30c6682429f252f8992c405; cargo build --all --release;" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/eif_extract; cargo build --all --release;" ;
-    docker exec -ti apps_rs_build bash -cis -- "cd /app-builder/secure-enclaves-framework; cargo build --all --release;" ;
+    docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout 2fb5bc408357259eb30c6682429f252f8992c405; cargo build --all --release;" ;
+    docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_extract; cargo build --all --release;" ;
+    docker exec -i apps_rs_build bash -cis -- "cd /app-builder/secure-enclaves-framework; cargo build --all --release;" ;
     mkdir -vp ./eif_build/ ;
     docker cp apps_rs_build:/app-builder/eif_build/target/release/eif_build ./eif_build/ ;
     mkdir -vp ./eif_extract/ ;
