@@ -1207,16 +1207,13 @@ for key in "${!args[@]}"; do
             network=1
             ;;
         "--init-c" | "--init_c" | "--clang") # Build EIF image with init.c as init system and run enclave from this EIF image
-            ln -vf -rs ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif ./eif/app-builder-secure-enclaves-framework.eif
             eif_init='init_c_eif/';
             ;;
         "--init-go" | "--init_go" | "--golang" | "--go") # Build EIF image with init.go as init system and run enclave from this EIF image
-            ln -vf -rs ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif ./eif/app-builder-secure-enclaves-framework.eif
             eif_init='init_go_eif/';
             ;;
         # Build EIF image with init.rs as init system and run enclave from this EIF image
         "--init-rs" | "--init_rs" | "--init-rust" | "--init_rust" | "--rust" | "--rs")
-            ln -vf -rs ./eif/init_rs_eif/app-builder-secure-enclaves-framework.eif ./eif/app-builder-secure-enclaves-framework.eif
             eif_init='init_rs_eif/';
             ;;
         "--cmd" | "--command" | "-c") # Execute command (can be pointed multiple times for several commands execution sequentially)
