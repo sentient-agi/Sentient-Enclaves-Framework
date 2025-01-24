@@ -7,9 +7,9 @@ shopt -s extquote
 
 set -f
 
-mkdir -p /app/socat/
-mkdir -p /app/socat/.logs/
-cd /app/socat/
+mkdir -vp /apps/socat/
+mkdir -vp /apps/socat/.logs/
+cd /apps/socat/
 
 ip addr add 127.0.0.1/32 dev lo
 ifconfig lo 127.0.0.1

@@ -1,5 +1,5 @@
-##!/bin/bash
-#!/usr/bin/env bash
+#!/bin/bash
+##!/usr/bin/env bash
 
 shopt -s extglob
 shopt -s extquote
@@ -7,9 +7,9 @@ shopt -s extquote
 
 set -f
 
-mkdir -p ./pf_build/
-mkdir -p ./pf_build/.logs/
-cd ./pf_build/
+mkdir -vp ./pf-proxy/
+mkdir -vp ./pf-proxy/.logs/
+cd ./pf-proxy/
 
 echo -e "vs2ip PIDs:";
 killall -v -9 vs2ip;

@@ -1,5 +1,5 @@
-##!/bin/bash
-#!/usr/bin/env bash
+#!/bin/bash
+##!/usr/bin/env bash
 
 shopt -s extglob
 shopt -s extquote
@@ -7,8 +7,8 @@ shopt -s extquote
 
 set -f
 
-mkdir -p ./socat/
-mkdir -p ./socat/.logs/
+mkdir -vp ./socat/
+mkdir -vp ./socat/.logs/
 cd ./socat/
 
 echo -e "socat PIDs:";
@@ -24,8 +24,8 @@ killall -v -9 socat;
 # socat -dd VSOCK-LISTEN:8080,reuseaddr,fork TCP:0.0.0.0:80 2>&1 | tee -a ./.logs/socat-vsock-localhost-http.output & disown
 ## socat -dd VSOCK-LISTEN:8080,reuseaddr,fork TCP:wttr.in:80 2>&1 | tee -a ./.logs/socat-vsock-localhost-http.output & disown
 
-## socat -dd VSOCK-LISTEN:8053,reuseaddr,fork UDP:172.31.0.2:53 2>&1 | tee -a ./.logs/socat-vsock-localhost-dns.output & disown
-socat -dd VSOCK-LISTEN:8053,reuseaddr,fork UDP:172.31.0.2:53 >> ./.logs/socat-vsock-localhost-dns.output 2>&1 & disown
+## socat -dd VSOCK-LISTEN:8053,reuseaddr,fork UDP:$(cat /etc/resolv.conf | grep -iPo "^(nameserver\s*?)\K([0-9.]*?)$"):53 2>&1 | tee -a ./.logs/socat-vsock-localhost-dns.output & disown
+socat -dd VSOCK-LISTEN:8053,reuseaddr,fork UDP:$(cat /etc/resolv.conf | grep -iPo "^(nameserver\s*?)\K([0-9.]*?)$"):53 >> ./.logs/socat-vsock-localhost-dns.output 2>&1 & disown
 
 echo -e "socat PIDs:";
 pidof socat;

@@ -1,0 +1,4 @@
+/bin/bash
+-c
+--
+echo -e "init started"; echo -e "executing init.sh"; cd /apps/; ./init.sh 2>&1 & disown; echo -e "init.sh executed"; echo -e "init launched"; tail -f /dev/null

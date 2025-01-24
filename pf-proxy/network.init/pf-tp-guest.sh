@@ -7,9 +7,9 @@ shopt -s extquote
 
 set -f
 
-mkdir -p /app/pf_build/
-mkdir -p /app/pf_build/.logs/
-cd /app/pf_build/
+mkdir -vp /apps/pf-proxy/
+mkdir -vp /apps/pf-proxy/.logs/
+cd /apps/pf-proxy/
 
 ip addr add 127.0.0.1/32 dev lo
 ifconfig lo 127.0.0.1

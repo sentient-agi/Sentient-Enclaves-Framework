@@ -4,7 +4,7 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as builder
 ENV SHELL="/usr/bin/env bash"
 
 RUN dnf upgrade -y
-RUN dnf install -y git gcc
+RUN dnf install -y git gcc pkgconfig openssl openssl-devel openssl-libs
 
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
@@ -39,12 +39,12 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as enclave_app
 
 ENV SHELL="/usr/bin/env bash"
 
-WORKDIR /app
+WORKDIR /apps
 
-RUN mkdir -p /app/
-RUN mkdir -p /app/.config/
-COPY --from=builder /app-builder/pipeline /app/pipeline
-COPY --from=builder /app-builder/.config/config.toml /app/.config/config.toml
+RUN mkdir -p /apps/
+RUN mkdir -p /apps/.config/
+COPY --from=builder /app-builder/pipeline /apps/pipeline
+COPY --from=builder /app-builder/.config/config.toml /apps/.config/config.toml
 
 RUN dnf upgrade -y
 
@@ -73,4 +73,4 @@ RUN dnf install -y awscli
 # ENV RUST_LOG="pipeline=debug"
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
-CMD cd /app/; ./pipeline listen --port 53000 >> /app/pipeline.log 2>&1 & disown && tail -f /app/pipeline.log
+CMD cd /apps/; ./pipeline listen --port 53000 >> /apps/pipeline.log 2>&1 & disown && tail -f /apps/pipeline.log
