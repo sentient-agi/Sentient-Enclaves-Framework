@@ -34,7 +34,7 @@ help() {
     echo -e "Type 'q' to switch on/off questions before execution of any command.\n"
     echo -e "Type 'lsh' to switch on/off local shell access, to evaluate and execute local shell commands as well in current shell.\n"
     echo -e "\n"
-    echo -e "Input 'make' to automatically setup, build, deploy and run all stack components in unattended mode.\n"
+    echo -e "Input 'make' or 'make all' to automatically setup, build, deploy and run all stack components in unattended mode.\n"
     echo -e "\n"
     echo -e "Specific 'make' commands for step by step guided setup, build and run all components:\n"
     echo -e "Input 'make nitro' command to setup Nitro Enclaves into system.\n"
@@ -332,6 +332,19 @@ docker_apps_rs_build() {
     docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/transparent-port-to-vsock ./secure-enclaves-framework/ ;
     # docker stop apps_rs_build ;
     docker kill apps_rs_build ;
+
+    mkdir -vp ./secure-enclaves-framework/.config/ ./network.init/.config/ ./network.init/pf-proxy/ ;
+
+    cp -vr --remove-destination ../pipeline/.config/config.toml ./secure-enclaves-framework/.config/ ;
+    cp -vr --remove-destination ../pipeline/.config/config.toml ./network.init/.config/ ;
+
+    cp -vr --remove-destination ../.bin/pipeline-dir ./secure-enclaves-framework/ ;
+    cp -vr --remove-destination ../.bin/shell.sh ./secure-enclaves-framework/ ;
+    cp -vr --remove-destination ../.bin/pipeline-dir ./network.init/ ;
+    cp -vr --remove-destination ../.bin/shell.sh ./network.init/ ;
+
+    cp -vr --remove-destination ./secure-enclaves-framework/pipeline ./network.init/ ;
+    cp -vr --remove-destination ./secure-enclaves-framework/vsock-to-ip-transparent ./network.init/pf-proxy/vs2ip-tp ;
 }
 
 # Building Init system for enclave:
@@ -349,6 +362,32 @@ docker_init_build() {
     mkdir -vp ./init_build/init_blobs/eif_build/ ./init_build/init_blobs/eif_extract/ ./init_build/init_blobs/init/ ./init_build/init_blobs/init_go/ ;
     DOCKER_BUILDKIT=1 sudo docker build --no-cache --output ./init_build/ --build-arg TARGET=all -f ./init_build/init-build-blobs.dockerfile -t "init-build-blobs" ./init_build/
     mkdir -vp ./cpio/ ./cpio/init/ ./cpio/init_go/ ;
+
+    sudo find ./init_build/init_blobs/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
+    sudo find ./init_build/init_blobs/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
+    sudo find ./init_build/init_blobs/ -type f -exec chown -v $USER:users '{}' \;
+    sudo find ./init_build/init_blobs/ -type d -exec chown -v $USER:users '{}' \;
+
+    sudo find ./cpio/init/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
+    sudo find ./cpio/init/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
+    sudo find ./cpio/init/ -type f -exec chown -v $USER:users '{}' \;
+    sudo find ./cpio/init/ -type d -exec chown -v $USER:users '{}' \;
+
+    sudo find ./cpio/init_go/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
+    sudo find ./cpio/init_go/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
+    sudo find ./cpio/init_go/ -type f -exec chown -v $USER:users '{}' \;
+    sudo find ./cpio/init_go/ -type d -exec chown -v $USER:users '{}' \;
+
+    # sudo find ./init_build/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
+    # sudo find ./init_build/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
+    # sudo find ./init_build/ -type f -exec chown -v $USER:users '{}' \;
+    # sudo find ./init_build/ -type d -exec chown -v $USER:users '{}' \;
+
+    # sudo find ./cpio/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
+    # sudo find ./cpio/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
+    # sudo find ./cpio/ -type f -exec chown -v $USER:users '{}' \;
+    # sudo find ./cpio/ -type d -exec chown -v $USER:users '{}' \;
+
     cp -vr ./init_build/init_blobs/init/init ./cpio/init/ ;
     cp -vr ./init_build/init_blobs/init_go/init ./cpio/init_go/ ;
     # mkdir -vp ./eif_build/ ./eif_extract/;
@@ -359,14 +398,17 @@ docker_init_build() {
 
 # Building enclave image (EIF):
 
+declare image_name="";
+declare container_name="";
+
 docker_eif_build_container_clear() {
-    dockerfile=$(echo -E "${1:-$dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
-    declare image_name=$(echo -E "${1:-$dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*\K(.*?)(?=\.dockerfile)')
+    dockerfile=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+    image_name=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*\K([^\s]*?)(?=\.dockerfile)");
     if [[ -z ${dockerfile} ]]; then
-        dockerfile=$(echo -E "${1:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
-        image_name=$(echo -E "${1:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*\K(.*?)(?=\.dockerfile)')
+        dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+        image_name=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*\K([^\s]*?)(?=\.dockerfile)");
     fi
-    declare container_name=${image_name}_toolkit
+    container_name="${image_name}_toolkit";
 
     docker kill $container_name ;
     docker rm --force $container_name ;
@@ -376,13 +418,13 @@ docker_eif_build_container_clear() {
 }
 
 docker_eif_build_image_clear() {
-    dockerfile=$(echo -E "${1:-$dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
-    declare image_name=$(echo -E "${1:-$dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*\K(.*?)(?=\.dockerfile)')
+    dockerfile=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+    image_name=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*\K([^\s]*?)(?=\.dockerfile)");
     if [[ -z ${dockerfile} ]]; then
-        dockerfile=$(echo -E "${1:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
-        image_name=$(echo -E "${1:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*\K(.*?)(?=\.dockerfile)')
+        dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+        image_name=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*\K([^\s]*?)(?=\.dockerfile)");
     fi
-    declare container_name=${image_name}_toolkit
+    container_name="${image_name}_toolkit";
 
     docker rmi --force $image_name ;
 
@@ -390,13 +432,13 @@ docker_eif_build_image_clear() {
 }
 
 docker_container_apps_image_build() {
-    dockerfile=$(echo -E "${1:-$dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
-    declare image_name=$(echo -E "${1:-$dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*\K(.*?)(?=\.dockerfile)')
+    dockerfile=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+    image_name=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*\K([^\s]*?)(?=\.dockerfile)");
     if [[ -z ${dockerfile} ]]; then
-        dockerfile=$(echo -E "${1:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
-        image_name=$(echo -E "${1:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*\K(.*?)(?=\.dockerfile)')
+        dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+        image_name=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*\K([^\s]*?)(?=\.dockerfile)");
     fi
-    declare container_name=${image_name}_toolkit
+    container_name="${image_name}_toolkit";
 
     DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f $dockerfile -t "$image_name" ./ ;
     docker create --name $container_name $image_name:latest ;
@@ -415,7 +457,7 @@ init_and_rootfs_base_images_build() {
     mkdir -vp ./cpio/ ./rootfs_base/ ./rootfs_base/dev/ ./rootfs_base/proc/ ./rootfs_base/rootfs/ ./rootfs_base/sys/ ;
     cp -vr ./rootfs_base/ ./cpio/ ;
     if [[ ${network} -ne 0 ]]; then
-        cp -vr ./rootfs_base_net/* ./cpio/rootfs_base/ ;
+        cp -vr ./rootfs_base_net/ -T ./cpio/rootfs_base/ ;
     fi
 
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_base.cpio --fflags --acls --xattrs --format newc -C ./rootfs_base/ . 2>&1"
@@ -426,13 +468,13 @@ init_and_rootfs_base_images_build() {
 }
 
 docker_to_rootfs_fs_image_build() {
-    dockerfile=$(echo -E "${1:-$dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
-    declare image_name=$(echo -E "${1:-$dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*\K(.*?)(?=\.dockerfile)')
+    dockerfile=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+    image_name=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*\K([^\s]*?)(?=\.dockerfile)");
     if [[ -z ${dockerfile} ]]; then
-        dockerfile=$(echo -E "${1:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
-        image_name=$(echo -E "${1:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*\K(.*?)(?=\.dockerfile)')
+        dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+        image_name=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*\K([^\s]*?)(?=\.dockerfile)");
     fi
-    declare container_name=${image_name}_toolkit
+    container_name="${image_name}_toolkit";
 
     docker export $container_name | docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "bsdtar -vpcf ./cpio/rootfs.cpio --fflags --acls --xattrs --format newc -X patterns -s ',^,rootfs/,S' @- 2>&1"
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @rootfs.cpio 2>&1 ;"
@@ -594,9 +636,9 @@ make_init() {
 make_eif() {
     echo -e "EIF enclave image build automated guide\n"
 
-    dockerfile=$(echo -E "${1:-dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+    dockerfile=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
     if [[ -z ${dockerfile} ]]; then
-        dockerfile=$(echo -E "${dockerfile:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+        dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
     fi
 
     # question=0
@@ -624,9 +666,9 @@ make_eif() {
 make_all() {
     echo -e "Automatically setup, build, deploy and run all stack components in unattended mode\n"
 
-    dockerfile=$(echo -E "${1:-dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+    dockerfile=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
     if [[ -z ${dockerfile} ]]; then
-        dockerfile=$(echo -E "${dockerfile:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+        dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
     fi
 
     question=0
@@ -714,9 +756,9 @@ make_enclave() {
 make_clear() {
     echo -e "Automatically clear all Docker containers and all Docker images\n"
 
-    dockerfile=$(echo -E "${1:-dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+    dockerfile=$(echo -E "${1:-"$dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
     if [[ -z ${dockerfile} ]]; then
-        dockerfile=$(echo -E "${dockerfile:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+        dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
     fi
 
     # question=0
@@ -1043,13 +1085,17 @@ runner_fn() {
 }
 
 # Installing essential dependencies for build script
-if [[ "$(which pcregrep)" == *"/bin/which: no pcregrep in"* ]]; then
-    echo -e "Will install essential package 'pcre-tools' for providing 'pcregrep' tool\n"
-    sudo dnf install -y pcre-tools
+if [[ "$(which sed)" == *"/bin/which: no sed in"* ]]; then
+    echo -e "Will install essential package 'sed' for providing 'sed' tool\n"
+    sudo dnf install -y sed
 fi
 if [[ "$(which grep)" == *"/bin/which: no grep in"* ]]; then
     echo -e "Will install essential package 'grep' for providing 'grep' tool\n"
     sudo dnf install -y grep
+fi
+if [[ "$(which pcregrep)" == *"/bin/which: no pcregrep in"* ]]; then
+    echo -e "Will install essential package 'pcre-tools' for providing 'pcregrep' tool\n"
+    sudo dnf install -y pcre-tools
 fi
 
 # Global variables
@@ -1192,10 +1238,9 @@ for key in "${!args[@]}"; do
             ;;
         "--dockerfile" | "-d") # Build EIF image from Docker container extracted rootfs, created from Docker image, formed by dockerfile scenario
             if [[ -n "${args[$key]}" ]]; then
-                dockerfile="${args[$key]}"
-                dockerfile=$(echo -E "${dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+                dockerfile=$(echo -E "${args[$key]}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
                 if [[ -z ${dockerfile} ]]; then
-                    dockerfile=$(echo -E "${dockerfile:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+                    dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
                 fi
             else
                 echo -e "Dockerfile name and path should be provided along with the '--dockerfile|-d' argument\n"
@@ -1238,10 +1283,9 @@ for key in "${!posargs[@]}"; do
 
     case "${posargs[$key]}" in
         *.dockerfile) # Build EIF image from Docker container extracted rootfs, created from Docker image, formed by dockerfile scenario
-            dockerfile="${posargs[$key]}"
-            dockerfile=$(echo -E "${dockerfile}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+            dockerfile=$(echo -E "${posargs[$key]}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
             if [[ -z ${dockerfile} ]]; then
-                dockerfile=$(echo -E "${dockerfile:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+                dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
             fi
             ;;
         *)
@@ -1295,6 +1339,14 @@ while true; do
     # Print the filename of the terminal connected/attached to the standard input (to this shell)
     if [[ $cmd == "tty" ]]; then
         tty ;
+        continue
+    fi
+
+    # Debug mode
+    if [[ $cmd == "debug" ]]; then
+        # debug=$(( ! $debug ))
+        debug=$(( 1 - $debug ))
+        echo "debug == $debug"
         continue
     fi
 
@@ -1358,9 +1410,9 @@ while true; do
     # EIF enclave image build automated guide
     if [[ $cmd == "make eif" || $cmd == "make eif"*".dockerfile" ]]; then
 
-        dockerfile=$(echo -E "${cmd}" | pcregrep --color -Mio -e '^make eif \K(\./)?(.*?/)*(.*?)(\.dockerfile)$');
+        dockerfile=$(echo -E "${cmd}" | sed -E "s/((make\s?)|(make\s?eif\s?))//gI" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
         if [[ -z ${dockerfile} ]]; then
-            dockerfile=$(echo -E "${dockerfile:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+            dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
         fi
 
         runner_fn make_eif "${dockerfile}"
@@ -1378,11 +1430,11 @@ while true; do
     fi
 
     # Automatically setup, build, deploy and run all stack components in unattended mode
-    if [[ $cmd == "make" || $cmd == "make"*".dockerfile" ]]; then
+    if [[ $cmd == "make" || $cmd == "make all" || $cmd == "make all"*".dockerfile" || $cmd == "make ="*".dockerfile" || $cmd == "make :="*".dockerfile" ]]; then
 
-        dockerfile=$(echo -E "${cmd}" | pcregrep --color -Mio -e '^make \K(\./)?(.*?/)*(.*?)(\.dockerfile)$');
+        dockerfile=$(echo -E "${cmd}" | sed -E "s/((make\s?)|(make\s?all\s?)|(make\s?=\s?)|(make\s?:=\s?))//gI" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
         if [[ -z ${dockerfile} ]]; then
-            dockerfile=$(echo -E "${dockerfile:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+            dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
         fi
 
         runner_fn make_all "${dockerfile}"
@@ -1394,9 +1446,9 @@ while true; do
     # created during automated unattended installation process of setup, build, deploy and run all Secure Enclaves Framework stack components
     if [[ $cmd == "make clear" || $cmd == "make clear"*".dockerfile" ]]; then
 
-        dockerfile=$(echo -E "${cmd}" | pcregrep --color -Mio -e '^make clear \K(\./)?(.*?/)*(.*?)(\.dockerfile)$');
+        dockerfile=$(echo -E "${cmd}" | sed -E "s/((make\s?)|(make\s?clear\s?))//gI" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
         if [[ -z ${dockerfile} ]]; then
-            dockerfile=$(echo -E "${dockerfile:-'./pipeline-al2023.dockerfile'}" | pcregrep --color -Mio -e '^(\./)?(.*?/)*(.*?)(\.dockerfile)$')
+            dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
         fi
 
         runner_fn make_clear "${dockerfile}"

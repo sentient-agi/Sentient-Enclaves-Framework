@@ -1,5 +1,5 @@
-#!/bin/bash
-##!/usr/bin/env bash
+##!/bin/bash
+#!/usr/bin/env bash
 
 shopt -s extglob
 shopt -s extquote
