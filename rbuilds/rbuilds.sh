@@ -144,8 +144,11 @@ install_nitro_enclaves() {
 
     sudo usermod -aG docker $USER
     sudo usermod -aG ne $USER
+    echo -e "$(id -unr):$(id -gnr)\n"
+    echo -e "$USER\n"
+    id -Gnr $USER | grep -iP --color "(docker)|(ne)"
     id $USER | grep -iP --color "(docker)|(ne)"
-    groups | grep -iP --color "(docker)|(ne)"
+    groups $USER | grep -iP --color "(docker)|(ne)"
 
 sudo tee /etc/nitro_enclaves/allocator.yaml << CONF
 ---
@@ -258,6 +261,8 @@ docker_kernel_build() {
         cp -vr /kbuilder/linux-v${kversion}/arch/x86/boot/compressed/vmlinux.bin.gz ./kartifacts/; \
     " ;
     docker cp kernel_build_v${kversion}:/kbuilder/kartifacts/ ./kernel_blobs/ ;
+    cp -vrf ./kernel_blobs/kartifacts/ -T ./kernel_blobs/ ;
+    rm -rf ./kernel_blobs/kartifacts/ ;
     # docker stop kernel_build_v${kversion} ;
     docker kill kernel_build_v${kversion} ;
     mkdir -vp ./kernel/ ;
@@ -335,16 +340,16 @@ docker_apps_rs_build() {
 
     mkdir -vp ./secure-enclaves-framework/.config/ ./network.init/.config/ ./network.init/pf-proxy/ ;
 
-    cp -vr --remove-destination ../pipeline/.config/config.toml ./secure-enclaves-framework/.config/ ;
-    cp -vr --remove-destination ../pipeline/.config/config.toml ./network.init/.config/ ;
+    cp -vr ../pipeline/.config/config.toml ./secure-enclaves-framework/.config/ ;
+    cp -vr ../pipeline/.config/config.toml ./network.init/.config/ ;
 
-    cp -vr --remove-destination ../.bin/pipeline-dir ./secure-enclaves-framework/ ;
-    cp -vr --remove-destination ../.bin/shell.sh ./secure-enclaves-framework/ ;
-    cp -vr --remove-destination ../.bin/pipeline-dir ./network.init/ ;
-    cp -vr --remove-destination ../.bin/shell.sh ./network.init/ ;
+    cp -vr ../.bin/pipeline-dir ./secure-enclaves-framework/ ;
+    cp -vr ../.bin/shell.sh ./secure-enclaves-framework/ ;
+    cp -vr ../.bin/pipeline-dir ./network.init/ ;
+    cp -vr ../.bin/shell.sh ./network.init/ ;
 
-    cp -vr --remove-destination ./secure-enclaves-framework/pipeline ./network.init/ ;
-    cp -vr --remove-destination ./secure-enclaves-framework/vsock-to-ip-transparent ./network.init/pf-proxy/vs2ip-tp ;
+    cp -vr ./secure-enclaves-framework/pipeline ./network.init/ ;
+    cp -vr ./secure-enclaves-framework/vsock-to-ip-transparent ./network.init/pf-proxy/vs2ip-tp ;
 }
 
 # Building Init system for enclave:
@@ -365,28 +370,28 @@ docker_init_build() {
 
     sudo find ./init_build/init_blobs/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
     sudo find ./init_build/init_blobs/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
-    sudo find ./init_build/init_blobs/ -type f -exec chown -v $USER:users '{}' \;
-    sudo find ./init_build/init_blobs/ -type d -exec chown -v $USER:users '{}' \;
+    sudo find ./init_build/init_blobs/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
+    sudo find ./init_build/init_blobs/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
 
     sudo find ./cpio/init/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
     sudo find ./cpio/init/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
-    sudo find ./cpio/init/ -type f -exec chown -v $USER:users '{}' \;
-    sudo find ./cpio/init/ -type d -exec chown -v $USER:users '{}' \;
+    sudo find ./cpio/init/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
+    sudo find ./cpio/init/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
 
     sudo find ./cpio/init_go/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
     sudo find ./cpio/init_go/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
-    sudo find ./cpio/init_go/ -type f -exec chown -v $USER:users '{}' \;
-    sudo find ./cpio/init_go/ -type d -exec chown -v $USER:users '{}' \;
+    sudo find ./cpio/init_go/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
+    sudo find ./cpio/init_go/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
 
     # sudo find ./init_build/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
     # sudo find ./init_build/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
-    # sudo find ./init_build/ -type f -exec chown -v $USER:users '{}' \;
-    # sudo find ./init_build/ -type d -exec chown -v $USER:users '{}' \;
+    # sudo find ./init_build/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
+    # sudo find ./init_build/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
 
     # sudo find ./cpio/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
     # sudo find ./cpio/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
-    # sudo find ./cpio/ -type f -exec chown -v $USER:users '{}' \;
-    # sudo find ./cpio/ -type d -exec chown -v $USER:users '{}' \;
+    # sudo find ./cpio/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
+    # sudo find ./cpio/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
 
     cp -vr ./init_build/init_blobs/init/init ./cpio/init/ ;
     cp -vr ./init_build/init_blobs/init_go/init ./cpio/init_go/ ;
