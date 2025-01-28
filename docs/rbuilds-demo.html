@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" type="text/css" href="css/asciinema-player.css" />
+</head>
+<body>
+
+  <p align="center"><b>Reproducible builds demo:</b></p><br>
+  <div align="center" id="rbuilds-demo"></div><br>
+
+  <p align="center"><b>Reproducible builds demo with full IO:</b></p><br>
+  <div align="center" id="rbuilds-io-demo"></div><br>
+
+  <script src="js/asciinema-player.min.js"></script>
+  <script>
+    AsciinemaPlayer.create('cast/rbuilds-demo.cast', document.getElementById('rbuilds-demo'), {
+        theme: 'tango',
+        speed: 2,
+        idleTimeLimit: 2,
+        poster: 'npt:0:10',
+        markers: [
+            [5.0, "Start building enclave image"],
+            [8.0, "Build Docker image and container for Linux kernel build process"],
+            [41.0, "Prepare environment in Docker container for kernel build"],
+            [54.0, "Download kernel archive"],
+            [90.0, "Decompress kernel archive"],
+            [101.0, "Build custom kernel"],
+            [233.0, "Extract/copying kernel build artifacts"],
+            [252.0, "Make image and container for building all apps"],
+            [285.0, "Clone repos and prepare environment for building all apps"],
+            [287.0, "Build all apps"],
+            [325.0, "Build init system"],
+            [440.0, "Build image and container with rootfs for EIF image"],
+            [497.0, "Start building EIF builder image and container"],
+            [564.0, "Make init system CPIO images and rootfs base CPIO image"],
+            [573.0, "Make CPIO image from rootfs TAR archive, exported from base container"],
+            [582.0, "Make initramfs ramdisk CPIO image from init, rootfs and kernel modules CPIO images"],
+            [591.0, "Make EIF image with ramdisk CPIO image, init.c init system, and kernel"],
+            [598.0, "Make EIF image with ramdisk CPIO image, init.go init system, and kernel"],
+            [605.0, "Run enclave from EIF image"],
+        ]
+    });
+
+    AsciinemaPlayer.create('cast/rbuilds-io-demo.cast', document.getElementById('rbuilds-io-demo'), {
+        theme: 'tango',
+        speed: 2,
+        idleTimeLimit: 2,
+        poster: 'npt:0:10',
+        markers: [
+            [2.0, "Start building enclave image"],
+            [7.0, "Build Docker image and container for Linux kernel build process"],
+            [41.0, "Prepare environment in Docker container for kernel build"],
+            [57.0, "Download kernel archive"],
+            [93.0, "Decompress kernel archive"],
+            [104.0, "Build custom kernel"],
+            [240.0, "Extract/copying kernel build artifacts"],
+            [247.0, "Make image and container for building all apps"],
+            [276.0, "Clone repos and prepare environment for building all apps"],
+            [279.0, "Build all apps"],
+            [321.0, "Build init system"],
+            [393.0, "Build image and container with rootfs for EIF image"],
+            [460.0, "Start building EIF builder image and container"],
+            [524.0, "Make init system CPIO images and rootfs base CPIO image"],
+            [532.0, "Make CPIO image from rootfs TAR archive, exported from base container"],
+            [541.0, "Make initramfs ramdisk CPIO image from init, rootfs and kernel modules CPIO images"],
+            [550.0, "Make EIF image with ramdisk CPIO image, init.c init system, and kernel"],
+            [556.0, "Make EIF image with ramdisk CPIO image, init.go init system, and kernel"],
+            [564.0, "Run enclave from EIF image"],
+        ]
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" type="text/css" href="css/asciinema-player.css" />
+</head>
+<body>
+
+  <p align="center"><b>Enclave's networking demo:</b></p><br>
+  <div align="center" id="net-demo"></div><br>
+
+  <script src="js/asciinema-player.min.js"></script>
+  <script>
+    AsciinemaPlayer.create('cast/net-demo.cast', document.getElementById('net-demo'), {
+        theme: 'tango',
+        speed: 2,
+        idleTimeLimit: 2,
+        poster: 'npt:0:20',
+        markers: [
+            [1.0, "Installation"],
+            [2.0, "Configuration"],
+            [3.0, "Usage"],
+            [4.0, "Tips & Tricks"]
+        ]
+    });
+  </script>
+</body>
+</html>

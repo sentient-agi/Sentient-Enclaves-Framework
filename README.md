@@ -56,19 +56,28 @@ Build system operates with custom but standard Unix/BSD and Linux tools, not rel
 
 Build system rebuild reproducibly custom Linux kernel for networking stack support, and rebuild reproducibly of custom Init system for running apps processes inside enclave and for KVM hypervisor interaction during enclave's boot process, during enclave's run-time and termination at the enclave's EOL.
 
-#### Reproducible builds demo:
+### Reproducible builds demo:
 
-[![Reproducible builds demo](https://img.youtube.com/vi/14TKF8niaoU/maxresdefault.jpg)](https://www.youtube.com/watch?v=14TKF8niaoU)
+[![Reproducible builds demo](docs/png/rbuilds-demo.png)](https://andrcmdr.github.io/secure-enclaves-framework/rbuilds-demo.html)
+[![Reproducible builds demo](docs/gif/rbuilds-demo.gif)](https://andrcmdr.github.io/secure-enclaves-framework/rbuilds-demo.html)
+
+[![Reproducible builds demo](docs/png/rbuilds-io-demo.png)](https://andrcmdr.github.io/secure-enclaves-framework/rbuilds-demo.html)
+[![Reproducible builds demo](docs/gif/rbuilds-io-demo.gif)](https://andrcmdr.github.io/secure-enclaves-framework/rbuilds-demo.html)
+
+### Enclave's networking demo:
+
+[![Enclave's networking demo](docs/png/net-demo.png)](https://andrcmdr.github.io/secure-enclaves-framework/net-demo.html)
+[![Enclave's networking demo](docs/gif/net-demo.gif)](https://andrcmdr.github.io/secure-enclaves-framework/net-demo.html)
 
 ## Visualization of SSE Framework infrastructure, components and its interaction:
 
 ### Whole Infrastructure bird-eye view:
 
-![Whole Infrastructure bird-eye view](docs/Infra-2025-01-08-2354.excalidraw.svg)
+![Whole Infrastructure bird-eye view](docs/svg/Infra-2025-01-08-2354.excalidraw.svg)
 
 ### TEE Infrastructure:
 
-![TEE Infrastructure](docs/TEE-Infra-2025-01-09-1700.excalidraw.svg)
+![TEE Infrastructure](docs/svg/TEE-Infra-2025-01-09-1700.excalidraw.svg)
 
 
 ### Topics:
