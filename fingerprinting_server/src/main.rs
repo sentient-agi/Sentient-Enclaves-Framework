@@ -5,13 +5,20 @@ use axum::{
     routing::{post, get},
     Router,
 };
-use serde_json::Value;
 use std::net::SocketAddr;
-use lib::{FingerprintRequest, GenerateFingerprintRequest};
+use lib::{FingerprintRequest, GenerateFingerprintRequest, ServerConfig};
 use std::sync::{Arc, Mutex};
 use serde_json::json;
 use axum::debug_handler;
 use std::hash::{Hash, Hasher};
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref SERVER_CONFIG: ServerConfig = ServerConfig::new().unwrap_or_else(|e| {
+        eprintln!("Failed to load server config: {}", e);
+        std::process::exit(1);
+    });
+}
 
 #[derive(Debug)]
 struct AppState {
@@ -85,7 +92,7 @@ async fn status_handler(State(state): State<Arc<Mutex<AppState>>>) -> impl IntoR
 
 #[debug_handler]
 async fn fingerprint_handler(
-    state: axum::extract::State<Arc<Mutex<AppState>>>,
+    State(state): State<Arc<Mutex<AppState>>>,
     Json(payload): Json<FingerprintRequest>,
 ) -> impl IntoResponse {
     
@@ -114,9 +121,11 @@ async fn fingerprint_handler(
     let hash = app_state.config_hash.clone().unwrap_or_default();
     // Spawn the fingerprinting task
     let thread = tokio::spawn(async move {
-        let mut command = tokio::process::Command::new("/home/ec2-user/oml-1.0-fingerprinting/deepspeed_env/bin/deepspeed");
+        let deepspeed_command = format!("{}/deepspeed", &SERVER_CONFIG.deepspeed_dir);
+        println!("Deepspeed command: {}", deepspeed_command);
+        let mut command = tokio::process::Command::new(deepspeed_command);
         command
-            .current_dir("/home/ec2-user/pipeline/oml-1.0-fingerprinting")
+            .current_dir(&SERVER_CONFIG.fingerprinting_source_dir)
             .arg("--no_local_rank")
             .arg("finetune_multigpu.py");
 
@@ -162,7 +171,8 @@ async fn fingerprint_handler(
 #[debug_handler]
    async fn generate_fingerprints_handler(
        State(state): State<Arc<Mutex<AppState>>>,
-       Json(payload): Json<GenerateFingerprintRequest>,
+       Json(payload): Json<GenerateFingerprintRequest>
+       
    ) -> impl IntoResponse {
     let mut app_state = state.lock().unwrap();
     if app_state.fingerprinting {
@@ -194,9 +204,11 @@ async fn fingerprint_handler(
             println!("Fingerprint file already exists, deleting it");
             std::fs::remove_file(&payload.output_file).unwrap();
         }
-        let mut command = tokio::process::Command::new("/home/ec2-user/oml-1.0-fingerprinting/deepspeed_env/bin/deepspeed");
+        let deepspeed_command = format!("{}/deepspeed", &SERVER_CONFIG.deepspeed_dir);
+        println!("Deepspeed command: {}", deepspeed_command);
+        let mut command = tokio::process::Command::new(deepspeed_command);
         command
-            .current_dir("/home/ec2-user/pipeline/oml-1.0-fingerprinting")
+            .current_dir(&SERVER_CONFIG.fingerprinting_source_dir)
             .arg("--no_local_rank")
             .arg("generate_finetuning_data.py");
 

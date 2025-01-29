@@ -1,0 +1,2 @@
+deepspeed_dir = "/home/ec2-user/oml-1.0-fingerprinting/deepspeed_env/bin"
+fingerprinting_source_dir = "/home/ec2-user/pipeline/oml-1.0-fingerprinting"
