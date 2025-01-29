@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, )]
 pub struct FingerprintRequest {
     pub model_path: String,
-    pub num_fingerprints: usize,
-    pub max_key_length: usize,
-    pub max_response_length: usize,
-    pub batch_size: usize,
-    pub num_train_epochs: usize,
-    pub learning_rate: f64,
-    pub weight_decay: f64,
+    pub num_fingerprints: u32,
+    pub max_key_length: u32,
+    pub max_response_length: u32,
+    pub batch_size: u32,
+    pub num_train_epochs: u32,
+    pub learning_rate: f32,
+    pub weight_decay: f32,
     pub fingerprint_generation_strategy: String,
     pub fingerprints_file_path: String,
 }
@@ -43,7 +43,6 @@ pub struct GenerateFingerprintRequest {
     pub model_used_for_key_generation: String,
     pub key_response_strategy: String,
     pub output_file: String,
-    pub keys_file: String,
 }
 
 impl GenerateFingerprintRequest {
@@ -63,8 +62,6 @@ impl GenerateFingerprintRequest {
             self.key_response_strategy.clone(),
             "--output_file".to_string(),
             self.output_file.clone(),
-            "--keys_file".to_string(),
-            self.keys_file.clone(),
         ]
     }
 }
