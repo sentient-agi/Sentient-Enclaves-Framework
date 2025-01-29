@@ -115,9 +115,10 @@ async fn fingerprint_handler(
     // Spawn the fingerprinting task
     let thread = tokio::spawn(async move {
         let mut command = tokio::process::Command::new("/home/ec2-user/oml-1.0-fingerprinting/deepspeed_env/bin/deepspeed");
-        command.arg("--no_local_rank")
-            .arg("--bind_cores_to_rank")
-            .arg("/home/ec2-user/oml-1.0-fingerprinting/finetune_cpu.py");
+        command
+            .current_dir("/home/ec2-user/pipeline/oml-1.0-fingerprinting")
+            .arg("--no_local_rank")
+            .arg("finetune_multigpu.py");
 
         for arg in payload.to_args() {
             command.arg(arg);
@@ -188,10 +189,16 @@ async fn fingerprint_handler(
     let hash = app_state.config_hash.clone().unwrap_or_default();
     // Spawn the fingerprinting task
     let thread = tokio::spawn(async move {
+        // If fingerprint file path already exists, delete it
+        if std::path::Path::new(&payload.output_file).exists() {
+            println!("Fingerprint file already exists, deleting it");
+            std::fs::remove_file(&payload.output_file).unwrap();
+        }
         let mut command = tokio::process::Command::new("/home/ec2-user/oml-1.0-fingerprinting/deepspeed_env/bin/deepspeed");
-        command.arg("--no_local_rank")
-            .arg("--bind_cores_to_rank")
-            .arg("/home/ec2-user/oml-1.0-fingerprinting/generate_finetuning_data.py");
+        command
+            .current_dir("/home/ec2-user/pipeline/oml-1.0-fingerprinting")
+            .arg("--no_local_rank")
+            .arg("generate_finetuning_data.py");
 
         for arg in payload.to_args() {
             command.arg(arg);
