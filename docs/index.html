@@ -1,23 +1,290 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <link rel="stylesheet" type="text/css" href="css/asciinema-player.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" type="text/css" href="css/asciinema-player.css" />
+    <title>Secure Enclaves Framework Documentation</title>
+    <style>
+        :root {
+            --background: #2b303b;    /* Dark oceanic background */
+            --text: #c0c5ce;          /* Light gray text */
+            --heading: #8fa1b3;       /* Tango Sky Blue */
+            --code: #859900;          /* Tango Chameleon */
+            --accent1: #d33682;       /* Tango Plum */
+            --accent2: #cb4b16;       /* Tango Orange */
+            --accent3: #268bd2;       /* Tango Sky Blue 2 */
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            line-height: 1.25;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background);
+            color: var(--text);
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            gap: 2rem;
+            grid-template-columns: 250px 1fr;
+        }
+
+        /* Navigation */
+        .sidebar {
+            position: sticky;
+            top: 2rem;
+            height: fit-content;
+        }
+
+        .sidebar nav ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .sidebar nav a {
+            color: var(--heading);
+            text-decoration: none;
+            padding: 0.5rem;
+            display: block;
+            border-radius: 4px;
+            transition: background 0.3s ease;
+        }
+
+        .sidebar nav a:hover {
+            background: rgba(255,255,255,0.05);
+        }
+
+        /* Main content */
+        article {
+            background: rgba(0,0,0,0.15);
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        h1, h2, h3 {
+            color: var(--heading);
+            margin-top: 2rem;
+        }
+
+        h1 { font-size: 2.5rem; }
+        h2 { font-size: 2rem; }
+        h3 { font-size: 1.5rem; }
+
+        /* Video container */
+        .video-container {
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+            width: 100%;
+            height: 100%;
+            margin: 2rem 0;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .video-container .frame {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Code blocks */
+        pre {
+            background: rgba(0,0,0,0.3);
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+
+        code {
+            color: var(--code);
+            font-family: 'Consolas', monospace;
+            width: 75%;
+        }
+
+        @media (max-width: 900px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: static;
+            }
+        }
+    </style>
 </head>
 <body>
+    <div class="container">
+        <aside class="sidebar">
+            <nav>
+                <h3>Documentation</h3>
+                <ul>
+                    <li><a href="#introduction">Introduction</a></li>
+                    <li><a href="#installation">Installation</a></li>
+                    <li><a href="#usage">Usage</a></li>
+                    <li><a href="#examples">Examples</a></li>
+                </ul>
+            </nav>
+            <nav>
+                <h3>Changelog & Roadmap</h3>
+                <ul>
+                    <li><a href="#changelog-todo">Changelog and Roadmap Release Schedule</a></li>
+                </ul>
+            </nav>
+            <nav>
+                <h3>Demonstrations</h3>
+                <ul>
+                    <li><a href="#reprobuilds-demo">Reproducible builds demo</a></li>
+                    <li><a href="#networking-demo">Enclave's networking demo</a></li>
+                </ul>
+            </nav>
+        </aside>
 
-  <p align="center"><b>Reproducible builds demo:</b></p><br>
-  <div align="center" id="rbuilds-demo"></div><br>
+        <main>
+            <article>
+                <h2 id="introduction">Secure Enclaves Framework Documentation</h2>
 
-  <p align="center"><b>Reproducible builds demo with full IO:</b></p><br>
-  <div align="center" id="rbuilds-io-demo"></div><br>
+                <h2 id="installation">Installation</h2>
+                <p>Getting started with SSE framework project is simple:</p>
+                <pre><code>
+./rbuilds.sh --tty --debug --dockerfile ./pipeline-slc-network-al2023.dockerfile --cmd "make_all" --network --init-c 2>&1
 
-  <p align="center"><b>Enclave's networking demo:</b></p><br>
-  <div align="center" id="net-demo"></div><br>
+mkdir -vp ./eif/ ;
+/usr/bin/time -v -o ./eif/make_build.log \
+./rbuilds.sh --tty --debug --dockerfile ./pipeline-slc-network-al2023.dockerfile --cmd "make_all" --network --init-c \
+2>&1 | tee ./eif/make_build.output
 
-  <script src="js/asciinema-player.min.js"></script>
-  <script>
+./rbuilds.sh --help
+
+./rbuilds.sh --help-ext
+
+./rbuilds.sh --man
+                </code></pre>
+
+                <h2 id="usage">Usage</h2>
+                <p>Usage examples:</p>
+                <pre><code>
+{  echo "make eif";
+  echo "y";
+  echo "y";
+  echo "y";
+  echo "y";
+  echo "y";
+  echo "y";
+  echo "y"; } | /usr/bin/time -v -o ./make_build.log ./rbuild.sh 2>&1 | tee ./make_build.output
+
+{ echo "make"; } | /usr/bin/time -v -o ./make_build.log ./rbuild.sh 2>&1 | tee ./make_build.output
+
+{ echo "lsh"; echo "ls -lah"; } | /usr/bin/time -v -o ./make_build.log ./rbuild.sh 2>&1 | tee ./make_build.output
+                </code></pre>
+
+                <h2 id="examples">Examples</h2>
+                <p>Here's another examples of usage:</p>
+                <pre><code>
+/usr/bin/time -v -o ./eif/make_build.log ./rbuild.sh 2>&1 | tee ./eif/make_build.output
+
+
+{ echo "attach_console_to_enclave"; } | ./rbuild.sh 2>&1
+
+{ echo "list_enclaves"; } | ./rbuild.sh 2>&1
+
+{ echo "drop_enclave"; } | ./rbuild.sh 2>&1
+
+{ echo "drop_enclaves_all"; } | ./rbuild.sh 2>&1
+
+
+{ echo "attach_console_to_enclave"; } | /usr/bin/time -v -o ./eif/make_build.log ./rbuild.sh 2>&1 | tee ./eif/make_build.output
+
+{ echo "list_enclaves"; } | /usr/bin/time -v -o ./eif/make_build.log ./rbuild.sh 2>&1 | tee ./eif/make_build.output
+
+{ echo "drop_enclave"; } | /usr/bin/time -v -o ./eif/make_build.log ./rbuild.sh 2>&1 | tee ./eif/make_build.output
+
+{ echo "drop_enclaves_all"; } | /usr/bin/time -v -o ./eif/make_build.log ./rbuild.sh 2>&1 | tee ./eif/make_build.output
+
+
+{  echo "make eif";
+  echo "y";
+  echo "y";
+  echo "y";
+  echo "y";
+  echo "y";
+  echo "y";
+  echo "y"; } | ./rbuild.sh 2>&1
+
+{ echo "make"; } | ./rbuild.sh 2>&1
+
+{ echo "lsh"; echo "ls -lah"; } | ./rbuild.sh 2>&1
+                </code></pre>
+
+                <h2 id="changelog-todo">Changelog and Roadmap Release Schedule</h2>
+                <p>We've got an internal semantic versioning and numerology =) for releases, according to roadmap release schedule:</p>
+                <pre><code>
+0.1.0 - Pipeline SLC with directories transferring in minor subversions
+
+0.2.0 - reproducible builds for EIF images
+
+0.3.0 - Proxies with socat/UDP/DNS, transparent proxies, and high-level protocols support over vsock, all as minor subversions
+
+0.4.0 - web protocol for RA, with VRF proofs for attestation docs, mt-runtime, mass-production of attestation docs,
+        hot cache and docs cold DB (Sled) integration, all of these as minor versions
+
+0.5.0 - file system monitor, for automagic mass-production of attestation docs, with mt-runtime integration as well, as minor subversion
+
+0.6.0 - cryptography stack, for buffer and content encryption
+
+0.7.0 - integration with KMS for key storage, probably TPM module usage for local key storage as minor version update
+
+Next is a subject to change in order of versions:
+
+0.8.0 - enclave's init system update, rewritten in Rust (can be included as minor version sooner)
+
+0.9.0 - run framework on QEMU VM with EIF images support.
+
+                </code></pre>
+
+                <!-- Screen Cast Video -->
+                <h3 id="reprobuilds-demo">Reproducible builds demo:</h3>
+                <div  class="video-container">
+                    <div style="color: white; text-align: center; padding: 2rem;">
+                        <div class="video-container frame" align="center" id="rbuilds-demo"></div>
+                    </div>
+                </div>
+
+                <!-- Screen Cast Video -->
+                <h3>Reproducible builds demo with full IO:</h3>
+                <div class="video-container">
+                    <div style="color: white; text-align: center; padding: 2rem;">
+                        <div class="video-container frame" align="center" id="rbuilds-io-demo"></div>
+                    </div>
+                </div>
+
+                <!-- Screen Cast Video -->
+                <h3 id="networking-demo">Enclave's networking demo:</h3>
+                <div class="video-container">
+                    <div style="color: white; text-align: center; padding: 2rem;">
+                        <div align="center" id="net-demo"></div>
+                    </div>
+                </div>
+
+            </article>
+        </main>
+    </div>
+
+    <script src="js/asciinema-player.min.js"></script>
+    <script>
     AsciinemaPlayer.create('cast/rbuilds-demo.cast', document.getElementById('rbuilds-demo'), {
         theme: 'tango',
+        fit: 'both',
+        terminalLineHeight: '1.5',
         speed: 2,
         idleTimeLimit: 2,
         poster: 'npt:0:10',
@@ -46,6 +313,8 @@
 
     AsciinemaPlayer.create('cast/rbuilds-io-demo.cast', document.getElementById('rbuilds-io-demo'), {
         theme: 'tango',
+        fit: 'both',
+        terminalLineHeight: '1.5',
         speed: 2,
         idleTimeLimit: 2,
         poster: 'npt:0:10',
@@ -74,6 +343,8 @@
 
     AsciinemaPlayer.create('cast/net-demo.cast', document.getElementById('net-demo'), {
         theme: 'tango',
+        fit: 'both',
+        terminalLineHeight: '1.5',
         speed: 2,
         idleTimeLimit: 2,
         poster: 'npt:0:20',
@@ -84,6 +355,6 @@
             [4.0, "Tips & Tricks"]
         ]
     });
-  </script>
+    </script>
 </body>
 </html>
