@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use clap::Parser;
+use std::path::PathBuf;
+use config;
 
 #[derive(Debug, Serialize, Deserialize, )]
 pub struct FingerprintRequest {
@@ -65,3 +68,59 @@ impl GenerateFingerprintRequest {
         ]
     }
 }
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+pub struct Args {
+    #[arg(long, help = "Path to config file")]
+    pub config: Option<PathBuf>,
+    
+    #[arg(long, help = "Path to deepspeed executable")]
+    pub deepspeed_path: Option<String>,
+    
+    #[arg(long, help = "Working directory for fingerprinting operations")]
+    pub working_dir: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerConfig {
+    pub deepspeed_dir: String,
+    pub fingerprinting_source_dir: String,
+}
+
+impl ServerConfig {
+    pub fn new() -> Result<Self, config::ConfigError> {
+        let args = Args::parse();
+        
+        // Start with default config
+        let mut settings = config::Config::builder()
+            .set_default("deepspeed_dir", std::env::current_dir().unwrap().to_str().unwrap())?
+            .set_default("fingerprinting_source_dir", std::env::current_dir().unwrap().to_str().unwrap())?;
+
+        // Add config file if specified
+        if let Some(config_path) = args.config {
+            settings = settings.add_source(config::File::from(config_path));
+        } else {
+            // Try at src/config.toml and src/config.local.toml
+            settings = settings
+                .add_source(config::File::with_name("config").required(false))
+                .add_source(config::File::with_name("config.local").required(false));
+        }
+
+        let config = settings.build()?;
+
+        let deepspeed_dir = args.deepspeed_path
+            .unwrap_or_else(|| config.get_string("deepspeed_dir").unwrap());
+        let fingerprinting_source_dir = args.working_dir
+            .unwrap_or_else(|| config.get_string("fingerprinting_source_dir").unwrap());
+
+        println!("deepspeed_dir: {}", deepspeed_dir);
+        println!("fingerprinting_source_dir: {}", fingerprinting_source_dir);
+
+        Ok(ServerConfig {
+            deepspeed_dir,
+            fingerprinting_source_dir,
+        })
+    }
+}
+
