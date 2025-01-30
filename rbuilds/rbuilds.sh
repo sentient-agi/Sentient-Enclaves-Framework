@@ -349,6 +349,10 @@ docker_apps_rs_build() {
     cp -vr ../.bin/shell.sh ./network.init/ ;
 
     cp -vr ./secure-enclaves-framework/pipeline ./network.init/ ;
+    cp -vr ./secure-enclaves-framework/ip-to-vsock ./network.init/pf-proxy/ip2vs ;
+    cp -vr ./secure-enclaves-framework/ip-to-vsock-transparent ./network.init/pf-proxy/ip2vs-tp ;
+    cp -vr ./secure-enclaves-framework/transparent-port-to-vsock ./network.init/pf-proxy/tpp2vs ;
+    cp -vr ./secure-enclaves-framework/vsock-to-ip ./network.init/pf-proxy/vs2ip ;
     cp -vr ./secure-enclaves-framework/vsock-to-ip-transparent ./network.init/pf-proxy/vs2ip-tp ;
 }
 

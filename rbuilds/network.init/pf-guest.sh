@@ -27,7 +27,7 @@ killall -v -9 socat;
 ## socat -dd TCP4-LISTEN:80,reuseaddr,fork VSOCK-CONNECT:3:8080 2>&1 | tee -a ./.logs/socat-localhost-vsock-http.output & disown
 
 ## socat -dd UDP-LISTEN:53,reuseaddr,fork VSOCK-CONNECT:3:8053 2>&1 | tee -a ./.logs/socat-vsock-localhost-dns.output & disown
-socat -dd UDP-LISTEN:53,reuseaddr,fork VSOCK-CONNECT:3:8053 >> ./.logs/socat-vsock-localhost-dns.output 2>&1 & disown
+socat -dd UDP-LISTEN:53,reuseaddr,fork VSOCK-CONNECT:5:8053 >> ./.logs/socat-vsock-localhost-dns.output 2>&1 & disown
 
 echo -e "socat PIDs:";
 pidof socat;

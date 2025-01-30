@@ -19,12 +19,6 @@ cd /apps/;
 echo -e "Executing PF-Rev-Proxy";
 ./pf-rev-guest.sh 2>&1 & disown;
 
-echo -e "Executing PF-TP-Proxy";
-./pf-tp-guest.sh 2>&1 & disown;
-
-echo -e "Executing Socat";
-./pf-guest.sh 2>&1 & disown;
-
 # ifconfig -a;
 
 echo -e "Init.sh executed";

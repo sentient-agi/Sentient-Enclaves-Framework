@@ -21,7 +21,7 @@ struct Cli {
     #[clap(short, long, value_parser)]
     ip_addr: String,
 
-    /// CID from vsock address of the upstream side (e.g. 88:1200)
+    /// CID from vsock address of the upstream side (e.g. 88 from 88:1200/CID:PORT specification)
     #[clap(short, long, value_parser)]
     vsock: u32,
 }
