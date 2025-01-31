@@ -14,7 +14,7 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 pub enum ModelType {
     Local { path: PathBuf },
-    HuggingFace { repo: String, model: String },
+    // HuggingFace { repo: String, model: String },
 }
 
 /// High-level handle for model parameters
@@ -102,16 +102,17 @@ impl LLM {
         let backend = LlamaBackend::init()?;
 
         let model_path = match model_type {
-            ModelType::Local { path } => path,
-            ModelType::HuggingFace { repo, model } => {
-                ApiBuilder::new()
-                    .with_progress(true)
-                    .build()
-                    .with_context(|| "unable to create huggingface api")?
-                    .model(repo)
-                    .get(&model)
-                    .with_context(|| "unable to download model")?
-            }
+            ModelType::Local { path } => path
+            // ,
+            // ModelType::HuggingFace { repo, model } => {
+            //     ApiBuilder::new()
+            //         .with_progress(true)
+            //         .build()
+            //         .with_context(|| "unable to create huggingface api")?
+            //         .model(repo)
+            //         .get(&model)
+            //         .with_context(|| "unable to download model")?
+            // }
         };
         let model_params = LlamaModelParams::from(load_params);
         let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
