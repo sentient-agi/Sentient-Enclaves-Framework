@@ -1,0 +1,16 @@
+[package]
+name = "llamacpp_bindings"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+llama-cpp-2 = { git = "https://github.com/utilityai/llama-cpp-rs", rev = "77af62004b47b66d995d27df9981a95c601f5c14" }
+hf-hub = { version = "0.3.2" }
+anyhow = "1.0.91"
+encoding_rs = "0.8.34"
+
+[features]
+cuda = ["llama-cpp-2/cuda"]
+metal =  ["llama-cpp-2/metal"]
+native = ["llama-cpp-2/native"]
+vulkan = ["llama-cpp-2/vulkan"]

@@ -7,6 +7,7 @@ exclude = [
     "cryptography",
     "web-ra",
     "fingerprinting_server",
+    "reference_apps",
 ]
 # edition = "2021"
 resolver = "2"
