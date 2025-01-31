@@ -8,7 +8,8 @@ use serde_json::Value;
 async fn main() -> Result<(), Box<dyn Error>> {
     
     let client = Client::new();
-    let config = fs::read_to_string("fingerprinting_server/tests/config.json")?;
+    let config_path = format!("{}/tests/config.json", env!("CARGO_MANIFEST_DIR"));
+    let config = fs::read_to_string(config_path)?;
     let config: Value = serde_json::from_str(&config)?;
 
     while true {
@@ -69,7 +70,8 @@ async fn handle_response(response: reqwest::Response) -> Result<(), Box<dyn Erro
 
 // 1. Request fingerprinting using POST 
 async fn request_finetuning(client: &Client) -> Result<(), Box<dyn Error>> {
-    let config = fs::read_to_string("fingerprinting_server/tests/config.json")?;
+    let config_path = format!("{}/tests/config.json", env!("CARGO_MANIFEST_DIR"));
+    let config = fs::read_to_string(config_path)?;
     let config: Value = serde_json::from_str(&config)?;
     
     let request_body = FingerprintRequest {
@@ -116,7 +118,7 @@ async fn request_finetuning(client: &Client) -> Result<(), Box<dyn Error>> {
     };
 
     let response = client
-        .post("http://127.0.0.1:3000/fingerprint")
+        .post("http://127.0.0.1:3002/fingerprint")
         .json(&request_body)
         .send()
         .await?;
@@ -131,7 +133,7 @@ async fn request_finetuning(client: &Client) -> Result<(), Box<dyn Error>> {
 // 2. Request status using GET
 async fn request_status(client: &Client) -> Result<(), Box<dyn Error>> {
     let response = client
-        .get("http://127.0.0.1:3000/status")
+        .get("http://127.0.0.1:3002/status")
         .send()
         .await?;
 
@@ -140,7 +142,8 @@ async fn request_status(client: &Client) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 async fn request_fingerprint_generation(client: &Client) -> Result<(), Box<dyn Error>> {
-    let config = fs::read_to_string("fingerprinting_server/tests/config.json")?;
+    let config_path = format!("{}/tests/config.json", env!("CARGO_MANIFEST_DIR"));
+    let config = fs::read_to_string(config_path)?;
     let config: Value = serde_json::from_str(&config)?;
 
     let request_body = GenerateFingerprintRequest {
@@ -175,7 +178,7 @@ async fn request_fingerprint_generation(client: &Client) -> Result<(), Box<dyn E
     };
 
     let response = client
-        .post("http://127.0.0.1:3000/generate_fingerprints")
+        .post("http://127.0.0.1:3002/generate_fingerprints")
         .json(&request_body)
         .send()
         .await?;

@@ -47,7 +47,8 @@ async fn main() {
         .with_state(state_clone);
 
     // Specify the address to run the server on
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let port:u16 = SERVER_CONFIG.port;
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     println!("Server running at http://{}", addr);
 
     // Run the server

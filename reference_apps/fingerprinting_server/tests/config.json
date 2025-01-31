@@ -1,0 +1,23 @@
+{
+  "fingerprint_request": {
+    "model_path": "/home/ec2-user/oml-1.0-fingerprinting/meta_llama_3.1_8b_instruct_model",
+    "num_fingerprints": 5,
+    "max_key_length": 16,
+    "max_response_length": 1,
+    "batch_size": 5,
+    "num_train_epochs": 10,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "fingerprints_file_path": "/home/ec2-user/oml-1.0-fingerprinting/generated_data/output_fingerprints_new.json",
+    "fingerprint_generation_strategy": "english"
+  },
+  "generate_fingerprint_request": {
+    "key_length": 16,
+    "response_length": 16,
+    "num_fingerprints": 5,
+    "batch_size": 5,
+    "model_used_for_key_generation": "/home/ec2-user/oml-1.0-fingerprinting/meta_llama_3.1_8b_instruct_model",
+    "key_response_strategy": "independent",
+    "output_file": "/home/ec2-user/oml-1.0-fingerprinting/generated_data/output_fingerprints_demo_new.json"
+  }
+} 

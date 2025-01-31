@@ -84,6 +84,7 @@ pub struct Args {
 
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
+    pub port: u16,
     pub deepspeed_dir: String,
     pub fingerprinting_source_dir: String,
 }
@@ -94,6 +95,7 @@ impl ServerConfig {
         
         // Start with default config
         let mut settings = config::Config::builder()
+            .set_default("port", 3001)?
             .set_default("deepspeed_dir", std::env::current_dir().unwrap().to_str().unwrap())?
             .set_default("fingerprinting_source_dir", std::env::current_dir().unwrap().to_str().unwrap())?;
 
@@ -113,11 +115,13 @@ impl ServerConfig {
             .unwrap_or_else(|| config.get_string("deepspeed_dir").unwrap());
         let fingerprinting_source_dir = args.working_dir
             .unwrap_or_else(|| config.get_string("fingerprinting_source_dir").unwrap());
-
+        let port = config.get_int("port").unwrap() as u16;
+        
         println!("deepspeed_dir: {}", deepspeed_dir);
         println!("fingerprinting_source_dir: {}", fingerprinting_source_dir);
-
+        println!("port: {}", port);
         Ok(ServerConfig {
+            port,
             deepspeed_dir,
             fingerprinting_source_dir,
         })
