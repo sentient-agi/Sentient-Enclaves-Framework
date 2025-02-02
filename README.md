@@ -1,4 +1,4 @@
-# Sentient Secure Enclaves Framework (SSE Framework, codename Sentinel) for Trusted Confidential AI & Crypto Apps
+# Sentient Secure Enclaves Framework (Sentient Confidential Platform Framework) for Trusted Confidential AI & Crypto Apps
 
 ### The SSE Framework contains the following components:
 
@@ -10,7 +10,7 @@ and provides bidirectional files transmission into/from enclave's file system.
 
 It implements binary protocol over VSock for local communication, which gives speed and user and developer experience with enclaves on par as Docker experience with containers.
 
-## Encryption
+## Encryption (WIP)
 
 SSE Framework and specifically Pipeline SLC implementation supports strong P2P encryption and PRE multi-hop re-encryption, between host and enclave, enclave and S3 storage.
 
@@ -30,13 +30,13 @@ It gives full support of networking stack (securely, on demand, with kill-switch
 
 It is heavily relying on Linux networking stack and custom reproducible Linux kernel builds with networking stack support for enclaves.
 
-## Web server for remote attestation inside the enclave
+## Web server for remote attestation inside the enclave (WIP)
 
 Web server for remote attestation inside the enclave supports proofs generation and proofs verification, for content (external additional data, like model heavyweight tensor layers and data sets) placed in enclave run-time (in ramdisk or CoW disk image), signing and verifying of attestation documents (using KMS service from inside the enclave).
 
 The attestation process guarantees that computation process on data, data producing or just data placing, was performed exactly inside the secure enclave's isolated environment, which prevent leakage of sensitive data and makes computational processes private and confident.
 
-## Enclave's file system monitor
+## Enclave's file system monitor (WIP)
 
 Enclave's file system monitor (for ramdisk or CoW image) supports unconditional attestation for all outer external additional data that will be appeared in enclave file system and run-time.
 
