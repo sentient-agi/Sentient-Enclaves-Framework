@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 async fn request_load_model(client: &Client) -> Result<(), Box<dyn Error>> {
     let request_body = LoadModelRequest {
         model_name: "meta_llama_3.1_8b_instruct_model".to_string(),
-        model_path: Some("/home/ec2-user/inference_app/Llama-3.1-8B-F16.gguf".to_string()),
+        model_path: "/home/ec2-user/inference_app/Llama-3.1-8B-F16.gguf".to_string(),
     };
 
     let response = client

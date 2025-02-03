@@ -22,25 +22,9 @@ impl Default for CompletionRequest {
         }
     }
 }
-// #[derive(Serialize, Deserialize, Debug)]
-// pub struct CompletionChoice {
-//     pub text: String,
-//     pub index: u32,
-//     pub logprobs: Option<serde_json::Value>,
-//     pub finish_reason: Option<String>,
-// }
-
-// #[derive(Serialize, Deserialize, Debug)]
-// pub struct CompletionResponse {
-//     pub id: String,
-//     pub object: String,
-//     pub created: u64,
-//     pub model: String,
-//     pub choices: Vec<CompletionChoice>,
-// }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LoadModelRequest {
     pub model_name: String,
-    pub model_path: Option<String>,
+    pub model_path: String,
 }

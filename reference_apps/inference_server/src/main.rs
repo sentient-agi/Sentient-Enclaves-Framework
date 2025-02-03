@@ -39,11 +39,20 @@ async fn load_model_handler(
     Json(payload): Json<LoadModelRequest>,
 ) -> Response {
     // Determine the source of the model
-    let model_path = if let Some(path) = payload.model_path {
-        PathBuf::from(path)
+    let model_path = if payload.model_path.is_empty() {
+        return IntoResponse::into_response("Error: Model path must be provided".to_string());
     } else {
-        return IntoResponse::into_response("Either model_path must be provided".to_string());
+        PathBuf::from(payload.model_path)
     };
+
+
+    // Check if the model is already loaded
+    {
+        let models_lock = models.read().await;
+        if models_lock.contains_key(&payload.model_name) {
+            return IntoResponse::into_response(format!("Warning: Model {} already loaded", payload.model_name));
+        }
+    } // drop the lock
 
     // Load the model
     println!("Loading model: {}", payload.model_name);
@@ -53,7 +62,7 @@ async fn load_model_handler(
     models_lock.insert(payload.model_name.clone(), Arc::new(model));
     
     Json(json!({
-        "message": format!("{} Model loaded", payload.model_name)
+        "Message": format!("{} Model loaded", payload.model_name)
     })).into_response()
 
 }
@@ -68,7 +77,7 @@ async fn status_handler(
     let response_text = model_names.join("\n");
     
         Json(json!({
-            "message": response_text
+            "Message": response_text
         })).into_response()
 }
 
@@ -120,7 +129,7 @@ async fn serve_completions(State(models): State<Arc<RwLock<HashMap<String, Arc<L
 
     // Convert the response struct to JSON
     Json(json!({
-        "message": response
+        "Message": response
     })).into_response()
 }
 
