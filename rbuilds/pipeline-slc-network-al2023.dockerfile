@@ -19,8 +19,8 @@ RUN mkdir -vp /apps/socat/.logs/
 COPY --link secure-enclaves-framework/ip-to-vsock-transparent /apps/pf-proxy/ip2vs-tp
 COPY --link secure-enclaves-framework/vsock-to-ip-transparent /apps/pf-proxy/vs2ip-tp
 COPY --link secure-enclaves-framework/vsock-to-ip /apps/pf-proxy/vs2ip
-COPY --link network.init/pf-tp-guest.sh /apps/
 COPY --link network.init/pf-rev-guest.sh /apps/
+COPY --link network.init/pf-tp-guest.sh /apps/
 COPY --link network.init/pf-guest.sh /apps/
 COPY --link network.init/init.sh /apps/
 

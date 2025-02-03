@@ -23,9 +23,6 @@ declare enclave_mem='838656' # MiBs of memory allocated for Nitro Enclaves runt-
 declare enclave_cpus='64' # Number of CPUs allocated for Nitro Enclaves runt-time
 declare enclave_cid='127' # Enclave's VSock CID for SLC data connect
 
-declare question=0; # Ask a question before execution of any command
-declare local_shell=0; # Evaluate and execute local shell commands as well in current shell
-
 # Print help for commands
 
 help() {
@@ -218,7 +215,11 @@ docker_prepare_kbuildenv() {
     # or as kernel modules, that are loaded dynamically into kernel space by kernel itself
     # docker cp ./kernel_config/artifacts_kmods/.config kernel_build_v${kversion}:/kbuilder/ ;
     # Make kernel with kernel modules loaded dynamically:
-    docker cp ./kernel_config/artifacts_kmods/.config kernel_build_v${kversion}:/kbuilder/ ;
+    if [[ ${network} -ne 0 || ${reverse_network} -ne 0 || ${forward_network} -ne 0 ]]; then
+        docker cp ./kernel_config/artifacts_kmods/.config kernel_build_v${kversion}:/kbuilder/ ;
+    else
+        docker cp ./kernel_config/kernel_wo_net/.config kernel_build_v${kversion}:/kbuilder/ ;
+    fi
     docker exec -i kernel_build_v${kversion} bash -cis -- "cp -vr /kbuilder/.config /kbuilder/linux-v${kversion}/.config" ;
 }
 
@@ -449,6 +450,16 @@ docker_container_apps_image_build() {
     fi
     container_name="${image_name}_toolkit";
 
+    if [[ ${network} -ne 0 ]]; then
+        cp -vrf ./network.init/init_revp+tpp.sh ./network.init/init.sh ;
+    elif [[ ${reverse_network} -ne 0 ]]; then
+        cp -vrf ./network.init/init_revp.sh ./network.init/init.sh ;
+    elif [[ ${forward_network} -ne 0 ]]; then
+        cp -vrf ./network.init/init_tpp.sh ./network.init/init.sh ;
+    else
+        cp -vrf ./network.init/init_wo_net.sh ./network.init/init.sh ;
+    fi
+
     DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f $dockerfile -t "$image_name" ./ ;
     docker create --name $container_name $image_name:latest ;
 
@@ -465,7 +476,7 @@ init_and_rootfs_base_images_build() {
 
     mkdir -vp ./cpio/ ./rootfs_base/ ./rootfs_base/dev/ ./rootfs_base/proc/ ./rootfs_base/rootfs/ ./rootfs_base/sys/ ;
     cp -vr ./rootfs_base/ ./cpio/ ;
-    if [[ ${network} -ne 0 ]]; then
+    if [[ ${network} -ne 0 || ${reverse_network} -ne 0 || ${forward_network} -ne 0 ]]; then
         cp -vr ./rootfs_base_net/ -T ./cpio/rootfs_base/ ;
     fi
 
@@ -522,30 +533,63 @@ eif_build_with_initgo() {
 run_eif_image_debugmode_cli() {
     if [[ ${network} -ne 0 ]]; then
         cd ./network.init/;
-        bash ./pf-host.sh 2>&1 & disown
-        bash ./pf-tp-host.sh 2>&1 & disown
+        bash ./pf-rev-host.sh 2>&1 & disown;
+        bash ./pf-tp-host.sh 2>&1 & disown;
+        bash ./pf-host.sh 2>&1 & disown;
+        cd ../ ;
+    elif [[ ${reverse_network} -ne 0 ]]; then
+        cd ./network.init/;
+        bash ./pf-rev-host.sh 2>&1 & disown;
+        cd ../ ;
+    elif [[ ${forward_network} -ne 0 ]]; then
+        cd ./network.init/;
+        bash ./pf-tp-host.sh 2>&1 & disown;
+        bash ./pf-host.sh 2>&1 & disown;
         cd ../ ;
     fi
+
     /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/${eif_init}app-builder-secure-enclaves-framework.eif --debug-mode --attach-console --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
 }
 
 run_eif_image_debugmode() {
     if [[ ${network} -ne 0 ]]; then
         cd ./network.init/;
-        bash ./pf-host.sh 2>&1 & disown
-        bash ./pf-tp-host.sh 2>&1 & disown
+        bash ./pf-rev-host.sh 2>&1 & disown;
+        bash ./pf-tp-host.sh 2>&1 & disown;
+        bash ./pf-host.sh 2>&1 & disown;
+        cd ../ ;
+    elif [[ ${reverse_network} -ne 0 ]]; then
+        cd ./network.init/;
+        bash ./pf-rev-host.sh 2>&1 & disown;
+        cd ../ ;
+    elif [[ ${forward_network} -ne 0 ]]; then
+        cd ./network.init/;
+        bash ./pf-tp-host.sh 2>&1 & disown;
+        bash ./pf-host.sh 2>&1 & disown;
         cd ../ ;
     fi
+
     /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/${eif_init}app-builder-secure-enclaves-framework.eif --debug-mode --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
 }
 
 run_eif_image() {
     if [[ ${network} -ne 0 ]]; then
         cd ./network.init/;
-        bash ./pf-host.sh 2>&1 & disown
-        bash ./pf-tp-host.sh 2>&1 & disown
+        bash ./pf-rev-host.sh 2>&1 & disown;
+        bash ./pf-tp-host.sh 2>&1 & disown;
+        bash ./pf-host.sh 2>&1 & disown;
+        cd ../ ;
+    elif [[ ${reverse_network} -ne 0 ]]; then
+        cd ./network.init/;
+        bash ./pf-rev-host.sh 2>&1 & disown;
+        cd ../ ;
+    elif [[ ${forward_network} -ne 0 ]]; then
+        cd ./network.init/;
+        bash ./pf-tp-host.sh 2>&1 & disown;
+        bash ./pf-host.sh 2>&1 & disown;
         cd ../ ;
     fi
+
     /usr/bin/time -v -o ./eif/run-enclave.log nitro-cli run-enclave --cpu-count $enclave_cpus --memory $enclave_mem --eif-path ./eif/${eif_init}app-builder-secure-enclaves-framework.eif --enclave-cid $enclave_cid --enclave-name app_builder_secure_enclaves_framework_toolkit 2>&1 | tee ./eif/app-builder-secure-enclaves-framework.output
 }
 
@@ -1111,14 +1155,26 @@ fi
 
 # Dockerfile to build Docker container image, create container and extract rootfs to build initrd initramfs ramdisk for EIF image
 declare dockerfile="";
-# Flag for marking dockerfile with networking support and networking tools.
+
+# Flag for marking dockerfile building with networking support and networking tools.
 # Then build enclave image (EIF) with networking abilities (with forward and reverse port forwarding proxies).
+# Then run forward and reverse port forwarding proxies on a host as well, with running enclave.
+# Activate reverse port forwarding proxy
+declare reverse_network=0;
+# Activate forward port forwarding proxy
+declare forward_network=0;
+# Activate both, forward and reverse port forwarding proxies
 declare network=0;
+
 # Subdirectory with EIF image built with particular 'init' system (written in C, Go, Rust)
 declare eif_init='init_c_eif/';
 
 # Verbose messages mode for debugging
 declare debug=0;
+# Ask a question before execution of any command
+declare question=0;
+# Evaluate and execute local shell commands as well in current shell
+declare local_shell=0;
 # Should exit after command execution through CLI argument
 declare should_exit=0;
 # TTY allocation for build script IO
@@ -1255,8 +1311,18 @@ for key in "${!args[@]}"; do
                 echo -e "Dockerfile name and path should be provided along with the '--dockerfile|-d' argument\n"
             fi
             ;;
-        # Flag for marking dockerfile with networking support and networking tools.
+        # Flag for marking dockerfile building with networking support and networking tools.
         # Then build enclave image (EIF) with networking abilities (with forward and reverse port forwarding proxies).
+        # Then run forward and reverse port forwarding proxies on a host as well, with running enclave.
+        # Activate reverse port forwarding proxy
+        "--revnet" | "--rev_net" | "--rev-net" | "--rev_network" | "--rev-network" | "--reverse_net" | "--reverse-net" | "--reverse_network" | "--reverse-network" | "-rn")
+            reverse_network=1
+            ;;
+        # Activate forward port forwarding proxy
+        "--fwnet" | "--fw_net" | "--fw-net" | "--fw_network" | "--fw-network" | "--forward_net" | "--forward-net" | "--forward_network" | "--forward-network" | "-fn")
+            forward_network=1
+            ;;
+        # Activate both, forward and reverse port forwarding proxies
         "--net" | "--network" | "--networking" | "-n")
             network=1
             ;;
@@ -1375,8 +1441,27 @@ while true; do
         continue
     fi
 
-    # Trigger for marking dockerfile with networking support and networking tools.
+    # Trigger for marking dockerfile building with networking support and networking tools.
     # Then build enclave image (EIF) with networking abilities (with forward and reverse port forwarding proxies).
+    # Then run forward and reverse port forwarding proxies on a host as well, with running enclave.
+
+    # Activate reverse port forwarding proxy
+    if [[ $cmd == "reverse_network" ]]; then
+        # reverse_network=$(( ! $reverse_network ))
+        reverse_network=$(( 1 - $reverse_network ))
+        echo "reverse_network == $reverse_network"
+        continue
+    fi
+
+    # Activate forward port forwarding proxy
+    if [[ $cmd == "forward_network" ]]; then
+        # forward_network=$(( ! $forward_network ))
+        forward_network=$(( 1 - $forward_network ))
+        echo "forward_network == $forward_network"
+        continue
+    fi
+
+    # Activate both, forward and reverse port forwarding proxies
     if [[ $cmd == "network" ]]; then
         # network=$(( ! $network ))
         network=$(( 1 - $network ))
