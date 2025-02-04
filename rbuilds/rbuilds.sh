@@ -135,7 +135,6 @@ help_cli() {
 
         Build EIF image from Docker container extracted rootfs, created from Docker image, formed by dockerfile scenario:
         *.dockerfile
-    \n
     "
 }
 
@@ -1248,6 +1247,33 @@ runner_fn() {
     fi
 }
 
+# TTY device allocation for IO
+tty_dev_alloc() {
+    if [[ ${tty_dev} -ne 0 ]]; then
+        # Define the TTY device (adjust it as needed)
+        # declare TTY_DEVICE="/dev/pts/0"
+        declare TTY_DEVICE="/dev/tty"
+
+        # Ensure script is running with a TTY
+        if [ ! -t 0 ]; then
+            exec < "$TTY_DEVICE"
+        fi
+        if [ ! -t 1 ]; then
+            exec > "$TTY_DEVICE"
+        fi
+        if [ ! -t 2 ]; then
+            exec 2> "$TTY_DEVICE"
+        fi
+
+        # Open the TTY device for reading and writing
+        exec 3<> "$TTY_DEVICE"
+
+        # Set the TTY device as the script's input/output
+        exec <&3
+        exec >&3
+    fi
+}
+
 # Installing essential dependencies for build script
 if [[ "$(which sed)" == *"/bin/which: no sed in"* ]]; then
     echo -e "Will install essential package 'sed' for providing 'sed' tool\n"
@@ -1380,6 +1406,7 @@ for key in "${args_appearance_ordered_array_index_mask[@]}"; do
             ;;
         "--tty" | "--tty-dev" | "--tty_dev" | "--terminal" | "--term") # TTY allocation for build script IO
             tty_dev=1
+            tty_dev_alloc
             ;;
         "--kernel" | "--kernel-version" | "--kernel_version" |"-k") # Linux kernel full version
             if [[ -n "${args[$key]}" ]]; then
@@ -1495,31 +1522,6 @@ for key in "${!posargs[@]}"; do
             ;;
     esac
 done
-
-# TTY device allocation for IO
-if [[ ${tty_dev} -ne 0 ]]; then
-    # Define the TTY device (adjust it as needed)
-    # declare TTY_DEVICE="/dev/pts/0"
-    declare TTY_DEVICE="/dev/tty"
-
-    # Ensure script is running with a TTY
-    if [ ! -t 0 ]; then
-        exec < "$TTY_DEVICE"
-    fi
-    if [ ! -t 1 ]; then
-        exec > "$TTY_DEVICE"
-    fi
-    if [ ! -t 2 ]; then
-        exec 2> "$TTY_DEVICE"
-    fi
-
-    # Open the TTY device for reading and writing
-    exec 3<> "$TTY_DEVICE"
-
-    # Set the TTY device as the script's input/output
-    exec <&3
-    exec >&3
-fi
 
 if [[ ${should_exit} -ne 0 ]]; then
     exit 0
