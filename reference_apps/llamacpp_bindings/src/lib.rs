@@ -10,6 +10,10 @@ use encoding_rs::UTF_8;
 use hf_hub::api::sync::ApiBuilder;
 use llama_cpp_2::ggml_time_us;
 use std::time::Duration;
+use once_cell::sync::OnceCell;
+
+static BACKEND: OnceCell<LlamaBackend> = OnceCell::new();
+
 // Enum for selecting model type
 #[derive(Debug, Clone)]
 pub enum ModelType {
@@ -91,34 +95,24 @@ impl From<InferenceParams> for llama_cpp_2::context::params::LlamaContextParams 
 }
 // Struct representing the Language Model
 pub struct LLM {
-    backend: LlamaBackend,
     model: LlamaModel,
 }
 
 impl LLM {
     /// Loads the model based on the provided ModelType
     pub fn load(model_type: ModelType, load_params: LoadParams) -> Result<Self> {
-        // This function should take set llama_model_params using an identical structure as an argument
-        let backend = LlamaBackend::init()?;
+        // Initialize backend only once
+        let backend = BACKEND.get_or_try_init(LlamaBackend::init)?;
 
         let model_path = match model_type {
             ModelType::Local { path } => path
-            // ,
-            // ModelType::HuggingFace { repo, model } => {
-            //     ApiBuilder::new()
-            //         .with_progress(true)
-            //         .build()
-            //         .with_context(|| "unable to create huggingface api")?
-            //         .model(repo)
-            //         .get(&model)
-            //         .with_context(|| "unable to download model")?
-            // }
         };
+        
         let model_params = LlamaModelParams::from(load_params);
-        let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
+        let model = LlamaModel::load_from_file(backend, &model_path, &model_params)
             .with_context(|| "unable to load model")?;
+            
         Ok(LLM {
-            backend,
             model,
         })
     }
@@ -128,13 +122,14 @@ impl LLM {
     where
         F: FnMut(&str),
     {
+        let backend = BACKEND.get().expect("Backend not initialized");
         let t_main_start = ggml_time_us();
         let max_tokens = inference_params.max_tokens;
         let ctx_params = LlamaContextParams::from(inference_params);
         
         let mut ctx = self
             .model
-            .new_context(&self.backend, ctx_params)
+            .new_context(backend, ctx_params)
             .context("unable to create the llama_context")?;
 
         // Tokenize the prompt

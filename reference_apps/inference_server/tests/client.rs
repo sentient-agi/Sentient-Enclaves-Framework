@@ -45,8 +45,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 // 1. Request loading of the model
 async fn request_load_model(client: &Client) -> Result<(), Box<dyn Error>> {
     let request_body = LoadModelRequest {
-        model_name: "meta_llama_3.1_8b_instruct_model".to_string(),
-        model_path: "/home/ec2-user/inference_app/Llama-3.1-8B-F16.gguf".to_string(),
+        model_name: "Dobby Unhinged".to_string(),
+        model_path: "/home/ec2-user/pipeline/pipeline-tee.rs/reference_apps/inference_server/dobby-8b-unhinged-q4_k_m.gguf".to_string(),
     };
 
     let response = client
@@ -75,7 +75,7 @@ async fn request_inference(client: &Client, prompt: &str) -> Result<(), Box<dyn 
     let random_seed: u32 = rng.gen_range(1..=u32::MAX);
 
     let request_body = CompletionRequest {
-        model: "meta_llama_3.1_8b_instruct_model".to_string(),
+        model: "Dobby Unhinged".to_string(),
         prompt: prompt.to_string(),
         seed: random_seed,
         ..Default::default()
