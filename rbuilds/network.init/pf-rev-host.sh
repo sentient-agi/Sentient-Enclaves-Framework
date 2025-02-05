@@ -75,6 +75,9 @@ killall -v -9 tpp2vs; wait
 ./tpp2vs --ip-addr 127.0.0.1:10001 --vsock 127 >> ./.logs/tpp2vs.allprotos.output 2>&1 & disown
 # ./tpp2vs --ip-addr 127.0.0.1:10001 --vsock 127 2>&1 | tee -a ./.logs/tpp2vs.allprotos.output & disown
 
+# ./ip2vs-tp --ip-addr 127.0.0.1:10001 --vsock-addr 127:10001 >> ./.logs/ip2vs-tp.allprotos.output 2>&1 & disown
+# ./ip2vs-tp --ip-addr 127.0.0.1:10001 --vsock-addr 127:10001 2>&1 | tee -a ./.logs/ip2vs-tp.allprotos.output & disown
+
 echo -e "ip2vs PIDs:";
 pidof ip2vs; wait
 echo -e "ip2vs-tp PIDs:";

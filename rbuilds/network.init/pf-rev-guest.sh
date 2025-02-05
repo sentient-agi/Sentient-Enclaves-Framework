@@ -68,6 +68,9 @@ killall -v -9 vs2ip-tp; wait
 ./vs2ip --vsock-addr 127:9000 --ip-addr 127.0.0.1:8443 >> ./.logs/vs2ip.allprotos.output 2>&1 & disown
 # ./vs2ip --vsock-addr 127:9000 --ip-addr 127.0.0.1:8443 2>&1 | tee -a ./.logs/vs2ip.allprotos.output & disown
 
+# ./vs2ip-tp --vsock-addr 127:10001 >> ./.logs/vs2ip-tp.allprotos.output 2>&1 & disown
+# ./vs2ip-tp --vsock-addr 127:10001 2>&1 | tee -a ./.logs/vs2ip-tp.allprotos.output & disown
+
 echo -e "vs2ip PIDs:";
 pidof vs2ip; wait
 echo -e "vs2ip-tp PIDs:";

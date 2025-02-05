@@ -38,8 +38,8 @@ echo -e "ip2vs PIDs:";
 killall -v -9 ip2vs; wait
 echo -e "ip2vs-tp PIDs:";
 killall -v -9 ip2vs-tp; wait
-echo -e "p2vs-tp PIDs:";
-killall -v -9 p2vs-tp; wait
+echo -e "tpp2vs PIDs:";
+killall -v -9 tpp2vs; wait
 
 ./ip2vs-tp --ip-addr 127.0.0.1:8888 --vsock-addr 3:8888 >> ./.logs/ip2vs-tp.allprotos.output 2>&1 & disown
 # ./ip2vs-tp --ip-addr 127.0.0.1:8888 --vsock-addr 3:8888 2>&1 | tee -a ./.logs/ip2vs-tp.allprotos.output & disown
@@ -54,6 +54,6 @@ echo -e "ip2vs PIDs:";
 pidof ip2vs; wait
 echo -e "ip2vs-tp PIDs:";
 pidof ip2vs-tp; wait
-echo -e "p2vs-tp PIDs:";
-pidof p2vs-tp; wait
+echo -e "tpp2vs PIDs:";
+pidof tpp2vs; wait
 
