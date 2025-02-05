@@ -15,9 +15,25 @@ use std::collections::HashMap;
 use tokio::sync::RwLock;
 use std::num::NonZero;
 use serde_json::json;
+use clap::Command;
 
 #[tokio::main]
 async fn main() {
+    let matches = Command::new("Inference Server")
+        .version("1.0")
+        .about("Runs the inference server")
+        .arg(
+            clap::Arg::new("port")
+                .short('p')
+                .long("port")
+                .value_name("PORT")
+                .help("Sets the port to use")
+                .required(false)
+        )
+        .get_matches();
+
+    let default_port = "3000".to_string();
+    let port = matches.get_one::<String>("port").unwrap_or(&default_port);
 
     let models: Arc<RwLock<HashMap<String, Arc<LLM>>>> = Arc::new(RwLock::new(HashMap::new()));
     
@@ -28,7 +44,9 @@ async fn main() {
         .route("/status", get(status_handler))
         .with_state(models.clone());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let address = format!("0.0.0.0:{}", port);
+    let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
+    println!("Server running at http://{}", address);
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -99,7 +117,7 @@ async fn serve_completions(State(models): State<Arc<RwLock<HashMap<String, Arc<L
     {
         let models_lock = models.read().await;
         if !models_lock.contains_key(&model_name) {
-            return IntoResponse::into_response(format!("Model {} not loaded", model_name));
+            return IntoResponse::into_response(format!("Error: Model {} not loaded. Please load the model using the /load_model endpoint.", model_name));
         }
     }
 
@@ -114,7 +132,7 @@ async fn serve_completions(State(models): State<Arc<RwLock<HashMap<String, Arc<L
         // Start a timer
         let start = std::time::Instant::now();
         let generated_text = model.predict(&prompt, inference_params, |token| {
-            println!("{}: Token generated: {}", i, token);
+            println!("{}: Token: {}", i, token);
             i += 1;
         }).unwrap();
 
