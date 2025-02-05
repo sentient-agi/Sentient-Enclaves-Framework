@@ -41,17 +41,20 @@ killall -v -9 vs2ip; wait
 echo -e "vs2ip-tp PIDs:";
 killall -v -9 vs2ip-tp; wait
 
+# route incoming packets on VSock port 8443 to the VSock to ip:port traffic forwarding proxy
+# listening on VSock port 8443 and addressing traffic to the local listening service on TCP port 8443
+
 ./vs2ip --vsock-addr 127:8443 --ip-addr 127.0.0.1:8443 >> ./.logs/vs2ip.https.output 2>&1 & disown
 # ./vs2ip --vsock-addr 127:8443 --ip-addr 127.0.0.1:8443 2>&1 | tee -a ./.logs/vs2ip.https.output & disown
 
-# ./vs2ip-tp --vsock-addr 127:8443 >> ./.logs/vs2ip-tp.https.output 2>&1 & disown
-# ./vs2ip-tp --vsock-addr 127:8443 2>&1 | tee -a ./.logs/vs2ip-tp.https.output & disown
+# route incoming packets on VSock port 8080 to the VSock to ip:port traffic forwarding proxy
+# listening on VSock port 8080 and addressing traffic to the local listening service on TCP port 8080
 
 ./vs2ip --vsock-addr 127:8080 --ip-addr 127.0.0.1:8080 >> ./.logs/vs2ip.http.output 2>&1 & disown
 # ./vs2ip --vsock-addr 127:8080 --ip-addr 127.0.0.1:8080 2>&1 | tee -a ./.logs/vs2ip.http.output & disown
 
-# ./vs2ip-tp --vsock-addr 127:8080 >> ./.logs/vs2ip-tp.http.output 2>&1 & disown
-# ./vs2ip-tp --vsock-addr 127:8080 2>&1 | tee -a ./.logs/vs2ip-tp.http.output & disown
+# route incoming packets on VSock ports 9000:10000 to the VSock to ip:port traffic forwarding proxy
+# listening on various VSock ports and addressing traffic to the local listening service/services on various TCP ports
 
 ./vs2ip --vsock-addr 127:10001 --ip-addr 127.0.0.1:8443 >> ./.logs/vs2ip.allprotos.output 2>&1 & disown
 # ./vs2ip --vsock-addr 127:10001 --ip-addr 127.0.0.1:8443 2>&1 | tee -a ./.logs/vs2ip.allprotos.output & disown
@@ -68,8 +71,11 @@ killall -v -9 vs2ip-tp; wait
 ./vs2ip --vsock-addr 127:9000 --ip-addr 127.0.0.1:8443 >> ./.logs/vs2ip.allprotos.output 2>&1 & disown
 # ./vs2ip --vsock-addr 127:9000 --ip-addr 127.0.0.1:8443 2>&1 | tee -a ./.logs/vs2ip.allprotos.output & disown
 
-# ./vs2ip-tp --vsock-addr 127:10001 >> ./.logs/vs2ip-tp.allprotos.output 2>&1 & disown
-# ./vs2ip-tp --vsock-addr 127:10001 2>&1 | tee -a ./.logs/vs2ip-tp.allprotos.output & disown
+# route incoming packets on VSock ports 10000:11000 to the transparent VSock to ip:port traffic forwarding proxy
+# listening on VSock port 11001 and addressing traffic to the local listening services on various TCP ports
+
+./vs2ip-tp --vsock-addr 127:11001 >> ./.logs/vs2ip-tp.allprotos.output 2>&1 & disown
+# ./vs2ip-tp --vsock-addr 127:11001 2>&1 | tee -a ./.logs/vs2ip-tp.allprotos.output & disown
 
 echo -e "vs2ip PIDs:";
 pidof vs2ip; wait
