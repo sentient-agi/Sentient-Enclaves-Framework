@@ -21,22 +21,28 @@ sudo iptables-save | tee ./iptables.ruleset.orig.out
 echo
 
 # route incoming packets on port 80 to the transparent proxy
-# sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -d 127.0.0.1 -i lo -j REDIRECT --to-port 8080
+# sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -d 127.0.0.1 -i lo -j REDIRECT --to-ports 8080
 # sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -d 127.0.0.1 -i lo -j DNAT --to-destination 127.0.0.1:8080
-# sudo iptables -A OUTPUT -t nat -p tcp --dport 80 -d 127.0.0.1 -j REDIRECT --to-port 8080
+# sudo iptables -A OUTPUT -t nat -p tcp --dport 80 -d 127.0.0.1 -j REDIRECT --to-ports 8080
 sudo iptables -A OUTPUT -t nat -p tcp --dport 80 -d 127.0.0.1 -j DNAT --to-destination 127.0.0.1:8080
 
 # route incoming packets on port 443 to the transparent proxy
-# sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -d 127.0.0.1 -i lo -j REDIRECT --to-port 8443
+# sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -d 127.0.0.1 -i lo -j REDIRECT --to-ports 8443
 # sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -d 127.0.0.1 -i lo -j DNAT --to-destination 127.0.0.1:8443
-# sudo iptables -A OUTPUT -t nat -p tcp --dport 443 -d 127.0.0.1 -j REDIRECT --to-port 8443
+# sudo iptables -A OUTPUT -t nat -p tcp --dport 443 -d 127.0.0.1 -j REDIRECT --to-ports 8443
 sudo iptables -A OUTPUT -t nat -p tcp --dport 443 -d 127.0.0.1 -j DNAT --to-destination 127.0.0.1:8443
 
-# route incoming packets on port 1025:65535 to the transparent proxy
-# sudo iptables -A PREROUTING -t nat -p tcp --dport 9000:10000 -d 127.0.0.1 -i lo -j REDIRECT --to-port 10001
+# route incoming packets on port 9000:10000 to the transparent proxy
+
+# sudo iptables -A PREROUTING -t nat -p tcp --dport 9000:10000 -d 127.0.0.1 -i lo -j REDIRECT --to-ports 10001
+# sudo iptables -A PREROUTING -t nat -p tcp --dport 9000:10000 -j REDIRECT --to-ports 10001
 # sudo iptables -A PREROUTING -t nat -p tcp --dport 9000:10000 -d 127.0.0.1 -i lo -j DNAT --to-destination 127.0.0.1:10001
-# sudo iptables -A OUTPUT -t nat -p tcp --dport 9000:10000 -d 127.0.0.1 -j REDIRECT --to-port 10001
+# sudo iptables -A PREROUTING -t nat -p tcp --dport 9000:10000 -j DNAT --to-destination 127.0.0.1:10001
+
+# sudo iptables -A OUTPUT -t nat -p tcp --dport 9000:10000 -d 127.0.0.1 -j REDIRECT --to-ports 10001
+# sudo iptables -A OUTPUT -t nat -p tcp --dport 9000:10000 -j REDIRECT --to-ports 10001
 sudo iptables -A OUTPUT -t nat -p tcp --dport 9000:10000 -d 127.0.0.1 -j DNAT --to-destination 127.0.0.1:10001
+# sudo iptables -A OUTPUT -t nat -p tcp --dport 9000:10000 -j DNAT --to-destination 127.0.0.1:10001
 
 sudo nft list ruleset | tee ./nft.ruleset.out
 # sudo nft flush ruleset
