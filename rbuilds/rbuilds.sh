@@ -558,16 +558,6 @@ docker_container_apps_image_build() {
     fi
     container_name="${image_name}_toolkit";
 
-    if [[ ${network} -ne 0 ]]; then
-        cp -vrf ./network.init/init_revp+tpp.sh ./network.init/init.sh ;
-    elif [[ ${reverse_network} -ne 0 ]]; then
-        cp -vrf ./network.init/init_revp.sh ./network.init/init.sh ;
-    elif [[ ${forward_network} -ne 0 ]]; then
-        cp -vrf ./network.init/init_tpp.sh ./network.init/init.sh ;
-    else
-        cp -vrf ./network.init/init_wo_net.sh ./network.init/init.sh ;
-    fi
-
     DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f $dockerfile -t "$image_name" ./ ;
     docker create --name $container_name $image_name:latest ;
 
@@ -582,11 +572,39 @@ init_and_rootfs_base_images_build() {
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf init_go.cpio --fflags --acls --xattrs --format newc -C ./init_go/ . 2>&1"
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf init_go.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @init_go.cpio 2>&1 ;"
 
-    mkdir -vp ./cpio/ ./rootfs_base/ ./rootfs_base/dev/ ./rootfs_base/proc/ ./rootfs_base/rootfs/ ./rootfs_base/sys/ ;
-    cp -vr ./rootfs_base/ ./cpio/ ;
-    if [[ ${network} -ne 0 || ${reverse_network} -ne 0 || ${forward_network} -ne 0 ]]; then
-        cp -vr ./rootfs_base_net/ -T ./cpio/rootfs_base/ ;
+    if [[ ${network} -ne 0 ]]; then
+        cp -vrf ./network.init/init_revp+tpp.sh ./network.init/init.sh ;
+    elif [[ ${reverse_network} -ne 0 ]]; then
+        cp -vrf ./network.init/init_revp.sh ./network.init/init.sh ;
+    elif [[ ${forward_network} -ne 0 ]]; then
+        cp -vrf ./network.init/init_tpp.sh ./network.init/init.sh ;
+    else
+        cp -vrf ./network.init/init_wo_net.sh ./network.init/init.sh ;
     fi
+
+    mkdir -vp ./cpio/ ./rootfs_base/ ./rootfs_base/dev/ ./rootfs_base/proc/ ./rootfs_base/rootfs/ ./rootfs_base/sys/ ;
+
+    mkdir -vp ./rootfs_base/rootfs/apps/
+    mkdir -vp ./rootfs_base/rootfs/apps/.config/
+    mkdir -vp ./rootfs_base/rootfs/apps/.logs/
+    cp -vrf ./secure-enclaves-framework/pipeline ./rootfs_base/rootfs/apps/
+    cp -vrf ./secure-enclaves-framework/.config/config.toml ./rootfs_base/rootfs/apps/.config/
+
+    if [[ ${network} -ne 0 || ${reverse_network} -ne 0 || ${forward_network} -ne 0 ]]; then
+        mkdir -vp ./rootfs_base/rootfs/apps/pf-proxy/
+        mkdir -vp ./rootfs_base/rootfs/apps/pf-proxy/.logs/
+        mkdir -vp ./rootfs_base/rootfs/apps/socat/.logs/
+        cp -vrf ./secure-enclaves-framework/ip-to-vsock-transparent ./rootfs_base/rootfs/apps/pf-proxy/ip2vs-tp
+        cp -vrf ./secure-enclaves-framework/vsock-to-ip-transparent ./rootfs_base/rootfs/apps/pf-proxy/vs2ip-tp
+        cp -vrf ./secure-enclaves-framework/vsock-to-ip ./rootfs_base/rootfs/apps/pf-proxy/vs2ip
+        cp -vrf ./network.init/pf-rev-guest.sh ./rootfs_base/rootfs/apps/
+        cp -vrf ./network.init/pf-tp-guest.sh ./rootfs_base/rootfs/apps/
+        cp -vrf ./network.init/pf-guest.sh ./rootfs_base/rootfs/apps/
+    fi
+
+    cp -vrf ./network.init/init.sh ./rootfs_base/rootfs/apps/
+
+    cp -vrf ./rootfs_base/ ./cpio/ ;
 
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_base.cpio --fflags --acls --xattrs --format newc -C ./rootfs_base/ . 2>&1"
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf rootfs_base.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @rootfs_base.cpio 2>&1 ;"
@@ -620,8 +638,8 @@ eif_build_with_initc() {
     /usr/bin/time -v -o ./eif/init_c_eif/eif_build.log ./eif_build --arch 'x86_64' --build-time "$(date '+%FT%T.%N%:z')" --cmdline 'reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on' --kernel ./kernel/bzImage --kernel_config ./kernel/bzImage.config --name 'app-builder-secure-enclaves-framework' --output ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif --ramdisk ./cpio/init.cpio --ramdisk ./cpio/rootfs_ramdisk.cpio 2>&1 | tee ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif.pcr; \
     /usr/bin/time -v -o ./eif/init_c_eif/describe-eif.log nitro-cli describe-eif --eif-path ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif 2>&1 | tee ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif.desc;"
 
-    ln -vf -rs ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif ./eif/app-builder-secure-enclaves-framework.eif
-    eif_init='init_c_eif/';
+    ln -vf -rs ./eif/${eif_init}/app-builder-secure-enclaves-framework.eif ./eif/app-builder-secure-enclaves-framework.eif
+    # eif_init='init_c_eif/';
 }
 
 eif_build_with_initgo() {
@@ -631,8 +649,8 @@ eif_build_with_initgo() {
     /usr/bin/time -v -o ./eif/init_go_eif/eif_build.log ./eif_build --arch 'x86_64' --build-time "$(date '+%FT%T.%N%:z')" --cmdline 'reboot=k panic=30 pci=on nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on' --kernel ./kernel/bzImage --kernel_config ./kernel/bzImage.config --name 'app-builder-secure-enclaves-framework' --output ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif --ramdisk ./cpio/init_go.cpio --ramdisk ./cpio/rootfs_ramdisk.cpio 2>&1 | tee ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif.pcr; \
     /usr/bin/time -v -o ./eif/init_go_eif/describe-eif.log nitro-cli describe-eif --eif-path ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif 2>&1 | tee ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif.desc;"
 
-    ln -vf -rs ./eif/init_go_eif/app-builder-secure-enclaves-framework.eif ./eif/app-builder-secure-enclaves-framework.eif
-    eif_init='init_go_eif/';
+    ln -vf -rs ./eif/${eif_init}/app-builder-secure-enclaves-framework.eif ./eif/app-builder-secure-enclaves-framework.eif
+    # eif_init='init_go_eif/';
 }
 
 # Enclave run-time management commands:

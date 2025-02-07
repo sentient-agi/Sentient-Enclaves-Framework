@@ -1,4 +1,4 @@
 /bin/bash
 -c
 --
-cd /apps/; ./pipeline listen --port 53000 >> /apps/pipeline.log 2>&1 & disown && tail -f /apps/pipeline.log
+echo -e "init started"; echo -e "executing init.sh"; cd /apps/; ./init.sh 2>&1 & disown; echo -e "init.sh executed"; echo -e "init launched"; tail -f /dev/null

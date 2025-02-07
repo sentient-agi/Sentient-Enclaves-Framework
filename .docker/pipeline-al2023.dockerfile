@@ -5,6 +5,7 @@ ENV SHELL="/usr/bin/env bash"
 
 RUN dnf upgrade -y
 RUN dnf install -y git gcc pkgconfig openssl openssl-devel openssl-libs
+RUN dnf install -y time which hostname
 
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
@@ -12,6 +13,7 @@ ENV RUST_BACKTRACE="full"
 ENV CARGO_HOME="$HOME/rust" RUSTUP_HOME="$HOME/rustup" PATH="$PATH:$HOME/rust/bin"
 RUN curl -fsSL https://sh.rustup.rs | bash -is -- -y --verbose --no-modify-path --default-toolchain stable --profile minimal
 # RUN rustup -v toolchain install nightly --profile minimal
+# RUN rustup target add x86_64-unknown-linux-musl
 
 WORKDIR /app-builder
 
@@ -43,6 +45,7 @@ WORKDIR /apps
 
 RUN mkdir -p /apps/
 RUN mkdir -p /apps/.config/
+RUN mkdir -p /apps/.logs/
 COPY --from=builder /app-builder/pipeline /apps/pipeline
 COPY --from=builder /app-builder/.config/config.toml /apps/.config/config.toml
 
@@ -56,7 +59,7 @@ RUN dnf install -y /usr/bin/systemctl
 # init=/lib/systemd/systemd
 # init=/usr/lib/systemd/systemd
 
-RUN dnf install -y sudo time which hostname tar bsdtar cpio findutils pciutils procps-ng
+RUN dnf install -y sudo time which hostname tar bsdtar cpio findutils pcre-tools pciutils procps-ng
 RUN dnf install -y iputils iproute dnsmasq bind bind-utils bind-dnssec-utils traceroute net-tools socat nc nmap-ncat
 # RUN dnf install -y kernel kernel-devel kernel-modules-extra kernel-modules-extra-common
 RUN dnf install -y kmod kmod-libs
@@ -73,4 +76,4 @@ RUN dnf install -y awscli
 # ENV RUST_LOG="pipeline=debug"
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
-CMD cd /apps/; ./pipeline listen --port 53000 >> /apps/pipeline.log 2>&1 & disown && tail -f /apps/pipeline.log
+CMD cd /apps/; ./pipeline listen --port 53000 >> /apps/.logs/pipeline.log 2>&1 & disown && tail -f /apps/.logs/pipeline.log & disown; tail -f /dev/null
