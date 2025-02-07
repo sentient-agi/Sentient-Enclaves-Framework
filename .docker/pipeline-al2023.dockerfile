@@ -76,4 +76,4 @@ RUN dnf install -y awscli
 # ENV RUST_LOG="pipeline=debug"
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
-CMD cd /apps/; ./pipeline listen --port 53000 >> /apps/.logs/pipeline.log 2>&1 & disown && tail -f /apps/.logs/pipeline.log & disown; tail -f /dev/null
+CMD cd /apps/; ./pipeline listen --port 53000 >> /apps/.logs/pipeline.log 2>&1 & disown; tail -f /apps/.logs/pipeline.log

@@ -13,9 +13,11 @@ echo -e "Init.sh started";
 
 echo -e "Executing Pipeline";
 cd /apps/;
-./pipeline listen --port 53000 >> /apps/.logs/pipeline.log 2>&1 & disown && tail -f /apps/.logs/pipeline.log & disown;
+./pipeline listen --port 53000 >> /apps/.logs/pipeline.log 2>&1 & disown;
 
 # ifconfig -a;
 
 echo -e "Init.sh executed";
+
+tail -f /apps/.logs/pipeline.log
 
