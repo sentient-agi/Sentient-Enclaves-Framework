@@ -1,6 +1,33 @@
-# Sentient Secure Enclaves Framework (Sentient Confidential Platform Framework) for Trusted Confidential AI & Crypto Apps
+# Sentient Enclaves Framework for Trusted Confidential AI & Crypto Apps
 
-### The SSE Framework contains the following components:
+## List of contents:
+
+- [Building instructions and getting started (quick start) guide](docs/md/BUILDING.md)
+
+
+- [Usage and advanced usage instructions, reference, guides](docs/md/USAGE.md)
+
+
+- [Changelog: what's already done and implemented, release notes](docs/md/CHANGELOG.md)
+
+
+- [Roadmap: what's in progress, in active development and upcoming features, release schedule](docs/md/ROADMAP.md)
+
+
+## Supported platforms, system requirements:
+
+Sentient Enclaves Framework built for AWS Nitro Enclaves.
+Thus supported on EC2 instances with enabled `Nitro Enclaves` option.
+Memory requirements should be equal to your application's Docker container image size multiplied by the grade of two (due to the initrd initramfs ramdisk with rootfs exported from app's Docker container + RAM for enclave).
+
+Sentient Enclaves Framework built with portability of components in mind.
+
+More platforms and cloud based confidential VMs support (including confidential VMs with GPU TEE support) are coming very soon. (WIP)
+
+
+## Overview:
+
+### The Sentient Enclaves Framework contains the following components:
 
 ## Pipeline SLC VSock Communication Protocol
 
@@ -8,11 +35,12 @@ Pipeline VSock secure local channel (SLC) communication protocol, implemented as
 that provides remote control of enclave via running shell commands inside the enclave
 and provides bidirectional files transmission into/from enclave's file system.
 
-It implements binary protocol over VSock for local communication, which gives speed and user and developer experience with enclaves on par as Docker experience with containers.
+It implements binary protocol over VSock for local communication,
+which gives speed, user and developer experience with enclaves on par as Docker experience with containers.
 
 ## Encryption (WIP)
 
-SSE Framework and specifically Pipeline SLC implementation supports strong P2P encryption and PRE multi-hop re-encryption, between host and enclave, enclave and S3 storage.
+Sentient Enclaves Framework and specifically Pipeline SLC implementation supports strong P2P encryption and PRE multi-hop re-encryption, between host and enclave, enclave and S3 storage.
 
 Encryption protocol implemented in Pipeline tool on a VSock buffer level and for content protection itself (data that transferred into and from enclave).
 
@@ -20,15 +48,17 @@ All the data outside the enclave are secured by strong encryption.
 
 Pipeline supports SLC buffer level encryption for secure data transferring without leaks between enclave and host, and content encryption (encryption/decryption protocol and test tools) between host and outer storage (S3 at the moment), and multi-hop PRE re-encryption protocol and test tools for data protection between enclave and third-party systems during data transferring though many points in the cloud or for content protection between many participants/users in a network and on Sentient platform.
 
-Keys are stored securely in a KMS service and locally can be stored in TPM devices (on EC2 instance).
+Keys are stored securely in a KMS service and locally can be stored in TPM devices (on EC2 instance). (WIP)
 
 ## Transparent VSock Proxies
 
 Transparent VSock Proxies supports port forwarding and NAT for inbound and outbound TCP streams, and include original destination address retrieving from TCP stream, with sending/receiving requests/responses to/from original destination address from request.
 
-It gives full support of networking stack (securely, on demand, with kill-switch for sensitive computations during run-time) for enclaves and for higher level networking protocols over VSock (VirtIO VM sockets) for data exchange in forward and reverse proxy mode, with ports aggregation up to full-cone scheme support, via NetFilter rules for Linux kernel networking subsystem.
+It gives full support of networking stack (securely, on demand, with kill-switch (WIP) for sensitive computations during run-time) for enclaves and for higher level networking protocols over VSock (VirtIO VM sockets) for data exchange in forward and reverse proxy mode, with ports aggregation up to full-cone scheme support, via NetFilter rules for Linux kernel networking subsystem.
 
 It is heavily relying on Linux networking stack and custom reproducible Linux kernel builds with networking stack support for enclaves.
+
+The reverse and forward proxying schemes are supported for p2p proxying, transparent port to VSock forwarding (many-to-many listeners scheme, with requiring according number of port forwaring proxies to listeners), and fully transparent proxying (full-cone NAT and port porwarding, with many-to-many listeners scheme, and requiring only one proxy instance for each side, host and enclave), to provide networking stack access for enclave apps (in case of forward proxy) and provide confidential services hosted in enclave (in case of reverse proxy).
 
 ## Web server for remote attestation inside the enclave (WIP)
 
@@ -40,7 +70,7 @@ The attestation process guarantees that computation process on data, data produc
 
 Enclave's file system monitor (for ramdisk or CoW image) supports unconditional attestation for all outer external additional data that will be appeared in enclave file system and run-time.
 
-It guarantees that all data, data producers and data handlers in enclave will be attested unconditionally.
+It guarantees that all data, data producers and data handlers in enclave will be attested unconditionally in unattended mode.
 
 This improves guarantees for computational processes and eliminate chances for data leaks and backdoors installation inside the enclave.
 
@@ -56,20 +86,24 @@ Build system operates with custom but standard Unix/BSD and Linux tools, not rel
 
 Build system rebuild reproducibly custom Linux kernel for networking stack support, and rebuild reproducibly of custom Init system for running apps processes inside enclave and for KVM hypervisor interaction during enclave's boot process, during enclave's run-time and termination at the enclave's EOL.
 
+## Demonstrations:
+
 ### Reproducible builds demo:
 
-[![Reproducible builds demo](docs/png/rbuilds-demo.png)](https://andrcmdr.github.io/secure-enclaves-framework/rbuilds-demo.html)
-[![Reproducible builds demo](docs/gif/rbuilds-demo.gif)](https://andrcmdr.github.io/secure-enclaves-framework/rbuilds-demo.html)
+[![Reproducible builds demo](docs/png/rbuilds-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
+[![Reproducible builds demo](docs/gif/rbuilds-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
 
-[![Reproducible builds demo](docs/png/rbuilds-io-demo.png)](https://andrcmdr.github.io/secure-enclaves-framework/rbuilds-demo.html)
-[![Reproducible builds demo](docs/gif/rbuilds-io-demo.gif)](https://andrcmdr.github.io/secure-enclaves-framework/rbuilds-demo.html)
+### Reproducible builds demo with full IO:
 
-### Enclave's networking demo:
+[![Reproducible builds demo with full IO](docs/png/rbuilds-io-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
+[![Reproducible builds demo with full IO](docs/gif/rbuilds-io-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
 
-[![Enclave's networking demo](docs/png/net-demo.png)](https://andrcmdr.github.io/secure-enclaves-framework/net-demo.html)
-[![Enclave's networking demo](docs/gif/net-demo.gif)](https://andrcmdr.github.io/secure-enclaves-framework/net-demo.html)
+### Enclave's networking demo (WIP):
 
-## Visualization of SSE Framework infrastructure, components and its interaction:
+[![Enclave's networking demo](docs/png/net-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#networking-demo)
+[![Enclave's networking demo](docs/gif/net-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#networking-demo)
+
+## Visualization of Sentient Enclaves Framework infrastructure, components and its interaction, with diagrams:
 
 ### Whole Infrastructure bird-eye view:
 
