@@ -13,9 +13,11 @@
         Providing networking stack for applications in enclave, to forward traffic from apps, from inside the enclave,
         use high-level networking protocols (network/cloud data storage, web, etc.), supported over VSock.
 
-- **0.4.0** - Reverse proxies, transparent reverse proxies (including transparent port forwarding to vsock),
+- **0.4.0** - New updated reproducible builds system for Sentient Enclaves Framework for building customized enclave images (EIF).
+
+- **0.5.0** - Reverse proxies, transparent reverse proxies (including transparent port forwarding to vsock),
         to support request forwarding into enclave's apps, for providing services (mostly web and other network protocols),
         hosted inside enclave (in isolated memory region and isolated environment from host system).
 
-- **0.5.0** - Set of reference applications, built with framework - inference server (will include Dobby model),
+- **0.6.0** - Set of reference applications, built with framework - inference server (will include Dobby model),
         fine-tuning server (includes fine-tuning OML library), X agent (chat bot app).
