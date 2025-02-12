@@ -1,39 +1,48 @@
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use std::future::Future;
+use async_std::fs::File;
+use async_std::io;
+use async_std::prelude::*;
+use sha2::{Digest, Sha512};
 
-/// A function to check if a Future is ready.
-///
-/// # Arguments
-/// * `future` - A pinned reference to the Future.
-/// * `cx` - A mutable reference to the Context.
-///
-/// # Returns
-/// * `true` if the Future is ready, otherwise `false`.
-fn is_future_ready<F>(future: &mut Pin<&mut F>, cx: &mut Context<'_>) -> bool
-where
-    F: Future,
-{
-    matches!(future.poll(cx), Poll::Ready(_))
+#[async_std::main]
+async fn main() -> io::Result<()> {
+    // Open the file for reading
+    let mut file = File::open("example.txt").await?;
+
+    // Create a hasher
+    let mut hasher = Sha512::new();
+
+    // Create a writer adapter for the hasher
+    let mut hasher_writer = io::BufWriter::new(HasherWriter::new(&mut hasher));
+
+    // Copy the file contents into the hasher
+    io::copy(&mut file, &mut hasher_writer).await?;
+
+    // Finalize the hash
+    let hash_result = hasher.finalize();
+
+    println!("SHA-512 Hash: {:x}", hash_result);
+
+    Ok(())
 }
 
-#[tokio::main]
-async fn main() {
-    use tokio::io::{self, AsyncRead, AsyncWrite};
+/// A wrapper around a hasher to implement `io::Write`.
+struct HasherWriter<'a, H: Digest> {
+    hasher: &'a mut H,
+}
 
-    let (mut reader, mut writer) = io::duplex(64);
+impl<'a, H: Digest> HasherWriter<'a, H> {
+    fn new(hasher: &'a mut H) -> Self {
+        Self { hasher }
+    }
+}
 
-    // Example future for a copy operation
-    let copy_future = tokio::io::copy(&mut reader, &mut writer);
-    let mut pinned_future = Box::pin(copy_future);
+impl<H: Digest> io::Write for HasherWriter<'_, H> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.hasher.update(buf);
+        Ok(buf.len())
+    }
 
-    // Example context (using `noop_waker` for simplicity)
-    let waker = futures::task::noop_waker();
-    let mut cx = Context::from_waker(&waker);
-
-    if is_future_ready(&mut pinned_future, &mut cx) {
-        println!("Future is ready for I/O copy operation!");
-    } else {
-        println!("Future is not ready yet.");
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
