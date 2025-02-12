@@ -12,7 +12,15 @@ MODEL_ID=$1
 QUANT_TYPE=${2:-q8_0}  # Use q8_0 as default if not specified
 MODEL_REPO=$(echo $MODEL_ID | cut -d '/' -f 1)
 MODEL_NAME=$(echo $MODEL_ID | cut -d '/' -f 2)
+
+# Make sure access_token.txt exists
+if [ ! -f access_token.txt ]; then
+    echo "Error: access_token.txt not found"
+    exit 1
+fi
+
 ACCESS_TOKEN=$(cat access_token.txt)
+
 
 # Define allowed quantization types
 ALLOWED_TYPES=("f32" "f16" "bf16" "q8_0" "tq1_0" "tq2_0" "auto")
@@ -23,9 +31,6 @@ if [[ ! " ${ALLOWED_TYPES[@]} " =~ " ${QUANT_TYPE} " ]]; then
     echo "Allowed types: ${ALLOWED_TYPES[@]}"
     exit 1
 fi
-
-# Clear the previous docker image
-# docker rmi model-converter
 
 # Create Dockerfile
 cat > Dockerfile.convert << EOF
@@ -47,7 +52,8 @@ RUN git clone https://github.com/ggerganov/llama.cpp.git
 # Install Python requirements
 RUN pip3 install -r llama.cpp/requirements/requirements-convert_hf_to_gguf.txt
 
-# Download the model from huggingface
+# Download the model from huggingface. Don't show this command when running the container
+
 RUN huggingface-cli download ${MODEL_ID} --token ${ACCESS_TOKEN} --repo-type model --local-dir /workspace/${MODEL_NAME}
 
 # Convert to GGUF
@@ -57,24 +63,28 @@ RUN python3 llama.cpp/convert_hf_to_gguf.py \
     /workspace/${MODEL_NAME}
 
 CMD ["/bin/bash"]
+CMD tail -f /dev/null
 EOF
 
-# Create directory for output
+# Create "models" directory for output
 mkdir -p models
 
 # Build and run Docker container
 echo "Building Docker image..."
-docker build -f Dockerfile.convert -t model-converter .
-
+DOCKER_BUILDKIT=1 docker build --no-cache -f Dockerfile.convert -t model-converter .
 
 echo "Running conversion..."
-docker run --rm \
-    -v "$(pwd)/models:/workspace/models" \
-    model-converter \
-    cp /workspace/${MODEL_NAME}_${QUANT_TYPE}.gguf /workspace/models/
+CONTAINER_ID=$(docker create model-converter)
 
-# Delete the docker image
+# Copy the model to the models directory
+docker cp ${CONTAINER_ID}:/workspace/${MODEL_NAME}_${QUANT_TYPE}.gguf models/
+
+# Remove the container
+docker rm ${CONTAINER_ID}
+
+# Delete the docker image and clean up build cache
 docker rmi model-converter
+docker builder prune -f
 
 # Delete the Dockerfile
 rm Dockerfile.convert
