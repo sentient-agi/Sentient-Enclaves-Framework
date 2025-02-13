@@ -75,7 +75,7 @@ async fn request_inference(client: &Client, prompt: &str) -> Result<(), Box<dyn 
     let random_seed: u32 = rng.gen_range(1..=u32::MAX);
 
     let request_body = CompletionRequest {
-        model: "Dobby Unhinged".to_string(),
+        model: "LLaMa 3.1 8B".to_string(),
         prompt: prompt.to_string(),
         seed: random_seed,
         ..Default::default()
