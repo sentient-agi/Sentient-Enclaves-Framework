@@ -25,7 +25,7 @@ Convert any HuggingFace models to GGUF format with ease for running with [infere
 ```bash
 ./convert_to_gguf.sh meta-llama/Llama-3.1-8B tq1_0
 ```
-
+Depending on the model size, it may take a while to convert. For example, the 8B model takes about 10 minutes to convert.
 ## **Output** 📁
 - The converted GGUF model will be available in the `models` directory.
 - The model will be named `<MODEL_NAME>_<QUANT_TYPE>.gguf` .
