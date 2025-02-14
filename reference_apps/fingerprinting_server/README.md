@@ -6,12 +6,12 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
 
 ### Core Functionality
 - **API Endpoints:**
-  - `/fingerprint`: Initiates fingerprint generation.
+  - `/fingerprint`: Initiates insertion of fingerprints into the model.
   - `/generate_fingerprints`: Generates multiple fingerprints based on provided parameters.
   - `/status`: Retrieves the current status of fingerprinting operations.
 - **Concurrency:** Utilizes multi-threading to handle multiple fingerprinting tasks simultaneously.
 - **State Management:** Maintains application state to monitor ongoing operations and configurations.
-- **Configurable Parameters:** Customize fingerprinting operations with various parameters like token lengths, batch sizes, and more.
+- **Configurable Parameters:** Customize fingerprinting operations with various parameters available in the [Sentient OML Fingerprinting](https://github.com/sentient-agi/oml-1.0-fingerprinting) library.
 - **JSON Responses:** Consistent and structured JSON responses for all API interactions.
 
 ### Model Integration 🧠
@@ -22,7 +22,7 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
 ## Setup 🚀
 
 ### Prerequisites
-- **Sentient OML Fingerprinting library:** Ensure you have the Sentient OML Fingerprinting repository cloned and it's dependencies installed. For more information, refer to the [Sentient OML Fingerprinting README](https://github.com/sentient-agi/oml-1.0-fingerprinting). 
+- **Sentient OML Fingerprinting library:** Ensure you have the Sentient OML Fingerprinting repository cloned and it's dependencies installed. For more information, refer to the [Sentient OML Fingerprinting](https://github.com/sentient-agi/oml-1.0-fingerprinting) library. 
 - **DeepSpeed:** Required for executing fingerprinting tasks. We recomment building it [from source](https://www.deepspeed.ai/tutorials/advanced-install/#install-deepspeed-from-source).
 
 ### Installation
@@ -38,7 +38,6 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
     cargo build --release
     ```
 3. **Run the Server:** 🏁
-   
     Start the fingerprinting server using Cargo:
     ```bash
     cargo run --bin fingerprinting_server
@@ -51,9 +50,9 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
 ## Configuration ⚙️
 
 ### Server Configuration
-- **Port:** Default is `3002`. Can be changed in the `ServerConfig` within `lib.rs` or via command-line arguments.
-- **DeepSpeed Directory:** Path to the DeepSpeed executable.
-- **Fingerprinting Source Directory:** Working directory for fingerprinting operations.
+- **Port:** Default is `3001`. Can be changed in the `ServerConfig` within `lib.rs` or via command-line arguments.
+- **DeepSpeed Directory:** Path to directory containing the DeepSpeed executable.
+- **Fingerprinting Source Directory:** Path to directory containing the Sentient OML Fingerprinting repository.
 
 ### Model Configuration 🧠
 - **Model Path:** Specify the path to your fingerprinting model.
