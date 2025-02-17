@@ -2,61 +2,43 @@ use async_std::fs::{self, File};
 use async_std::io::{self, BufWriter};
 use async_std::path::Path;
 use async_std::prelude::*;
-use async_std::task::{Context, Poll};
-use futures::task::noop_waker;
+use async_std::task::spawn_blocking;
 use sha2::{Digest, Sha512};
 use std::collections::HashMap;
-use std::pin::Pin;
+use std::sync::Arc;
 
 #[async_std::main]
 async fn main() -> io::Result<()> {
     let dir_path = "example_directory";
-    let mut results = recursive_hash_dir(dir_path).await?;
+
+    let results = recursive_hash_dir(dir_path).await?;
 
     println!("\nFinal Hash Results:");
-    for (file_path, hash) in results.drain() {
+    for (file_path, hash) in results {
         println!("{}: {:x}", file_path, hash);
     }
 
     Ok(())
 }
 
-/// Recursively hashes all files in the given directory and tracks readiness of hashing futures.
+/// Recursively hashes all files in the given directory, running each task in a separate thread.
 async fn recursive_hash_dir(dir_path: &str) -> io::Result<HashMap<String, Vec<u8>>> {
     let mut results = HashMap::new();
     let mut tasks = Vec::new();
 
-    // Visit each file recursively and spawn hashing tasks
+    // Visit all files recursively and spawn hashing tasks in separate threads
     visit_files_recursively(Path::new(dir_path), &mut tasks).await?;
 
-    // Track readiness of tasks in a cycle
-    let mut pinned_tasks: Vec<_> = tasks
-        .into_iter()
-        .map(|(file_path, future)| (file_path, Box::pin(future)))
-        .collect();
-
-    let waker = noop_waker();
-    let mut cx = Context::from_waker(&waker);
-
-    while !pinned_tasks.is_empty() {
-        let mut remaining_tasks = Vec::new();
-        for (file_path, mut task) in pinned_tasks {
-            match task.as_mut().poll(&mut cx) {
-                Poll::Ready(Ok(hash)) => {
-                    results.insert(file_path, hash);
-                }
-                Poll::Ready(Err(e)) => {
-                    eprintln!("Error processing {}: {}", file_path, e);
-                }
-                Poll::Pending => {
-                    remaining_tasks.push((file_path, task));
-                }
+    // Await all hashing tasks
+    for task in tasks {
+        match task.await {
+            Ok((file_path, hash)) => {
+                results.insert(file_path, hash);
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
             }
         }
-        pinned_tasks = remaining_tasks;
-
-        // Yield to let other async tasks progress
-        async_std::task::yield_now().await;
     }
 
     Ok(results)
@@ -65,7 +47,7 @@ async fn recursive_hash_dir(dir_path: &str) -> io::Result<HashMap<String, Vec<u8
 /// Visits all files recursively in a directory and spawns hashing tasks.
 async fn visit_files_recursively(
     path: &Path,
-    tasks: &mut Vec<(String, impl Future<Output = io::Result<Vec<u8>>>)>,
+    tasks: &mut Vec<async_std::task::JoinHandle<io::Result<(String, Vec<u8>)>>>,
 ) -> io::Result<()> {
     if path.is_dir().await {
         let mut entries = fs::read_dir(path).await?;
@@ -75,45 +57,31 @@ async fn visit_files_recursively(
         }
     } else if path.is_file().await {
         let file_path = path.to_string_lossy().to_string();
-        let task = async move { hash_file(&file_path).await };
-        tasks.push((file_path, task));
+        let task = spawn_blocking(move || {
+            // Perform hashing in a separate thread
+            let result = hash_file(&file_path);
+            result.map(|hash| (file_path, hash))
+        });
+        tasks.push(task);
     }
     Ok(())
 }
 
 /// Hashes a single file using SHA-512.
-async fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
-    let mut file = File::open(file_path).await?;
+fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
+    let mut file = std::fs::File::open(file_path)?;
     let mut hasher = Sha512::new();
+    let mut buffer = [0; 8192];
 
-    // Create a writer adapter for the hasher
-    let mut hasher_writer = BufWriter::new(HasherWriter::new(&mut hasher));
+    // Read the file in chunks and update the hash
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
 
-    // Copy file contents into the hasher
-    io::copy(&mut file, &mut hasher_writer).await?;
-
-    // Finalize the hash
+    // Finalize and return the hash
     Ok(hasher.finalize().to_vec())
-}
-
-/// A wrapper around a hasher to implement `io::Write`.
-struct HasherWriter<'a, H: Digest> {
-    hasher: &'a mut H,
-}
-
-impl<'a, H: Digest> HasherWriter<'a, H> {
-    fn new(hasher: &'a mut H) -> Self {
-        Self { hasher }
-    }
-}
-
-impl<H: Digest> io::Write for HasherWriter<'_, H> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.hasher.update(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
 }
