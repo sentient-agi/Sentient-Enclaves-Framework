@@ -5,6 +5,7 @@ ENV SHELL="/usr/bin/env bash"
 RUN dnf upgrade -y
 RUN dnf install -y git gcc pkgconfig openssl openssl-devel openssl-libs
 RUN dnf install -y time which hostname
+RUN dnf install -y clang clang-devel clang-libs llvm-devel cmake make
 
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
@@ -21,7 +22,8 @@ WORKDIR /app-builder
 # Copy the source code
 RUN git clone https://github.com/shivraj-sj/reference_apps.git
 
-RUN cd /app-builder/reference_apps/fingerprinting_server && \
+
+RUN cd /app-builder/reference_apps/inference_server && \
     cargo build --release
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as enclave_app
@@ -68,31 +70,8 @@ RUN dnf install -y jq wget openssh git rsync
 RUN dnf install -y lynx w3m
 RUN dnf install -y awscli
 
-# Install python 3.11 and make it the default python
-RUN dnf install -y  python3.11 python3.11-devel python3.11-pip python3.11-setuptools git
-
-RUN python3 --version
-
-## Clone the fingerprinting library
-RUN git clone https://github.com/sentient-agi/oml-1.0-fingerprinting.git
-
-## Install library dependencies
-RUN cd oml-1.0-fingerprinting && \
-    pip3.11 install -r requirements.txt
-
-RUN dnf install -y \
-    wget gcc gcc-c++ make which
-
-## Install DeepSpeed
-RUN git clone https://github.com/microsoft/DeepSpeed.git /tmp/DeepSpeed && \
-    cd /tmp/DeepSpeed && \
-    DS_BUILD_OPS=1 \
-    pip3.11 install . --no-build-isolation && \
-    rm -rf /tmp/DeepSpeed
-
 # Copy the server binary
-COPY --from=server_builder /app-builder/reference_apps/fingerprinting_server/target/release/fingerprinting_server /apps/fingerprinting_server
-COPY --from=server_builder /app-builder/reference_apps/fingerprinting_server/config_tee.toml /apps/config.toml
+COPY --from=server_builder /app-builder/reference_apps/inference_server/target/release/inference_server /apps/inference_server
 
 # ARG FS=0
 # ENV FS=${FS}
