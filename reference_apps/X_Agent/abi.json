@@ -1,0 +1,95 @@
+{
+    "TwitterAgent": [
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "_authorizedAddress",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "constructor"
+      },
+      {
+        "inputs": [],
+        "name": "NoZeroAddress",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "OnlyAuthorizedAddress",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "OnlyOwner",
+        "type": "error"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "internalType": "string",
+            "name": "twitterCommentId",
+            "type": "string"
+          }
+        ],
+        "name": "TwitterEmitter",
+        "type": "event"
+      },
+      {
+        "inputs": [],
+        "name": "authorizedAddress",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "owner",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "_authorizedAddress",
+            "type": "address"
+          }
+        ],
+        "name": "setAuthorizedAddress",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "string",
+            "name": "_twitter_comment_id",
+            "type": "string"
+          }
+        ],
+        "name": "twitterEmmiter",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      }
+    ]
+  }

@@ -1,0 +1,25 @@
+[project]
+name = "AgenticLLMResearch"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "Shivraj", email = "shivraj@sentient.xyz"},
+]
+dependencies = [
+    "openai==1.55.3",
+    "pydantic>=2.10,<3",
+    "requests==2.32.3",
+    "langchain-core==0.2.36",
+    "langsmith==0.1.75",
+    "tweepy==4.14.0",
+    "python-dotenv==1.0.1",
+    "eth-account==0.9.0",
+    "web3==6.5.0",
+    "setuptools==75.8.0",
+]
+requires-python = "==3.10.*"
+readme = "README.md"
+license = {text = "MIT"}
+
+[tool.pdm]
+distribution = false
