@@ -2,10 +2,11 @@ use async_std::fs::{self, File};
 use async_std::io::{self, BufWriter};
 use async_std::path::Path;
 use async_std::prelude::*;
-use async_std::task::spawn_blocking;
+use async_std::task::{Context, Poll, spawn_blocking};
+use futures::task::noop_waker;
 use sha2::{Digest, Sha512};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::pin::Pin;
 
 #[async_std::main]
 async fn main() -> io::Result<()> {
@@ -21,27 +22,60 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-/// Recursively hashes all files in the given directory, running each task in a separate thread.
+/// Recursively hashes all files in the given directory, tracking task readiness.
 async fn recursive_hash_dir(dir_path: &str) -> io::Result<HashMap<String, Vec<u8>>> {
     let mut results = HashMap::new();
     let mut tasks = Vec::new();
 
-    // Visit all files recursively and spawn hashing tasks in separate threads
+    // Visit all files recursively and spawn hashing tasks
     visit_files_recursively(Path::new(dir_path), &mut tasks).await?;
 
-    // Await all hashing tasks
-    for task in tasks {
-        match task.await {
-            Ok((file_path, hash)) => {
+    // Pin the tasks for readiness polling
+    let mut pinned_tasks: Vec<_> = tasks
+        .into_iter()
+        .map(|task| Box::pin(task))
+        .collect();
+
+    // Check readiness of tasks
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    while !pinned_tasks.is_empty() {
+        pinned_tasks = check_task_readiness(&mut pinned_tasks, &mut results, &mut cx).await;
+    }
+
+    Ok(results)
+}
+
+/// Checks readiness of tasks and processes ready ones.
+async fn check_task_readiness(
+    tasks: &mut Vec<Pin<Box<async_std::task::JoinHandle<io::Result<(String, Vec<u8>)>>>>>,
+    results: &mut HashMap<String, Vec<u8>>,
+    cx: &mut Context<'_>,
+) -> Vec<Pin<Box<async_std::task::JoinHandle<io::Result<(String, Vec<u8>)>>>>> {
+    let mut remaining_tasks = Vec::new();
+
+    for mut task in tasks.drain(..) {
+        match task.as_mut().poll(cx) {
+            Poll::Ready(Ok(Ok((file_path, hash)))) => {
                 results.insert(file_path, hash);
             }
-            Err(e) => {
+            Poll::Ready(Ok(Err(e))) => {
                 eprintln!("Error: {}", e);
+            }
+            Poll::Ready(Err(e)) => {
+                eprintln!("Task panicked: {}", e);
+            }
+            Poll::Pending => {
+                remaining_tasks.push(task);
             }
         }
     }
 
-    Ok(results)
+    // Yield to allow other async tasks to make progress
+    async_std::task::yield_now().await;
+
+    remaining_tasks
 }
 
 /// Visits all files recursively in a directory and spawns hashing tasks.
