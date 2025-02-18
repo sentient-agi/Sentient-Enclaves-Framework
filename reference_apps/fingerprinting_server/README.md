@@ -74,17 +74,17 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
 **Request Body:**
 ```json:fingerprinting_server/src/lib.rs
 {
-  "model_path": "/path/to/model",
-  "num_fingerprints": 5,
-  "max_key_length": 16,
-  "max_response_length": 1,
-  "batch_size": 5,
-  "num_train_epochs": 10,
-  "learning_rate": 0.001,
-  "weight_decay": 0.0001,
-  "fingerprint_generation_strategy": "english",
-  "fingerprints_file_path": "/path/to/output_fingerprints.json"
-}
+    "model_path": "path/to/model",
+    "num_fingerprints": 5,
+    "max_key_length": 16,
+    "max_response_length": 1,
+    "batch_size": 5,
+    "num_train_epochs": 10,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "fingerprints_file_path": "path/to/fingerprints.json",
+    "fingerprint_generation_strategy": "english"
+  },
 ```
 
 **Response:**
@@ -96,7 +96,7 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
 }
 ```
 
-### 2. Generate Multiple Fingerprints 🗂️
+### 2. Insert Fingerprints into the model 🔐
 **Endpoint:** `/generate_fingerprints`  
 **Method:** `POST`  
 **Description:** Generates multiple fingerprints based on the provided parameters.
