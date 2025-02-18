@@ -70,8 +70,7 @@ git clone https://github.com/microsoft/DeepSpeed.git /tmp/DeepSpeed && \
 huggingface-cli download meta-llama/Llama-3.1-8B --token ${ACCESS_TOKEN} --repo-type model --local-dir . -->
 <!-- ```
  -->
-<!-- 
-huggingface-cli download meta-llama/Llama-3.1-8B --token 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 --repo-type model --local-dir . -->
+
 
 ## Test fingerprinting by generating fingerprints
 ```bash
@@ -109,7 +108,7 @@ Server running at http://127.0.0.1:3001
 
 ## Generate Multiple Fingerprint
 ```bash:fingerprinting_server/README.md
-curl -X POST http://127.0.0.1:3001/generate_fingerprints -H "Content-Type: application/json" -d '{ "key_length": 16, "response_length": 16, "num_fingerprints": 5, "batch_size": 5, "model_used_for_key_generation": "/apps/Mistral-7B-v03", "key_response_strategy": "independent", "output_file": "/apps/new_fingerprints3.json" }'
+curl -X POST http://127.0.0.1:3002/generate_fingerprints -H "Content-Type: application/json" -d '{ "key_length": 16, "response_length": 16, "num_fingerprints": 5, "batch_size": 5, "model_used_for_key_generation": "/apps/Mistral-7B-v03", "key_response_strategy": "independent", "output_file": "/apps/new_fingerprints3.json" }'
 ```
 > [!NOTE]
 > Don't use line breaks in the `curl` request command.
