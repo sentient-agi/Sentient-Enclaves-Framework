@@ -1,19 +1,22 @@
-## Setting up an AI agent in the enclave 🤖
+# Setting up an AI agent in the enclave 🤖
+> [!IMPORTANT]
+> This guide addresses setting up X agent using `pipeline-slc-network-al2023.dockerfile` as the enclave image. Instead refer to [TEE_rbuilds_setup.md](TEE_rbuilds_setup.md) to use the preferred way of utilising [x_agent.dockerfile](x_agentr.dockerfile) as the base image for enclave.
+
 The AI agent that we are setting up is a Python application that uses a custom barebones framework for running AI agents. The agent interacts with twitter API, generates tweets and posts them to twitter and also interacts with blockchains to perform transactions for noting inference requests with the blockchain. The rest of the commands should be run in the enclave's shell that we have opened in the previous section.
 
-### Get the AI agent source code 📥
+## Get the AI agent source code 📥
 Clone the repository containing the AI agent source code. Perform git clone command in the enclave's shell.
 
-##### Example
+### Example
 ```bash
 $ git clone https://github.com/shivraj-sj/reference_apps.git && \
     cd reference_apps/X_Agent
 ```
 
-### Install dependencies 📦
+## Install dependencies 📦
 We use `pdm` to install the dependencies. Issue the following command to install `pdm`.
 
-#### Install `pdm`
+### Install `pdm`
 ```bash
 $ curl -sSL https://pdm-project.org/install-pdm.py | python3 -
 ```
@@ -21,13 +24,13 @@ $ curl -sSL https://pdm-project.org/install-pdm.py | python3 -
 > [!NOTE]
 > As this is a restricted shell, each command is stateless and all commands are executed relative to the current directory `/apps`. Commands like `cd` need command chaining. Use command chaining to run multiple commands.
 
-#### Install packages 📚
+### Install packages 📚
 Use the `pdm` binary present in the `/apps/.local/bin` directory to install the necessary packages for running the AI agent.
 ```bash
 $ /apps/.local/bin/pdm install -p dobby_agent
 ```
 
-### Passing the `.env` file 🔑
+## Passing the `.env` file 🔑
 The `.env` file is used to pass the API keys for the different services. Take a look at `.env.example` file to see the format of the `.env` file. Populate the `.env` file with the appropriate API keys. 
 
 The `.env` file should be present in the `dobby_agent` directory. This can be moved using the `pipeline` application. Issue the following command in a different terminal to move the `.env` file to the enclave.
@@ -39,7 +42,7 @@ Example:
 ./pipeline send-file --port 53000 --cid 127 --localpath ~/dobby_agent/.env --remotepath /apps/dobby_agent/.env
 ```
 
-### Run the AI agent 🚀
+## Run the AI agent 🚀
 Specify `-u` flag to run the AI agent in unbuffered mode.
 
 > [!NOTE]
@@ -50,11 +53,11 @@ cd /apps/dobby_agent && ./.venv/bin/python3 -u agent.py --username DobbyReborn 2
 
 The agent will fetch recent posts from user `DobbyReborn`. A random post is chosen to be replied to so as not to overshoot the rate limits. Using an inference request to an inference endpoint, the agent will generate a tweet. It notes down the ID of the tweet for which it has generated a tweet and passes it to the blockchain to note down the inference request. Finally, it will post the generated tweet to twitter.
 
-### Check the logs for the AI agent 📋
+## Check the logs for the AI agent 📋
 ```bash
 cat dobby_agent/logs/twitter_agent.log
 ```
-#### Example output
+### Example output
 ```bash
 
 2025-02-07 12:37:02,004 - twitter_agent - INFO - agent.py:174 - Tracking user:DobbyReborn

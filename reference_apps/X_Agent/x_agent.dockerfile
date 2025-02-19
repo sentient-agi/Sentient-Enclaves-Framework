@@ -51,13 +51,12 @@ RUN dnf install -y jq wget openssh git rsync
 RUN dnf install -y lynx w3m
 RUN dnf install -y awscli
 
+# Agent Dependencies
 RUN dnf install -y python3 python3-pip
-
 
 RUN curl -sSL https://pdm-project.org/install-pdm.py | python3 -
 COPY --from=fetcher /build/reference_apps/X_Agent /apps/X_Agent
 RUN cd /apps/X_Agent && /root/.local/bin/pdm install
 
-
-
+# Keep the enclave running
 CMD tail -f /dev/null
