@@ -47,7 +47,7 @@ async fn recursive_hash_dir(dir_path: &str) -> io::Result<HashMap<String, Vec<u8
     Ok(results)
 }
 
-/// Checks readiness of tasks and processes ready ones.
+/// Checks readiness of all tasks and processes ready ones.
 async fn check_task_readiness(
     tasks: &mut Vec<Pin<Box<async_std::task::JoinHandle<io::Result<(String, Vec<u8>)>>>>>,
     results: &mut HashMap<String, Vec<u8>>,
@@ -76,6 +76,24 @@ async fn check_task_readiness(
     async_std::task::yield_now().await;
 
     remaining_tasks
+}
+
+/// Checks the readiness of a single task by file path.
+fn check_specific_task_readiness(
+    tasks: &mut Vec<Pin<Box<async_std::task::JoinHandle<io::Result<(String, Vec<u8>)>>>>>,
+    file_path: &str,
+    cx: &mut Context<'_>,
+) -> Option<Poll<io::Result<(String, Vec<u8>)>>> {
+    for task in tasks.iter_mut() {
+        // Clone the file path for comparison since tasks own their paths.
+        if let Ok(Ok((ref task_path, _))) = task.as_mut().poll(cx) {
+            if task_path == file_path {
+                return Some(Poll::Ready(Ok((task_path.clone(), Vec::new()))));
+            }
+        }
+    }
+
+    None
 }
 
 /// Visits all files recursively in a directory and spawns hashing tasks.
@@ -119,3 +137,24 @@ fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
     // Finalize and return the hash
     Ok(hasher.finalize().to_vec())
 }
+
+/*
+
+let waker = noop_waker();
+let mut cx = Context::from_waker(&waker);
+
+if let Some(poll_result) = check_specific_task_readiness(&mut pinned_tasks, "example.txt", &mut cx) {
+    match poll_result {
+        Poll::Ready(Ok((file_path, hash))) => {
+            println!("Task for {} completed, hash: {:x}", file_path, hash);
+        }
+        Poll::Ready(Err(e)) => {
+            eprintln!("Error in task for {}: {}", "example.txt", e);
+        }
+        _ => {}
+    }
+} else {
+    println!("Task for example.txt is not ready.");
+}
+
+*/
