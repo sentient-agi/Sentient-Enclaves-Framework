@@ -21,7 +21,7 @@ This moves model locally stored on the host inside the enclave
 
 ### B. Download model directly inside enclave
 ```bash
-huggingface-cli download meta-llama/Llama-3.1-8B --token ${ACCESS_TOKEN} --repo-type model --local-dir . -->
+huggingface-cli download meta-llama/Llama-3.1-8B --token ${ACCESS_TOKEN} --repo-type model --local-dir Llama-3.1-8B
 ```
 
 ## Run the server
@@ -54,3 +54,8 @@ curl -X POST http://127.0.0.1:3001/fingerprint -H "Content-Type: application/jso
  ```bash
  curl http://127.0.0.1:3001/status
  ```
+
+## Dropping the recent enclave 
+```bash
+./rbuilds.sh --cmd "drop_recent_enclave"
+```

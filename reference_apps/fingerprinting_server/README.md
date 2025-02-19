@@ -67,7 +67,7 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
 ## API Endpoints 🖥️
 
 ### 1. Generate Fingerprint 🔐
-**Endpoint:** `/fingerprint`  
+**Endpoint:** `/generate_fingerprints`  
 **Method:** `POST`  
 **Description:** Initiates the fingerprint generation process with the provided configuration.
 
@@ -91,13 +91,13 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
 ```json:fingerprinting_server/src/lib.rs
 {
   "status": "Started",
-  "operation": "fingerprint",
+  "operation": "generate_fingerprints",
   "config_hash": "unique_config_hash"
 }
 ```
 
 ### 2. Insert Fingerprints into the model 🔐
-**Endpoint:** `/generate_fingerprints`  
+**Endpoint:** `/fingerprint`  
 **Method:** `POST`  
 **Description:** Generates multiple fingerprints based on the provided parameters.
 
@@ -110,7 +110,7 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
   "batch_size": 5,
   "model_used_for_key_generation": "/path/to/model",
   "key_response_strategy": "independent",
-  "output_file": "/path/to/output_fingerprints_demo_new.json"
+  "output_file": "/path/to/output_fingerprints.json"
 }
 ```
 
@@ -118,7 +118,7 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
 ```json:fingerprinting_server/src/lib.rs
 {
   "status": "Started",
-  "operation": "generate_fingerprints",
+  "operation": "fingerprint",
   "config_hash": "unique_config_hash"
 }
 ```
