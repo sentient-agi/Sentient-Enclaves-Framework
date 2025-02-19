@@ -67,3 +67,8 @@ curl -X POST http://127.0.0.1:3000/completions -H "Content-Type: application/jso
 
 #### Response
 > The future of AI is incredibly promising, with potential to revolutionize industries and improve daily life. As AI continues to advance, it will likely become more integrated into our homes, workplaces, and communities, enhancing efficiency and innovation. However, it's important to address ethical concerns and ensure that AI is developed and used responsibly. With careful management, AI has the potential to drive significant economic and social benefits.
+
+## Dropping the recent enclave 
+```bash
+./rbuilds.sh --cmd "drop_recent_enclave"
+```
