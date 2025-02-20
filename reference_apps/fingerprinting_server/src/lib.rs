@@ -80,6 +80,10 @@ pub struct Args {
     
     #[arg(long, help = "Working directory for fingerprinting operations")]
     pub working_dir: Option<String>,
+
+    #[arg(long, help = "Port to use for the server")]
+    pub port: Option<u16>
+
 }
 
 #[derive(Debug, Clone)]
@@ -115,7 +119,8 @@ impl ServerConfig {
             .unwrap_or_else(|| config.get_string("deepspeed_dir").unwrap());
         let fingerprinting_source_dir = args.working_dir
             .unwrap_or_else(|| config.get_string("fingerprinting_source_dir").unwrap());
-        let port = config.get_int("port").unwrap() as u16;
+        let port = args.port
+            .unwrap_or_else(|| config.get_int("port").unwrap() as u16);
         
         println!("deepspeed_dir: {}", deepspeed_dir);
         println!("fingerprinting_source_dir: {}", fingerprinting_source_dir);
