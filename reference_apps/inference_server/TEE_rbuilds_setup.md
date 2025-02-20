@@ -7,7 +7,7 @@ sudo ./rbuilds.sh --cmd "make_eif" --dockerfile "/home/ec2-user/pipeline/secure-
 
 ## Running the enclave 🌟
 ```bash
-sudo ./rbuilds.sh --cmd "run_eif_image_debugmode_cli" --mem 240000 --cpus 40 --dockerfile "/home/ec2-user/pipeline/secure-enclaves-framework/reference_apps/inference_server/inference_server.dockerfile" --network --init-c
+sudo ./rbuilds.sh --cmd "run_eif_image_debugmode_cli" --mem 240000 --cpus 20 --dockerfile "/home/ec2-user/pipeline/secure-enclaves-framework/reference_apps/inference_server/inference_server.dockerfile" --network --init-c
 ```
 
 ## Start the inference server 🚀
@@ -15,7 +15,7 @@ sudo ./rbuilds.sh --cmd "run_eif_image_debugmode_cli" --mem 240000 --cpus 40 --d
 > Perform all the following commands in the enclave's shell.
 
 ```bash
-$ ./inference_server 2>&1 | tee inference_server.log
+./inference_server -p 10001 2>&1 | tee inference_server.log
 ```
 
 ## Getting dobby models 🤖
@@ -72,3 +72,17 @@ curl -X POST http://127.0.0.1:3000/completions -H "Content-Type: application/jso
 ```bash
 ./rbuilds.sh --cmd "drop_recent_enclave"
 ```
+<!-- 
+curl -X GET http://0.0.0.0:9005/status
+
+curl -X GET http://0.0.0.0:8080/status
+
+
+cat pf-proxy/.logs/vs2ip-tp.allprotos.output
+cat pf-proxy/.logs/vs2ip.http.output
+cat pf-proxy/.logs/ip2vs-tp.allprotos.output
+cat socat/.logs/socat-vsock-localhost-dns.output
+
+curl -X POST http://0.0.0.0:80/load_model -H "Content-Type: application/json" -d '{"model_name":"Dobby Unhinged","model_path":"/apps/dobby-8b-unhinged-q4_k_m.gguf"}'
+
+curl -X POST http://127.0.0.1:80/completions -H "Content-Type: application/json" -d '{"model":"Dobby Unhinged","prompt":"Answer the following question with a short answer: What do you think about the future of AI?","seed":42,"n_threads":5,"n_ctx":2048,"max_tokens":200}' -->

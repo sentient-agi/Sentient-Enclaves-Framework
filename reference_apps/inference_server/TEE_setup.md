@@ -5,14 +5,14 @@
 
 ## Copy the `inference_server` binary to the enclave.
 ```bash
-$ ./pipeline send-file --port 53000 --cid 127 --localpath ~/reference_apps/inference_server/target/release/inference_server --remotepath /apps/inference_server
+./pipeline send-file --port 53000 --cid 127 --localpath ~/reference_apps/inference_server/target/release/inference_server --remotepath /apps/inference_server
 ```
 ## Start the inference server
 > [!NOTE]
 > Perform all the following commands in the enclave's shell.
 
 ```bash
-$ ./inference_server 2>&1 | tee inference_server.log
+./inference_server 2>&1 | tee inference_server.log
 ```
 
 ## Getting dobby models 🤖
