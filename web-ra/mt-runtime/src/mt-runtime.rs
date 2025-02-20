@@ -22,84 +22,64 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-/// Recursively hashes all files in the given directory, tracking task readiness.
+/// Recursively hashes all files in the given directory, using a `HashMap` for task tracking.
 async fn recursive_hash_dir(dir_path: &str) -> io::Result<HashMap<String, Vec<u8>>> {
     let mut results = HashMap::new();
-    let mut tasks = Vec::new();
+    let mut tasks: HashMap<String, Pin<Box<async_std::task::JoinHandle<io::Result<Vec<u8>>>>>> = HashMap::new();
 
     // Visit all files recursively and spawn hashing tasks
     visit_files_recursively(Path::new(dir_path), &mut tasks).await?;
-
-    // Pin the tasks for readiness polling
-    let mut pinned_tasks: Vec<_> = tasks
-        .into_iter()
-        .map(|task| Box::pin(task))
-        .collect();
 
     // Check readiness of tasks
     let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
 
-    while !pinned_tasks.is_empty() {
-        pinned_tasks = check_task_readiness(&mut pinned_tasks, &mut results, &mut cx).await;
+    while !tasks.is_empty() {
+        check_task_readiness(&mut tasks, &mut results, &mut cx).await;
     }
 
     Ok(results)
 }
 
-/// Checks readiness of all tasks and processes ready ones.
+/// Checks readiness of tasks and processes ready ones.
 async fn check_task_readiness(
-    tasks: &mut Vec<Pin<Box<async_std::task::JoinHandle<io::Result<(String, Vec<u8>)>>>>>,
+    tasks: &mut HashMap<String, Pin<Box<async_std::task::JoinHandle<io::Result<Vec<u8>>>>>>,
     results: &mut HashMap<String, Vec<u8>>,
     cx: &mut Context<'_>,
-) -> Vec<Pin<Box<async_std::task::JoinHandle<io::Result<(String, Vec<u8>)>>>>> {
-    let mut remaining_tasks = Vec::new();
+) {
+    let mut completed_tasks = Vec::new();
 
-    for mut task in tasks.drain(..) {
+    for (file_path, task) in tasks.iter_mut() {
         match task.as_mut().poll(cx) {
-            Poll::Ready(Ok(Ok((file_path, hash)))) => {
-                results.insert(file_path, hash);
+            Poll::Ready(Ok(Ok(hash))) => {
+                results.insert(file_path.clone(), hash);
+                completed_tasks.push(file_path.clone());
             }
             Poll::Ready(Ok(Err(e))) => {
-                eprintln!("Error: {}", e);
+                eprintln!("Error processing {}: {}", file_path, e);
+                completed_tasks.push(file_path.clone());
             }
             Poll::Ready(Err(e)) => {
-                eprintln!("Task panicked: {}", e);
+                eprintln!("Task panicked for {}: {}", file_path, e);
+                completed_tasks.push(file_path.clone());
             }
-            Poll::Pending => {
-                remaining_tasks.push(task);
-            }
+            Poll::Pending => {}
         }
+    }
+
+    // Remove completed tasks from the hashmap
+    for file_path in completed_tasks {
+        tasks.remove(&file_path);
     }
 
     // Yield to allow other async tasks to make progress
     async_std::task::yield_now().await;
-
-    remaining_tasks
-}
-
-/// Checks the readiness of a single task by file path.
-fn check_specific_task_readiness(
-    tasks: &mut Vec<Pin<Box<async_std::task::JoinHandle<io::Result<(String, Vec<u8>)>>>>>,
-    file_path: &str,
-    cx: &mut Context<'_>,
-) -> Option<Poll<io::Result<(String, Vec<u8>)>>> {
-    for task in tasks.iter_mut() {
-        // Clone the file path for comparison since tasks own their paths.
-        if let Ok(Ok((ref task_path, _))) = task.as_mut().poll(cx) {
-            if task_path == file_path {
-                return Some(Poll::Ready(Ok((task_path.clone(), Vec::new()))));
-            }
-        }
-    }
-
-    None
 }
 
 /// Visits all files recursively in a directory and spawns hashing tasks.
 async fn visit_files_recursively(
     path: &Path,
-    tasks: &mut Vec<async_std::task::JoinHandle<io::Result<(String, Vec<u8>)>>>,
+    tasks: &mut HashMap<String, Pin<Box<async_std::task::JoinHandle<io::Result<Vec<u8>>>>>>,
 ) -> io::Result<()> {
     if path.is_dir().await {
         let mut entries = fs::read_dir(path).await?;
@@ -111,10 +91,9 @@ async fn visit_files_recursively(
         let file_path = path.to_string_lossy().to_string();
         let task = spawn_blocking(move || {
             // Perform hashing in a separate thread
-            let result = hash_file(&file_path);
-            result.map(|hash| (file_path, hash))
+            hash_file(&file_path)
         });
-        tasks.push(task);
+        tasks.insert(file_path, Box::pin(task));
     }
     Ok(())
 }
@@ -137,24 +116,3 @@ fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
     // Finalize and return the hash
     Ok(hasher.finalize().to_vec())
 }
-
-/*
-
-let waker = noop_waker();
-let mut cx = Context::from_waker(&waker);
-
-if let Some(poll_result) = check_specific_task_readiness(&mut pinned_tasks, "example.txt", &mut cx) {
-    match poll_result {
-        Poll::Ready(Ok((file_path, hash))) => {
-            println!("Task for {} completed, hash: {:x}", file_path, hash);
-        }
-        Poll::Ready(Err(e)) => {
-            eprintln!("Error in task for {}: {}", "example.txt", e);
-        }
-        _ => {}
-    }
-} else {
-    println!("Task for example.txt is not ready.");
-}
-
-*/
