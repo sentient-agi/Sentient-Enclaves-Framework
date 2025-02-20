@@ -44,7 +44,7 @@ async fn main() {
         .route("/status", get(status_handler))
         .with_state(models.clone());
 
-    let address = format!("0.0.0.0:{}", port);
+    let address = format!("127.0.0.1:{}", port);
     let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
     println!("Server running at http://{}", address);
     axum::serve(listener, app).await.unwrap();
