@@ -35,45 +35,48 @@ async fn recursive_hash_dir(dir_path: &str) -> io::Result<HashMap<String, Vec<u8
     let mut cx = Context::from_waker(&waker);
 
     while !tasks.is_empty() {
-        check_task_readiness(&mut tasks, &mut results, &mut cx).await;
+        let mut completed_tasks = Vec::new();
+
+        for (file_path, task) in tasks.iter_mut() {
+            if check_task_readiness(file_path, task, &mut results, &mut cx).await {
+                completed_tasks.push(file_path.clone());
+            }
+        }
+
+        // Remove completed tasks from the hashmap
+        for file_path in completed_tasks {
+            tasks.remove(&file_path);
+        }
+
+        // Yield to allow other async tasks to make progress
+        async_std::task::yield_now().await;
     }
 
     Ok(results)
 }
 
-/// Checks readiness of tasks and processes ready ones.
+/// Checks the readiness of a specific task by file path.
 async fn check_task_readiness(
-    tasks: &mut HashMap<String, Pin<Box<async_std::task::JoinHandle<io::Result<Vec<u8>>>>>>,
+    file_path: &str,
+    task: &mut Pin<Box<async_std::task::JoinHandle<io::Result<Vec<u8>>>>>,
     results: &mut HashMap<String, Vec<u8>>,
     cx: &mut Context<'_>,
-) {
-    let mut completed_tasks = Vec::new();
-
-    for (file_path, task) in tasks.iter_mut() {
-        match task.as_mut().poll(cx) {
-            Poll::Ready(Ok(Ok(hash))) => {
-                results.insert(file_path.clone(), hash);
-                completed_tasks.push(file_path.clone());
-            }
-            Poll::Ready(Ok(Err(e))) => {
-                eprintln!("Error processing {}: {}", file_path, e);
-                completed_tasks.push(file_path.clone());
-            }
-            Poll::Ready(Err(e)) => {
-                eprintln!("Task panicked for {}: {}", file_path, e);
-                completed_tasks.push(file_path.clone());
-            }
-            Poll::Pending => {}
+) -> bool {
+    match task.as_mut().poll(cx) {
+        Poll::Ready(Ok(Ok(hash))) => {
+            results.insert(file_path.to_string(), hash);
+            true // Task is complete
         }
+        Poll::Ready(Ok(Err(e))) => {
+            eprintln!("Error processing {}: {}", file_path, e);
+            true // Task is complete
+        }
+        Poll::Ready(Err(e)) => {
+            eprintln!("Task panicked for {}: {}", file_path, e);
+            true // Task is complete
+        }
+        Poll::Pending => false, // Task is not complete
     }
-
-    // Remove completed tasks from the hashmap
-    for file_path in completed_tasks {
-        tasks.remove(&file_path);
-    }
-
-    // Yield to allow other async tasks to make progress
-    async_std::task::yield_now().await;
 }
 
 /// Visits all files recursively in a directory and spawns hashing tasks.
