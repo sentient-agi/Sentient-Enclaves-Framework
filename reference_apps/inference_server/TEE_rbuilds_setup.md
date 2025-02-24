@@ -15,7 +15,7 @@ sudo ./rbuilds.sh --mem 150000 --cpus 20 --dockerfile "/home/ec2-user/pipeline/s
 This shell can be used to view output from enclaves shell.
 ---
 > [!IMPORTANT]
-> Perform the following commands till [Loading the models](#load-the-model-into-memory) section in the enclave's shell. Either [`networking.sh`](../../rbuilds/network.init/networking.sh) can be used for accessing enclaves shell or [`pipeline`](../../rbuilds/network.init/pipeline) utility to send commands inside enclave. Both ways are demonstrated.
+> Perform the following commands till [Loading the models](#load-the-model-into-memory) section in the enclave's shell. Either [`networking.sh`](../../rbuilds/network.init/networking.sh) can be used for accessing enclave's shell or [`pipeline`](../../rbuilds/network.init/pipeline) utility to send commands inside enclave. Both ways are demonstrated.
 
 ## Start the inference server 🚀
 > [!NOTE]
