@@ -19,7 +19,7 @@ This shell can be used to view output from enclaves shell.
 
 ## Start the inference server 🚀
 > [!NOTE]
-> The framework's reverse proxy, proxies traffic from port range `10000:11000` to enclaves host transparently. This allows accessing applications from outside the enclaves. Make sure to use ports from this range, if that is desired. **We setup server here with reverse-proxy support.**
+> The framework's reverse proxy, proxies traffic from port range `10000:11000` to enclave's host transparently. This allows accessing applications from outside the enclaves. Make sure to use ports from this range, if that is desired. **We setup server here with reverse-proxy support.**
 
 * Using `networking,sh`
     ```bash
@@ -28,7 +28,7 @@ This shell can be used to view output from enclaves shell.
 
 * Using `pipeline`
     ```bash
-    ./pipeline run --port 53000 --cid 127 --no-wait --command "./inference_server -p 10071 2>&1 | tee inference_server.log"
+    ./pipeline run --port 53000 --cid 127 --no-wait --command "./inference_server -p 10070 2>&1 | tee inference_server.log"
     ```
 
 ## Getting dobby models 🤖

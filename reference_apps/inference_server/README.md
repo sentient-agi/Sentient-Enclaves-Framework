@@ -12,7 +12,7 @@ An event-driven, light-weight HTTP server for model inference built in Rust usin
 - **Multi-threaded:** Utilizes multi-threading for processing each inference request.
 
 ### Supported Endpoints 📡
-All endpoints by default are available at `http://0.0.0.0:3000`. 
+All endpoints by default are available at `http://127.0.0.1:3000`. 
 
 A simple `curl` request can be made to the following endpoints to use the server.
 
@@ -62,15 +62,15 @@ An example of how to write a client to interact with the server is provided in [
     ```
 2. **Load a Model:**
     ```bash
-    curl -X POST http://0.0.0.0:3000/load_model -H "Content-Type: application/json" -d '{"model_name": "llama3-8b", "model_path": "/path/to/llama3-8b.gguf"}'
+    curl -X POST http://127.0.0.1:3000/load_model -H "Content-Type: application/json" -d '{"model_name": "llama3-8b", "model_path": "/path/to/llama3-8b.gguf"}'
     ```
 3. **Perform Inference:**
     ```bash
-    curl -X POST http://0.0.0.0:3000/completions -H "Content-Type: application/json" -d '{"model": "llama3-8b", "prompt": "Hello, world!", "max_tokens": 10, "seed": 42, "n_threads": 4, "n_ctx": 512}'
+    curl -X POST http://127.0.0.1:3000/completions -H "Content-Type: application/json" -d '{"model": "llama3-8b", "prompt": "Hello, world!", "max_tokens": 10, "seed": 42, "n_threads": 4, "n_ctx": 512}'
     ```
 4. **Get Status:**
     ```bash
-    curl http://0.0.0.0:3000/status
+    curl http://127.0.0.1:3000/status
     ```
 
 ## Configuration ⚙️
@@ -86,4 +86,4 @@ An example of how to write a client to interact with the server is provided in [
 
 ### Server Configuration 🌍
 - **Port:** Default port is `3000`. To change the port, use the `-p` flag.
-- **Address:** Listens on `0.0.0.0`.
+- **Address:** Listens on `127.0.0.1`.
