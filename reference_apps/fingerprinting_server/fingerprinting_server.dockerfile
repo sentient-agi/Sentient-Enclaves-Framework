@@ -34,22 +34,6 @@ ENV RUST_BACKTRACE="full"
 
 WORKDIR /apps
 
-RUN mkdir -vp /apps/
-RUN mkdir -vp /apps/.config/
-RUN mkdir -vp /apps/.logs/
-COPY --link secure-enclaves-framework/pipeline /apps/
-COPY --link secure-enclaves-framework/.config/config.toml /apps/.config/
-RUN mkdir -vp /apps/pf-proxy/
-RUN mkdir -vp /apps/pf-proxy/.logs/
-RUN mkdir -vp /apps/socat/.logs/
-COPY --link secure-enclaves-framework/ip-to-vsock-transparent /apps/pf-proxy/ip2vs-tp
-COPY --link secure-enclaves-framework/vsock-to-ip-transparent /apps/pf-proxy/vs2ip-tp
-COPY --link secure-enclaves-framework/vsock-to-ip /apps/pf-proxy/vs2ip
-COPY --link network.init/pf-rev-guest.sh /apps/
-COPY --link network.init/pf-tp-guest.sh /apps/
-COPY --link network.init/pf-guest.sh /apps/
-COPY --link network.init/init.sh /apps/
-
 RUN dnf upgrade -y
 
 RUN dnf install -y kernel-libbpf systemd systemd-libs systemd-resolved initscripts
