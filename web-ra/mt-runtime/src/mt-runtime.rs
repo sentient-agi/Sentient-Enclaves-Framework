@@ -13,7 +13,7 @@ use sha3::{Digest, Sha3_512};
 use std::collections::HashMap;
 use std::pin::Pin;
 // use futures::FutureExt;
-// use futures::future::{BoxFuture, FutureExt};
+use futures::future::{BoxFuture, FutureExt};
 use async_recursion::async_recursion;
 
 #[tokio::main]
@@ -36,7 +36,7 @@ async fn recursive_hash_dir(dir_path: &str) -> async_io::Result<HashMap<String, 
     let mut tasks: HashMap<String, Pin<Box<async_std::task::JoinHandle<std::io::Result<Vec<u8>>>>>> = HashMap::new();
 
     // Visit all files recursively and spawn hashing tasks
-    visit_files_recursively(Path::new(dir_path), &mut tasks).await?;
+    visit_files_recursively(Path::new(dir_path), &mut tasks).await.await?;
 
     // Check readiness of tasks
     let waker = noop_waker();
@@ -92,24 +92,26 @@ async fn check_task_readiness(
 async fn visit_files_recursively<'a>(
     path: &'a Path,
     tasks: &'a mut HashMap<String, Pin<Box<async_std::task::JoinHandle<std::io::Result<Vec<u8>>>>>>,
-) -> async_io::Result<()>
+) -> BoxFuture<'a, async_io::Result<()>>
 {
-    if path.is_dir().await {
-        let mut entries = async_fs::read_dir(path).await?;
-        while let Some(entry) = entries.next().await {
-            let entry = entry?;
-            visit_files_recursively(entry.path().as_path(), tasks).await?;
+    async move {
+        if path.is_dir().await {
+            let mut entries = async_fs::read_dir(path).await?;
+            while let Some(entry) = entries.next().await {
+                let entry = entry?;
+                visit_files_recursively(entry.path().as_path(), tasks).await.await?;
+            }
+        } else if path.is_file().await {
+            let file_path_hash = path.to_string_lossy().to_string();
+            let file_path_task = file_path_hash.clone();
+            let task = spawn_blocking(move || {
+                // Perform hashing in a separate thread
+                hash_file(&file_path_hash)
+            });
+            tasks.insert(file_path_task, Box::pin(task));
         }
-    } else if path.is_file().await {
-        let file_path_hash = path.to_string_lossy().to_string();
-        let file_path_task = file_path_hash.clone();
-        let task = spawn_blocking(move || {
-            // Perform hashing in a separate thread
-            hash_file(&file_path_hash)
-        });
-        tasks.insert(file_path_task, Box::pin(task));
-    }
-    Ok(())
+        Ok(())
+    }.boxed()
 }
 
 /// Hashes a single file using SHA3-512.
