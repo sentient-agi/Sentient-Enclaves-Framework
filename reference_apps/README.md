@@ -17,7 +17,6 @@ Each application provides distinct functionalities but shares the following esse
 - `TEE_rbuilds_setup.md`: Instructions for utilizing `<application name>.dockerfile` to deploy applications within the enclave, providing a step-by-step guide for secure setup.
 - `TEE_setup.md`: Guidelines for employing the general-purpose [`rbuilds/pipeline-slc-network-al2023.dockerfile`](../rbuilds/pipeline-slc-network-al2023.dockerfile) for application deployment, offering an alternative setup method.
 
-> [!WARNING] ⚠️
+> [!IMPORTANT]
 > Utilizing `<application name>.dockerfile` is the **recommended** and expedited method for TEE application setup. Refer to `TEE_rbuilds_setup.md` for the latest instructions. Note that `TEE_setup.md` may not be maintained in the future.
 
-## Conclusion 🏁

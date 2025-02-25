@@ -2,15 +2,16 @@
 
 ## Building the X Agent EIF 🛠️
 ```bash
-sudo ./rbuilds.sh --dockerfile "/home/ec2-user/pipeline/secure-enclaves-framework/reference_apps/X_Agent/x_agent.dockerfile" --fw_network --init-c --cmd "make_eif"
+sudo ./rbuilds.sh --dockerfile "/home/ec2-user/sentient-enclaves-framework/reference_apps/X_Agent/x_agent.dockerfile" --fw_network --init-c --cmd "make_eif"
 ```
 > [!NOTE]
 > 1. Make sure `--cmd` is last argument when it depends on values passed on command line to the `rbuilds.sh` script.
 > 2. This agent requires no external inputs/instructions as it's executed. If it's desired to support that functionality either pass `--network` flag instead of `--fw_network` or pass `--rev_network` flag with `--fw_network`. Take a look at other [reference applications](../) to setup a 2-way proxy.
+> 3. Make sure the dockerfile path is correct and accessible to `rbuilds.sh`.
 
 ## Running the enclave 🌟
 ```bash
-sudo ./rbuilds.sh --mem 50000 --cpus 10 --dockerfile "/home/ec2-user/pipeline/secure-enclaves-framework/reference_apps/X_Agent/x_agent.dockerfile" --fw_network --init-c  --cmd "run_eif_image_debugmode_cli"
+sudo ./rbuilds.sh --mem 50000 --cpus 10 --dockerfile "/home/ec2-user/sentient-enclaves-framework/reference_apps/X_Agent/x_agent.dockerfile" --fw_network --init-c  --cmd "run_eif_image_debugmode_cli"
 ```
 
 ## Passing the `.env` file 🔑
