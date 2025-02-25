@@ -4,6 +4,8 @@
 ```bash
 sudo ./rbuilds.sh --dockerfile "/home/ec2-user/pipeline/secure-enclaves-framework/reference_apps/fingerprinting_server/fingerprinting_server.dockerfile" --network --init-c --cmd "make_eif"
 ```
+> [!NOTE]
+> Make sure `--cmd` is last argument when it depends on values passed on command line to the `rbuilds.sh` script.
 
 ## Running the enclave 🌟
 ```bash
