@@ -1,129 +1,116 @@
-# Sentient Enclaves Framework for Trusted Confidential AI & Crypto Apps
+<h1 align="center">Sentient Enclaves Framework</h1>
 
-## List of contents:
+<!-- Socials -->
+<p align="center">
+      <a href="https://sentient.xyz/" target="_blank" style="margin: 2px;">
+    <img alt="Homepage" src="https://img.shields.io/badge/Website-Sentient.xyz-%23EAEAEA?logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNDEuMzMzIiBoZWlnaHQ9IjM0MS4zMzMiIHZlcnNpb249IjEuMCIgdmlld0JveD0iMCAwIDI1NiAyNTYiPjxwYXRoIGQ9Ik0xMzIuNSAyOC40Yy0xLjUgMi4yLTEuMiAzLjkgNC45IDI3LjIgMy41IDEzLjcgOC41IDMzIDExLjEgNDIuOSAyLjYgOS45IDUuMyAxOC42IDYgMTkuNCAzLjIgMy4zIDExLjctLjggMTMuMS02LjQuNS0xLjktMTcuMS03Mi0xOS43LTc4LjYtMS4yLTMtNy41LTYuOS0xMS4zLTYuOS0xLjYgMC0zLjEuOS00LjEgMi40ek0xMTAgMzBjLTEuMSAxLjEtMiAzLjEtMiA0LjVzLjkgMy40IDIgNC41IDMuMSAyIDQuNSAyIDMuNC0uOSA0LjUtMiAyLTMuMSAyLTQuNS0uOS0zLjQtMi00LjUtMy4xLTItNC41LTItMy40LjktNC41IDJ6TTgxLjUgNDYuMWMtMi4yIDEuMi00LjYgMi44LTUuMiAzLjctMS44IDIuMy0xLjYgNS42LjUgNy40IDEuMyAxLjIgMzIuMSAxMC4yIDQ1LjQgMTMuMyAzIC44IDYuOC0yLjIgNi44LTUuMyAwLTMuNi0yLjItOS4yLTMuOS0xMC4xQzEyMy41IDU0LjIgODcuMiA0NCA4NiA0NGMtLjMuMS0yLjMgMS00LjUgMi4xek0xNjUgNDZjLTEuMSAxLjEtMiAyLjUtMiAzLjIgMCAyLjggMTEuMyA0NC41IDEyLjYgNDYuNS45IDEuNSAyLjQgMi4zIDQuMiAyLjMgMy44IDAgOS4yLTUuNiA5LjItOS40IDAtMS41LTIuMS0xMC45LTQuNy0yMC44bC00LjctMTguMS00LjUtMi44Yy01LjMtMy40LTcuNC0zLjYtMTAuMS0uOXpNNDguNyA2NS4xYy03LjcgNC4xLTYuOSAxMC43IDEuNSAxMyAyLjQuNiAyMS40IDUuOCA0Mi4yIDExLjYgMjIuOCA2LjIgMzguOSAxMC4yIDQwLjMgOS44IDMuNS0uOCA0LjYtMy44IDMuMi04LjgtMS41LTUuNy0yLjMtNi41LTguMy04LjJDOTQuMiA3My4xIDU2LjYgNjMgNTQuOCA2M2MtMS4zLjEtNCAxLTYuMSAyLjF6TTE5OC4yIDY0LjdjLTMuMSAyLjgtMy41IDUuNi0xLjEgOC42IDQgNS4xIDEwLjkgMi41IDEwLjktNC4xIDAtNS4zLTUuOC03LjktOS44LTQuNXpNMTgxLjggMTEzLjFjLTI3IDI2LjQtMzEuOCAzMS41LTMxLjggMzMuOSAwIDEuNi43IDMuNSAxLjUgNC40IDEuNyAxLjcgNy4xIDMgMTAuMiAyLjQgMi4xLS4zIDU2LjktNTMuNCA1OS01Ny4xIDEuNy0zLjEgMS42LTkuOC0uMy0xMi41LTMuNi01LjEtNC45LTQuMi0zOC42IDI4Ljl6TTM2LjYgODguMWMtNSA0LTIuNCAxMC45IDQuMiAxMC45IDMuMyAwIDYuMi0yLjkgNi4yLTYuMyAwLTIuMS00LjMtNi43LTYuMy02LjctLjggMC0yLjYuOS00LjEgMi4xek02My40IDk0LjVjLTEuNi43LTguOSA3LjMtMTYuMSAxNC43TDM0IDEyMi43djUuNmMwIDYuMyAxLjYgOC43IDUuOSA4LjcgMi4xIDAgNi0zLjQgMTkuOS0xNy4zIDkuNS05LjUgMTcuMi0xOCAxNy4yLTE4LjkgMC00LjctOC40LTguNi0xMy42LTYuM3pNNjIuOSAxMzAuNiAzNCAxNTkuNXY1LjZjMCA2LjIgMS44IDguOSA2IDguOSAzLjIgMCA2Ni02Mi40IDY2LTY1LjYgMC0zLjMtMy41LTUuNi05LjEtNi4ybC01LS41LTI5IDI4Ljl6TTE5Ni4zIDEzNS4yYy05IDktMTYuNiAxNy4zLTE2LjkgMTguNS0xLjMgNS4xIDIuNiA4LjMgMTAgOC4zIDIuOCAwIDUuMi0yIDE3LjktMTQuOCAxNC41LTE0LjcgMTQuNy0xNC45IDE0LjctMTkuMyAwLTUuOC0yLjItOC45LTYuMi04LjktMi42IDAtNS40IDIuMy0xOS41IDE2LjJ6TTk2IDEzNi44Yy0yLjkuOS04IDYuNi04IDkgMCAxLjMgMi45IDEzLjQgNi40IDI3IDMuNiAxMy42IDcuOSAzMC4zIDkuNyAzNy4yIDEuNyA2LjkgMy42IDEzLjMgNC4xIDE0LjIuNSAxIDIuNiAyLjcgNC44IDMuOCA2LjggMy41IDExIDIuMyAxMS0zLjIgMC0zLTIwLjYtODMuMS0yMi4xLTg1LjktLjktMS45LTMuNi0yLjgtNS45LTIuMXpNMTIwLjUgMTU4LjRjLTEuOSAyLjktMS4yIDguNSAxLjQgMTEuNiAxLjEgMS40IDEyLjEgNC45IDM5LjYgMTIuNSAyMC45IDUuOCAzOC44IDEwLjUgMzkuOCAxMC41czMuNi0xIDUuNy0yLjJjOC4xLTQuNyA3LjEtMTAuNi0yLjMtMTMuMi0yOC4yLTguMS03OC41LTIxLjYtODAuMy0yMS42LTEuNCAwLTMgMS0zLjkgMi40ek0yMTAuNyAxNTguOGMtMS44IDEuOS0yLjIgNS45LS45IDcuOCAxLjUgMi4zIDUgMy40IDcuNiAyLjQgNi40LTIuNCA1LjMtMTEuMi0xLjUtMTEuOC0yLjQtLjItNCAuMy01LjIgMS42ek02OS42IDE2MmMtMiAyLjItMy42IDQuMy0zLjYgNC44LjEgMi42IDEwLjEgMzguNiAxMS4xIDM5LjkgMi4yIDIuNiA5IDUuNSAxMS41IDQuOSA1LTEuMyA0LjktMy0xLjUtMjcuNy0zLjMtMTIuNy02LjUtMjMuNy03LjItMjQuNS0yLjItMi43LTYuNC0xLjctMTAuMyAyLjZ6TTQ5LjYgMTgxLjVjLTIuNCAyLjUtMi45IDUuNC0xLjIgOEM1MiAxOTUgNjAgMTkzIDYwIDE4Ni42YzAtMS45LS44LTQtMS44LTQuOS0yLjMtMi4xLTYuNi0yLjItOC42LS4yek0xMjguNSAxODdjLTIuMyAyLjUtMS4zIDEwLjMgMS42IDEyLjggMi4yIDEuOSAzNC44IDExLjIgMzkuNCAxMS4yIDMuNiAwIDEwLjEtNC4xIDExLTcgLjYtMS45LTEuNy03LTMuMS03LS4yIDAtMTAuMy0yLjctMjIuMy02cy0yMi41LTYtMjMuMy02Yy0uOCAwLTIuMy45LTMuMyAyek0xMzYuNyAyMTYuOGMtMy40IDMuOC0xLjUgOS41IDMuNSAxMC43IDMuOSAxIDguMy0zLjQgNy4zLTcuMy0xLjItNS4xLTcuNS03LjEtMTAuOC0zLjR6Ii8%2BPC9zdmc%2B&link=https%3A%2F%2Fhuggingface.co%2FSentientagi"/>
+  </a>
+  <!-- Github Repo Info -->
+    <!-- Release -->
+    <a href="https://github.com/sentient-xyz/sentient-enclaves-framework/releases/tag/v0.6.0">
+        <img alt="GitHub release" src="https://img.shields.io/badge/Release-v0.6.0-green">
+    </a>
+    <!-- License -->
+    <a href="./LICENSE-APACHE">
+        <img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-red">
+    </a>
+    <!-- status as beta -->
+    <a>
+        <img alt="GitHub release" src="https://img.shields.io/badge/Release_Status-Beta-yellow">
+    </a>
+</p>
+       
+<p align="center">
+  <img src="docs/png/banner.png"/>
+</p>
 
-- [Building instructions and getting started (quick start) guide](docs/md/BUILDING.md)
+Welcome to the Sentient Enclaves Framework. The framework provides end-to-end infrastructure for building confidential AI applications using TEEs.
 
+# Overview 🔍
 
-- [Usage and advanced usage instructions, reference, guides](docs/md/USAGE.md)
-
-
-- [Changelog: what's already done and implemented, release notes](docs/md/CHANGELOG.md)
-
-
-- [Roadmap: what's in progress, in active development and upcoming features, release schedule](docs/md/ROADMAP.md)
-
-
-## Supported platforms, system requirements:
-
-Sentient Enclaves Framework built for AWS Nitro Enclaves.
-Thus supported on EC2 instances with enabled `Nitro Enclaves` option.
-Memory requirements should be equal to your application's Docker container image size multiplied by the grade of two (due to the initrd initramfs ramdisk with rootfs exported from app's Docker container + RAM for enclave).
-
-Sentient Enclaves Framework built with portability of components in mind.
-
-More platforms and cloud based confidential VMs support (including confidential VMs with GPU TEE support) are coming very soon. (WIP)
-
-
-## Overview:
-
-### The Sentient Enclaves Framework contains the following components:
-
-## Pipeline SLC VSock Communication Protocol
-
-Pipeline VSock secure local channel (SLC) communication protocol, implemented as a client-server application,
-that provides remote control of enclave via running shell commands inside the enclave
-and provides bidirectional files transmission into/from enclave's file system.
-
-It implements binary protocol over VSock for local communication,
-which gives speed, user and developer experience with enclaves on par as Docker experience with containers.
-
-## Encryption (WIP)
-
-Sentient Enclaves Framework and specifically Pipeline SLC implementation supports strong P2P encryption and PRE multi-hop re-encryption, between host and enclave, enclave and S3 storage.
-
-Encryption protocol implemented in Pipeline tool on a VSock buffer level and for content protection itself (data that transferred into and from enclave).
-
-All the data outside the enclave are secured by strong encryption.
-
-Pipeline supports SLC buffer level encryption for secure data transferring without leaks between enclave and host, and content encryption (encryption/decryption protocol and test tools) between host and outer storage (S3 at the moment), and multi-hop PRE re-encryption protocol and test tools for data protection between enclave and third-party systems during data transferring though many points in the cloud or for content protection between many participants/users in a network and on Sentient platform.
-
-Keys are stored securely in a KMS service and locally can be stored in TPM devices (on EC2 instance). (WIP)
-
-## Transparent VSock Proxies
-
-Transparent VSock Proxies supports port forwarding and NAT for inbound and outbound TCP streams, and include original destination address retrieving from TCP stream, with sending/receiving requests/responses to/from original destination address from request.
-
-It gives full support of networking stack (securely, on demand, with kill-switch (WIP) for sensitive computations during run-time) for enclaves and for higher level networking protocols over VSock (VirtIO VM sockets) for data exchange in forward and reverse proxy mode, with ports aggregation up to full-cone scheme support, via NetFilter rules for Linux kernel networking subsystem.
-
-It is heavily relying on Linux networking stack and custom reproducible Linux kernel builds with networking stack support for enclaves.
-
-The reverse and forward proxying schemes are supported for p2p proxying, transparent port to VSock forwarding (many-to-many listeners scheme, with requiring according number of port forwaring proxies to listeners), and fully transparent proxying (full-cone NAT and port porwarding, with many-to-many listeners scheme, and requiring only one proxy instance for each side, host and enclave), to provide networking stack access for enclave apps (in case of forward proxy) and provide confidential services hosted in enclave (in case of reverse proxy).
-
-## Web server for remote attestation inside the enclave (WIP)
-
-Web server for remote attestation inside the enclave supports proofs generation and proofs verification, for content (external additional data, like model heavyweight tensor layers and data sets) placed in enclave run-time (in ramdisk or CoW disk image), signing and verifying of attestation documents (using KMS service from inside the enclave).
-
-The attestation process guarantees that computation process on data, data producing or just data placing, was performed exactly inside the secure enclave's isolated environment, which prevent leakage of sensitive data and makes computational processes private and confident.
-
-## Enclave's file system monitor (WIP)
-
-Enclave's file system monitor (for ramdisk or CoW image) supports unconditional attestation for all outer external additional data that will be appeared in enclave file system and run-time.
-
-It guarantees that all data, data producers and data handlers in enclave will be attested unconditionally in unattended mode.
-
-This improves guarantees for computational processes and eliminate chances for data leaks and backdoors installation inside the enclave.
-
-It integrated into web server and FS monitor maintains attestation documents database.
-
-## Build system for enclave's reproducible builds
-
-Build system for enclaves supports reproducibility of enclave's environment for application running in it, and guarantees reproducibility of building processes and final isolated enclave environment for apps, during enclave and application static build phase.
-
-It can be embedded with integration machine (GitHub Actions, any other self-hosted or cloud CI) to perform continuous integration (CI) process for building and shipping apps and enclaves for them in DevOps pipelining enterprise software application environment and deployments.
-
-Build system operates with custom but standard Unix/BSD and Linux tools, not relying on any third party or non-standard software.
-
-Build system rebuild reproducibly custom Linux kernel for networking stack support, and rebuild reproducibly of custom Init system for running apps processes inside enclave and for KVM hypervisor interaction during enclave's boot process, during enclave's run-time and termination at the enclave's EOL.
-
-## Demonstrations:
-
-### Reproducible builds demo:
-
-[![Reproducible builds demo](docs/png/rbuilds-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
-[![Reproducible builds demo](docs/gif/rbuilds-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
-
-### Reproducible builds demo with full IO:
-
-[![Reproducible builds demo with full IO](docs/png/rbuilds-io-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
-[![Reproducible builds demo with full IO](docs/gif/rbuilds-io-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
-
-### Enclave's networking demo (WIP):
-
-[![Enclave's networking demo](docs/png/net-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#networking-demo)
-[![Enclave's networking demo](docs/gif/net-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#networking-demo)
-
-## Visualization of Sentient Enclaves Framework infrastructure, components and its interaction, with diagrams:
-
-### Whole Infrastructure bird-eye view:
-
-![Whole Infrastructure bird-eye view](docs/svg/Infra-2025-01-08-2354.excalidraw.svg)
-
-### TEE Infrastructure:
-
-![TEE Infrastructure](docs/svg/TEE-Infra-2025-01-09-1700.excalidraw.svg)
+Trusted Execution Environments (TEEs) are a type of hardware-based security mechanism that allows for the secure execution of code in a protected environment. TEEs are designed to provide a secure and isolated execution environment for sensitive applications, such as AI models, by ensuring that the code and data are protected from unauthorized access. This framework provides a comprehensive infrastructure for building confidential AI applications using AWS's [Nitro Enclaves](https://aws.amazon.com/ec2/nitro/nitro-enclaves/) offering. The framework enables the creation of confidential enclaves that are isolated from the host machine. 
 
 
-### Topics:
-- [#tee](https://github.com/topics/tee)
-- [#trusted-execution-environment](https://github.com/topics/trusted-execution-environment)
-- [#confidential-computing](https://github.com/topics/confidential-computing)
-- [#confidential-ai](https://github.com/topics/confidential-ai)
-- [#nitro-enclaves](https://github.com/topics/nitro-enclaves)
-- [#nitro-enclave](https://github.com/topics/nitro-enclave)
-- [#amd-sev-snp](https://github.com/topics/amd-sev-snp)
-- [#intel-tdx](https://github.com/topics/intel-tdx)
-- [#nvidia-tee](https://github.com/topics/nvidia-tee)
-- [#nvidia-gpu-tee](https://github.com/topics/nvidia-gpu-tee)
-- [#gpu-tee](https://github.com/topics/gpu-tee)
+# Features 🔥
+
+- Seamleassly setup and deploy confidential AI applications in TEEs 🚀
+- Generate verifiable build hashes for applications 🔐
+- Access internet services inside isolated enclave using forward proxies 🔌
+- Deploy internet-facing applications inside enclave using reverse proxies 🌐
+
+
+# Framework Components 🏗️
+To allow for the creation of confidential AI applications set of infrastructure components are needed. The framework abstracts these components away from the developer, providing a simple interface for building confidential AI applications. Framework provides following components:
+
+| Component | Description | Functionality | Documentation |
+|-----------|-------------|---------------|---------------|
+| `pipeline` | Implementation of binary protocol over `vsock` for interacting with enclave | Controls enclave execution and enables bi-directional file transfers | [![Details](https://img.shields.io/badge/Pipeline-Details-red)](docs/md/Detailed_README.md#pipeline-slc-vsock-communication-protocol) |
+| `pf-proxy` | Transparent `vsock` proxies for internet-enabled applications | Provides full networking stack support, enabling both inbound and outbound TCP connections for enclaves | [![Details](https://img.shields.io/badge/PF_Proxy-Details-red)](docs/md/Detailed_README.md#transparent-vsock-proxies) |
+| `build-system` | Set of components for building verifiable enclave images | Enables byte-level reproducibility for enclave images and streamlines the build/verification process | [![Details](https://img.shields.io/badge/Build_System-Details-red)](docs/md/Detailed_README.md#build-system-for-enclaves-reproducible-builds) |
+
+> [!NOTE]
+> #### More details about these components and other framework components that are under development can be found in the [Detailed README](docs/md/Detailed_README.md).
+
+
+<p align="center">
+  <img src="docs/svg/TEE-Infra-2025-01-09-1700.excalidraw.svg"/>
+  <h3 align="center">Figure 1: Shows overall framework architecture and interactions between components</h3>
+</p>
+
+# Getting Started 🚀
+
+## Building the components
+### Prerequisites 📋
+- [Nitro-enabled AWS EC2 instance](https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave.html#nitro-enclave-reqs)
+- [Docker](https://docs.docker.com/get-docker/)
+
+### Building core components of the framework 🛠️
+Building the core components of the framework is done using the `rbuilds.sh` script. This script simplifies the process of building the components and handles all the dependencies. Exact steps are available in the [BUILDING.md](docs/md/BUILDING.md) file.
+
+### Building and running apps ⚡
+Once the core components are built, the apps can be built and run using the `rbuilds.sh` script. [Reference apps](reference_apps/) directory contains example applications that utilize the framework. Each reference application follows the following structure:
+
+```
+reference_apps/
+├── reference_app_name : Name of the reference application
+│   ├── reference_app_name.dockerfile : Template Dockerfile for building the application with necessary dependencies to run inside enclave
+│   ├── TEE_rbuilds_setup.md: Application setup guide for building and running the application using rbuilds.sh
+│   ├── TEE_setup.md: Legacy setup guide
+```
+
+To run any of the reference applications, the steps outlined in the respective `TEE_rbuilds_setup.md` should be followed.
+
+
+# Directory Structure 📁
+Project follows the following directory structure:
+```
+sentient-enclaves-framework/
+├── pipeline : source code for pipeline component for interacting with enclaves
+├── pf-proxy : Source code for transparent vsock proxies for internet-enabled applications
+├── rbuilds
+│   ├──*.dockerfile : Dockerfile used for different stages while building enclave images
+│   ├── rbuilds.sh: Script for building reproducible enclave images 
+├── rbuilds.legacy : Legacy build system for building enclave images. Currently not used.
+├── reference_apps : Reference applications that utilize the framework
+│   ├── fingerprinting_server : A model fingerprinting server that fingerprints models based on OML fingerprinting library
+│   ├── inference_server : An inference server that uses a local model inference.
+│   ├── X_Agent : A reference agent that interacting with X users.
+├── web-ra: Web Server for remote attestation of enclaves (WIP)
+└── docs : Detailed documentation for the framework and its components  
+
+```
+
+# Contributing 🤝
+> [!IMPORTANT]
+> Contributions are welcome! Contribution guidelines will soon be available.
+
+# Resources 📚
+- [Detailed README](docs/md/Detailed_README.md)
+- [BUILDING.md](docs/md/BUILDING.md)
+- [`rbuilds.sh` Usage Guide](docs/md/USAGE.md)
+- [Roadmap](docs/md/ROADMAP.md)
+- [Build Demos](docs/md/Detailed_README.md#demonstrations)
+- [Reference Apps](reference_apps/)
+- [License](LICENSE)
+
 
