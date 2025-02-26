@@ -26,6 +26,15 @@
 
 Welcome to the Sentient Enclaves Framework. The framework provides end-to-end infrastructure for building confidential AI applications using TEEs.
 
+# List of Contents 📚
+- [Detailed README](docs/md/Detailed_README.md)
+- [BUILDING.md](docs/md/BUILDING.md)
+- [`rbuilds.sh` Usage Guide](docs/md/USAGE.md)
+- [Roadmap](docs/md/ROADMAP.md)
+- [Build Demos](docs/md/Detailed_README.md#demonstrations)
+- [Reference Apps](reference_apps/)
+- [License](LICENSE)
+
 # Overview 🔍
 
 Trusted Execution Environments (TEEs) are a type of hardware-based security mechanism that allows for the secure execution of code in a protected environment. TEEs are designed to provide a secure and isolated execution environment for sensitive applications, such as AI models, by ensuring that the code and data are protected from unauthorized access. This framework provides a comprehensive infrastructure for building confidential AI applications using AWS's [Nitro Enclaves](https://aws.amazon.com/ec2/nitro/nitro-enclaves/) offering. The framework enables the creation of confidential enclaves that are isolated from the host machine. 
@@ -46,7 +55,7 @@ To allow for the creation of confidential AI applications set of infrastructure 
 |-----------|-------------|---------------|---------------|
 | `pipeline` | Implementation of binary protocol over `vsock` for interacting with enclave | Controls enclave execution and enables bi-directional file transfers | [![Details](https://img.shields.io/badge/Pipeline-Details-red)](docs/md/Detailed_README.md#pipeline-slc-vsock-communication-protocol) |
 | `pf-proxy` | Transparent `vsock` proxies for internet-enabled applications | Provides full networking stack support, enabling both inbound and outbound TCP connections for enclaves | [![Details](https://img.shields.io/badge/PF_Proxy-Details-red)](docs/md/Detailed_README.md#transparent-vsock-proxies) |
-| `build-system` | Set of components for building verifiable enclave images | Enables byte-level reproducibility for enclave images and streamlines the build/verification process | [![Details](https://img.shields.io/badge/Build_System-Details-red)](docs/md/Detailed_README.md#build-system-for-enclaves-reproducible-builds) |
+| `rbuilds.sh` | Script utilising set of components for building reproducible enclave images | Enables byte-level reproducibility for enclave images and streamlines the build process | [![Details](https://img.shields.io/badge/Build_System-Details-red)](docs/md/Detailed_README.md#build-system-for-enclaves-reproducible-builds) |
 
 > [!NOTE]
 > #### More details about these components and other framework components that are under development can be found in the [Detailed README](docs/md/Detailed_README.md).
@@ -104,13 +113,6 @@ sentient-enclaves-framework/
 > [!IMPORTANT]
 > Contributions are welcome! Contribution guidelines will soon be available.
 
-# Resources 📚
-- [Detailed README](docs/md/Detailed_README.md)
-- [BUILDING.md](docs/md/BUILDING.md)
-- [`rbuilds.sh` Usage Guide](docs/md/USAGE.md)
-- [Roadmap](docs/md/ROADMAP.md)
-- [Build Demos](docs/md/Detailed_README.md#demonstrations)
-- [Reference Apps](reference_apps/)
-- [License](LICENSE)
-
+# License 📝
+This project is licensed under the [Apache 2.0 License](LICENSE).
 
