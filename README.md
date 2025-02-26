@@ -34,6 +34,7 @@ Welcome to the Sentient Enclaves Framework. The framework provides end-to-end in
 - [Build Demos](docs/md/Detailed_README.md#demonstrations)
 - [Reference Apps](reference_apps/)
 - [License](LICENSE)
+- [CHANGELOG.md](docs/md/CHANGELOG.md)
 
 # Overview 🔍
 
@@ -114,5 +115,4 @@ sentient-enclaves-framework/
 > Contributions are welcome! Contribution guidelines will soon be available.
 
 # License 📝
-This project is licensed under the [Apache 2.0 License](LICENSE).
-
+This project is licensed under the [Apache 2.0 License](LICENSE-APACHE).
