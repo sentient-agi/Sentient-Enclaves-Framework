@@ -55,8 +55,8 @@ To allow for the creation of confidential AI applications set of infrastructure 
 | Component | Description | Functionality | Documentation |
 |-----------|-------------|---------------|---------------|
 | `pipeline` | Implementation of binary protocol over `vsock` for interacting with enclave | Controls enclave execution and enables bi-directional file transfers | [![Details](https://img.shields.io/badge/Pipeline-Details-red)](docs/md/Detailed_README.md#pipeline-slc-vsock-communication-protocol) |
-| `pf-proxy` | Transparent `vsock` proxies for internet-enabled applications | Provides full networking stack support, enabling both inbound and outbound TCP connections for enclaves | [![Details](https://img.shields.io/badge/PF_Proxy-Details-red)](docs/md/Detailed_README.md#transparent-vsock-proxies) |
 | `rbuilds.sh` | Script utilising set of components for building reproducible enclave images | Enables byte-level reproducibility for enclave images and streamlines the build process | [![Details](https://img.shields.io/badge/Build_System-Details-red)](docs/md/Detailed_README.md#build-system-for-enclaves-reproducible-builds) |
+| `pf-proxy` | Transparent `vsock` proxies for internet-enabled applications | Provides full networking stack support, enabling outbound TCP connections using forward proxies and inbound TCP connections using reverse proxies for enclaves | [![Details](https://img.shields.io/badge/PF_Proxy-Details-red)](docs/md/Detailed_README.md#transparent-vsock-proxies) |
 
 > [!NOTE]
 > #### More details about these components and other framework components that are under development can be found in the [Detailed README](docs/md/Detailed_README.md).
