@@ -2,16 +2,16 @@
 
 ## List of contents:
 
-- [Building instructions and getting started (quick start) guide](docs/md/BUILDING.md)
+- [Building instructions and getting started (quick start) guide](../md/BUILDING.md)
 
 
-- [Usage and advanced usage instructions, reference, guides](docs/md/USAGE.md)
+- [Usage and advanced usage instructions, reference, guides](../md/USAGE.md)
 
 
-- [Changelog: what's already done and implemented, release notes](docs/md/CHANGELOG.md)
+- [Changelog: what's already done and implemented, release notes](../md/CHANGELOG.md)
 
 
-- [Roadmap: what's in progress, in active development and upcoming features, release schedule](docs/md/ROADMAP.md)
+- [Roadmap: what's in progress, in active development and upcoming features, release schedule](../md/ROADMAP.md)
 
 
 ## Supported platforms, system requirements:
@@ -90,28 +90,28 @@ Build system rebuild reproducibly custom Linux kernel for networking stack suppo
 
 ### Reproducible builds demo:
 
-[![Reproducible builds demo](docs/png/rbuilds-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
-[![Reproducible builds demo](docs/gif/rbuilds-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
+[![Reproducible builds demo](../png/rbuilds-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
+[![Reproducible builds demo](../gif/rbuilds-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
 
 ### Reproducible builds demo with full IO:
 
-[![Reproducible builds demo with full IO](docs/png/rbuilds-io-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
-[![Reproducible builds demo with full IO](docs/gif/rbuilds-io-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
+[![Reproducible builds demo with full IO](../png/rbuilds-io-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
+[![Reproducible builds demo with full IO](../gif/rbuilds-io-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#reprobuilds-demo)
 
 ### Enclave's networking demo (WIP):
 
-[![Enclave's networking demo](docs/png/net-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#networking-demo)
-[![Enclave's networking demo](docs/gif/net-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#networking-demo)
+[![Enclave's networking demo](../png/net-demo.png)](https://sentient-xyz.github.io/sentient-enclaves-framework/#networking-demo)
+[![Enclave's networking demo](../gif/net-demo.gif)](https://sentient-xyz.github.io/sentient-enclaves-framework/#networking-demo)
 
 ## Visualization of Sentient Enclaves Framework infrastructure, components and its interaction, with diagrams:
 
 ### Whole Infrastructure bird-eye view:
 
-![Whole Infrastructure bird-eye view](docs/svg/Infra-2025-01-08-2354.excalidraw.svg)
+![Whole Infrastructure bird-eye view](../svg/Infra-2025-01-08-2354.excalidraw.svg)
 
 ### TEE Infrastructure:
 
-![TEE Infrastructure](docs/svg/TEE-Infra-2025-01-09-1700.excalidraw.svg)
+![TEE Infrastructure](../svg/TEE-Infra-2025-01-09-1700.excalidraw.svg)
 
 
 ### Topics:
