@@ -7,7 +7,7 @@
   </a>
   <!-- Github Repo Info -->
     <!-- Release -->
-    <a href="https://github.com/sentient-xyz/sentient-enclaves-framework/releases/tag/v0.6.0">
+    <a href="https://github.com/sentient-agi/Sentient-Enclaves-Framework/releases/tag/v0.6.0">
         <img alt="GitHub release" src="https://img.shields.io/badge/Release-v0.6.0-green">
     </a>
     <!-- License -->
