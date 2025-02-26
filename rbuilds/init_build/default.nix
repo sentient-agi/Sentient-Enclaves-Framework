@@ -17,9 +17,9 @@ rec {
 
   init_go = nixpkgs.callPackage ./init_go/init_go.nix { };
 
-  eif_build = nixpkgs.callPackage ./eif_build/package.nix { };
+# eif_build = nixpkgs.callPackage ./eif_build/package.nix { };
 
-  eif_extract = nixpkgs.callPackage ./eif_extract/package.nix { };
+# eif_extract = nixpkgs.callPackage ./eif_extract/package.nix { };
 
   all = nixpkgs.runCommandNoCC "enclave-blobs-${arch}" { } ''
     echo -e "$out"
@@ -34,10 +34,10 @@ rec {
     mkdir -p $out/${arch}/init_go/
     cp -r ${init_go}/bin/* $out/${arch}/init_go/
 
-    mkdir -p $out/${arch}/eif_build/
-    cp -r ${eif_build}/eif_build/* $out/${arch}/eif_build/
+#   mkdir -p $out/${arch}/eif_build/
+#   cp -r ${eif_build}/eif_build/* $out/${arch}/eif_build/
 
-    mkdir -p $out/${arch}/eif_extract/
-    cp -r ${eif_extract}/eif_extract/* $out/${arch}/eif_extract/
+#   mkdir -p $out/${arch}/eif_extract/
+#   cp -r ${eif_extract}/eif_extract/* $out/${arch}/eif_extract/
   '';
 }

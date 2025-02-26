@@ -429,7 +429,7 @@ docker_prepare_apps_rs_buildenv() {
 }
 
 docker_apps_rs_build() {
-    docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout 2fb5bc408357259eb30c6682429f252f8992c405; cargo build --all --release;" ;
+    docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout e4c8dab31434ab899462068d4b5ae48b1123aaaa; cargo build --all --release;" ;
     docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_extract; cargo build --all --release;" ;
     docker exec -i apps_rs_build bash -cis -- "cd /app-builder/secure-enclaves-framework; cargo build --all --release;" ;
     mkdir -vp ./eif_build/ ;
