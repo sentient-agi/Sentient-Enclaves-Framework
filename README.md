@@ -30,11 +30,12 @@ Welcome to the Sentient Enclaves Framework. The framework provides end-to-end in
 - [Detailed README](docs/md/Detailed_README.md)
 - [BUILDING.md](docs/md/BUILDING.md)
 - [`rbuilds.sh` Usage Guide](docs/md/USAGE.md)
-- [Roadmap](docs/md/ROADMAP.md)
 - [Build Demos](docs/md/Detailed_README.md#demonstrations)
 - [Reference Apps](reference_apps/)
-- [License](LICENSE)
 - [CHANGELOG.md](docs/md/CHANGELOG.md)
+- [Roadmap](docs/md/ROADMAP.md)
+- [License](LICENSE)
+
 
 # Overview 🔍
 
