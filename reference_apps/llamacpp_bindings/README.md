@@ -23,6 +23,20 @@ Rust bindings for llama.cpp providing high-performance inference capabilities fo
 - Performance monitoring with tokens/second metrics
 - Memory-efficient token handling
 
+## Requirements
+
+For building this project `bindgen` crate used to create `llama-cpp` bindings.
+Make sure you have to setup LLVM, LLVM Libs (llvm development set of libraries) and Clang in your system:
+```bash
+# In case of Arch Linux:
+sudo pacman -Sy llvm llvm-libs clang
+
+# And compile the project:
+env LIBCLANG_PATH=/usr/lib cargo build --all && env LIBCLANG_PATH=/usr/lib cargo build --release --all
+```
+
+[Rust bindgen setup in your system](https://rust-lang.github.io/rust-bindgen/requirements.html)
+
 ## Usage
 
 ### Basic Example

@@ -1,5 +1,3 @@
-[workspace]
-
 [package]
 name = "fingerprinting_server"
 version = "0.1.0"
@@ -19,3 +17,4 @@ clap = { version = "4.5.27", features = ["derive"] }
 [[bin]]
 name = "fingerprinting_client"
 path = "tests/client.rs"
+

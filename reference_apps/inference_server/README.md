@@ -54,6 +54,20 @@ A simple `curl` request can be made to the following endpoints to use the server
 
 ## Setup 🛠️
 
+### Requirements
+
+For building this project `bindgen` crate used to create `llama-cpp` bindings.
+Make sure you have to setup LLVM, LLVM Libs (llvm development set of libraries) and Clang in your system:
+```bash
+# In case of Arch Linux:
+sudo pacman -Sy llvm llvm-libs clang
+
+# And compile the project:
+env LIBCLANG_PATH=/usr/lib cargo build --all && env LIBCLANG_PATH=/usr/lib cargo build --release --all
+```
+
+[Rust bindgen setup in your system](https://rust-lang.github.io/rust-bindgen/requirements.html)
+
 ### Running the Server 🚀
 An example of how to write a client to interact with the server is provided in [tests/client.rs](../tests/client.rs).
 1. **Start the Server:**
