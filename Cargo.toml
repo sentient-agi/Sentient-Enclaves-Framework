@@ -4,7 +4,6 @@ members = [
     "pf-proxy",
 ]
 exclude = [
-    "reference_apps",
     "cryptography",
     "web-ra",
     "reference_apps",

@@ -1,20 +1,23 @@
-# use_small_heuristics = "Max"
-# reorder_imports = true
-# reorder_modules = true
+style_edition = "2024"
 edition = "2021"
+use_small_heuristics = "Max"
+merge_derives = false
+group_imports = "StdExternalCrate"
+# This option will merge imports, however it's only available in +nightly.
+imports_granularity = "Module"
+reorder_imports = false
+reorder_modules = false
 newline_style = "Unix"
 
-# This option will merge imports, however it's only available in +nightly.
-# imports_granularity = "Module"
 # fn_args_density = "Compressed"
 # overflow_delimited_expr = "true"
 
 # Unstable options that help catching some mistakes in formatting and that we may want to enable
 # when they become stable.
-#
 # They are kept here since they are useful to run from time to time.
-#format_code_in_doc_comments = true
-#reorder_impl_items = true
-#comment_width = 100
-#wrap_comments = true
-#normalize_comments = true
+# format_code_in_doc_comments = true
+# reorder_impl_items = false
+# comment_width = 100
+# wrap_comments = true
+# normalize_comments = true
+
