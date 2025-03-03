@@ -19,6 +19,8 @@ declare kversion_archive="$(echo -E "${kversion}" | grep -iPo '^(0|[1-9][0-9]*)(
 declare kbuild_user="sentient_build" # Username for kernel build
 declare kbuild_host="sentient_builder" # Hostname for kernel build
 
+declare eif_build_ref="3b047ff544c62188356227508405add360e531b0" # EIF build library dependency reference
+
 declare enclave_mem='838656' # MiBs of memory allocated for Nitro Enclaves runt-time
 declare enclave_cpus='64' # Number of CPUs allocated for Nitro Enclaves runt-time
 declare enclave_cid='127' # Enclave's VSock CID for SLC data connect
@@ -429,7 +431,7 @@ docker_prepare_apps_rs_buildenv() {
 }
 
 docker_apps_rs_build() {
-    docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout e4c8dab31434ab899462068d4b5ae48b1123aaaa; cargo build --all --release;" ;
+    docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout ${eif_build_ref}; cargo build --all --release;" ;
     docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_extract; cargo build --all --release;" ;
     docker exec -i apps_rs_build bash -cis -- "cd /app-builder/secure-enclaves-framework; cargo build --all --release;" ;
     mkdir -vp ./eif_build/ ;
