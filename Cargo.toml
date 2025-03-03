@@ -10,3 +10,4 @@ exclude = [
 ]
 # edition = "2021"
 resolver = "2"
+overflow-checks = true

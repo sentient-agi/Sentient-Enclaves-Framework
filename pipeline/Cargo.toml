@@ -1,14 +1,14 @@
 [package]
 name = "pipeline"
-version = "0.1.0"
-authors = ["The Sentient Foundation TEE Engineering Team <tee@sentient.foundation>"]
+version = "0.6.2"
+authors = ["Sentient Enclaves Team <sentient-enclaves-team@sentient.xyz>"]
 edition = "2021"
 # resolver = "2"
 # rust-version = "1.80"
 description = "Pipeline vsock secure local channel communication protocol that provides remote control of enclave via running shell commands inside the enclave and provides bidirectional files transmission into/from encalve's file system."
 homepage = "https://github.com/sentient-xyz/pipeline-tee.rs/"
 repository = "https://github.com/sentient-xyz/pipeline-tee.rs/"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 publish = false
 
 [dependencies]
