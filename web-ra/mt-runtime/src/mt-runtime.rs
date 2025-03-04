@@ -9,12 +9,12 @@ use async_std::path::Path;
 use async_std::prelude::*;
 use async_std::task::{Context, Poll, spawn_blocking};
 use futures::task::noop_waker;
+// use futures::FutureExt;
+use futures::future::{BoxFuture, FutureExt};
 use sha3::{Digest, Sha3_512};
 use std::collections::HashMap;
 use std::pin::Pin;
-// use futures::FutureExt;
-use futures::future::{BoxFuture, FutureExt};
-use async_recursion::async_recursion;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> async_io::Result<()> {
@@ -33,19 +33,23 @@ async fn main() -> async_io::Result<()> {
 /// Recursively hashes all files in the given directory, using a `HashMap` for task tracking.
 async fn recursive_hash_dir(dir_path: &str) -> async_io::Result<HashMap<String, Vec<u8>>> {
     let mut results = HashMap::new();
-    let mut tasks: HashMap<String, Pin<Box<async_std::task::JoinHandle<std::io::Result<Vec<u8>>>>>> = HashMap::new();
+    let tasks: Arc<async_std::sync::Mutex<HashMap<String, Pin<Box<async_std::task::JoinHandle<std::io::Result<Vec<u8>>>>>>>> = Arc::new(async_std::sync::Mutex::new(HashMap::new()));
 
-    // Visit all files recursively and spawn hashing tasks
-    visit_files_recursively(Path::new(dir_path), &mut tasks).await.await?;
+    visit_files_recursively(Path::new(dir_path), tasks.clone()).await?;
 
     // Check readiness of tasks
     let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
 
-    while !tasks.is_empty() {
+    loop {
+        let mut tasks_lock = tasks.lock().await;
+        if tasks_lock.is_empty() {
+            break;
+        }
+
         let mut completed_tasks = Vec::new();
 
-        for (file_path, task) in tasks.iter_mut() {
+        for (file_path, task) in tasks_lock.iter_mut() {
             if check_task_readiness(file_path, task, &mut results, &mut cx).await {
                 completed_tasks.push(file_path.clone());
             }
@@ -53,7 +57,7 @@ async fn recursive_hash_dir(dir_path: &str) -> async_io::Result<HashMap<String, 
 
         // Remove completed tasks from the hashmap
         for file_path in completed_tasks {
-            tasks.remove(&file_path);
+            tasks_lock.remove(&file_path);
         }
 
         // Yield to allow other async tasks to make progress
@@ -88,18 +92,16 @@ async fn check_task_readiness(
 }
 
 /// Visits all files recursively in a directory and spawns hashing tasks.
-#[async_recursion(Sync)]
-async fn visit_files_recursively<'a>(
+fn visit_files_recursively<'a>(
     path: &'a Path,
-    tasks: &'a mut HashMap<String, Pin<Box<async_std::task::JoinHandle<std::io::Result<Vec<u8>>>>>>,
-) -> BoxFuture<'a, async_io::Result<()>>
-{
+    tasks: Arc<async_std::sync::Mutex<HashMap<String, Pin<Box<async_std::task::JoinHandle<std::io::Result<Vec<u8>>>>>>>>,
+) -> BoxFuture<'a, async_io::Result<()>> {
     async move {
         if path.is_dir().await {
             let mut entries = async_fs::read_dir(path).await?;
             while let Some(entry) = entries.next().await {
                 let entry = entry?;
-                visit_files_recursively(entry.path().as_path(), tasks).await.await?;
+                visit_files_recursively(entry.path().as_path(), tasks.clone()).await?;
             }
         } else if path.is_file().await {
             let file_path_hash = path.to_string_lossy().to_string();
@@ -108,7 +110,7 @@ async fn visit_files_recursively<'a>(
                 // Perform hashing in a separate thread
                 hash_file(&file_path_hash)
             });
-            tasks.insert(file_path_task, Box::pin(task));
+            tasks.lock().await.insert(file_path_task, Box::pin(task));
         }
         Ok(())
     }.boxed()
