@@ -7,7 +7,7 @@ use sha2::{Sha256, Digest};
 use std::sync::Arc;
 use std::thread;
 use dashmap::DashMap;
-// Import the FileState and FileInfo structs
+
 mod state;
 use state::{FileState, FileInfo, FileType, HashState, HashInfo};
 mod fs_ignore;
@@ -48,7 +48,6 @@ fn main() -> Result<()> {
 
 loop {
     
-    
     println!("Enter path relative to current working directory to get hash of file");
     print!(">>> ");
     std::io::stdout().flush().unwrap();
@@ -87,6 +86,9 @@ fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>) -> Res
                 // check if hash state value is present and is in progress
                 if info.hash_info.as_ref().unwrap().hash_state == HashState::InProgress {
                     Ok(format!("Hash calculation in progress for: {}", path))
+                }
+                else if info.hash_info.as_ref().unwrap().hash_state == HashState::Error {
+                    Ok(format!("Error encountered while calculating hash for: {}", path))
                 }
                 else {
                     Ok(format!("File Hashing is yet to be done for: {}", path))
@@ -183,6 +185,7 @@ fn handle_file_data_modification(paths: Vec<String>, file_infos: &Arc<DashMap<St
         eprintln!("Modify event has multiple paths: {:?}", paths);
         return;
     }
+
     let path = paths[0].clone();
     // eprintln!("File modified: {}", path);
     if let Some(mut file_info) = file_infos.get_mut(&path) {
@@ -222,7 +225,6 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     let to_path = paths[1].clone();
     if ignore_list.is_ignored(&to_path) {
         // This means the already monitored file is being renamed to something that is ignored
-        // We can ignore this event right now but ideally this should remove the entry from the file_infos
         // We can ignore this event right now but ideally this should remove the entry from the file_infos
         eprintln!("Ignoring rename event for path: {}", to_path);
         return;
@@ -285,6 +287,8 @@ fn perform_file_hashing(path: String, file_infos: &Arc<DashMap<String, FileInfo>
     });
 }
 
+// This is a placeholder function to calculate the hash of a file
+// It calculates sha256 hash of the file given the file's path
 fn calculate_hash(path: &str) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
@@ -292,6 +296,7 @@ fn calculate_hash(path: &str) -> Result<String> {
     let hash_result = hasher.finalize();
     Ok(format!("{:x}", hash_result))
 }
+
 fn handle_path(path: &str) -> String {
     // check if path is absolute
     // if it is then make it relative
@@ -299,7 +304,7 @@ fn handle_path(path: &str) -> String {
     if path.starts_with("/") {
         let current_dir = std::env::current_dir().unwrap();
         let relative_path = Path::new(&path).strip_prefix(current_dir).unwrap();
-        // // if there is ./ in the path then remove it
+        // if there is ./ in the path then remove it
         let relative_path = if relative_path.starts_with("./") {
             relative_path.strip_prefix("./").unwrap()
         } else {
