@@ -7,13 +7,20 @@ edition = "2021"
 name = "mt-runtime"
 path = "src/mt-runtime.rs"
 
+[[bin]]
+name = "ra-web-srv"
+path = "src/ra-web-srv.rs"
+
 [dependencies]
+axum = { git = "ssh://git@github.com/tokio-rs/axum.git", branch = "main" }
+axum-extra = { git = "https://github.com/tokio-rs/axum.git", branch = "main" }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+serde = { version = ">=1.0", features = ["derive"] }
 futures = "0.3"
 tokio = { version = "1.36.0", features = ["full"] }
 async-std = "1.13"
 hex = "0.4"
 # sha3 = "0.11.0-pre.4"
 sha3 = "0.10.8"
-async-recursion = "1.1.1"
 
 [workspace]

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path as AxumPath, State},
+    extract::{Path as AxumPath, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -13,6 +13,8 @@ use std::{
     path::Path as StdPath,
     sync::Arc,
 };
+use std::future::Future;
+use std::pin::Pin;
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
@@ -28,50 +30,51 @@ struct GenerateRequest {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let state = AppState {
+    let state = Arc::new(AppState {
         tasks: Arc::new(Mutex::new(HashMap::new())),
         results: Arc::new(Mutex::new(HashMap::new())),
-    };
+    });
 
     let app = Router::new()
         .route("/generate", post(generate_handler))
-        .route("/ready/:file_path", get(ready_handler))
-        .route("/hash/:file_path", get(hash_handler))
-        .with_state(state);
+        .route("/ready/", get(ready_handler))
+        .route("/hash/", get(hash_handler))
+        .route("/echo/", get(echo))
+        .with_state(state.clone());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    axum::serve(listener, app).await?;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8888").await?;
+    axum_server::Server::from_tcp(listener.into_std()?).serve(app.into_make_service()).await?;
 
     Ok(())
 }
 
 async fn generate_handler(
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<GenerateRequest>,
 ) -> impl IntoResponse {
-    let path = StdPath::new(&payload.path);
+    let path_str = payload.path.clone();
+    let path = StdPath::new(&path_str);
 
     // Check if the path exists
     let metadata = match tokio::fs::metadata(path).await {
-        Ok(meta) => meta,
+        Ok(metadata) => metadata,
         Err(e) => {
             return (
                 StatusCode::NOT_FOUND,
                 format!("Path not found: {}", e),
-            )
+            );
         }
     };
 
     let is_dir = metadata.is_dir();
-    let state_clone = AppState {
-        tasks: Arc::clone(&state.tasks),
-        results: Arc::clone(&state.results),
-    };
+
+    let state_clone = state.clone();
 
     // Spawn the processing task
     tokio::spawn(async move {
-        if let Err(e) = visit_files_recursively(path, state_clone).await {
-            eprintln!("Error processing path {}: {}", path.display(), e);
+        let path_buf = StdPath::new(&path_str).to_path_buf();
+        if let Err(e) = visit_files_recursively(&path_buf, state_clone).await {
+            eprintln!("Error processing path {}: {}", path_buf.display(), e);
         }
     });
 
@@ -83,53 +86,65 @@ async fn generate_handler(
     (StatusCode::ACCEPTED, message.to_string())
 }
 
-async fn visit_files_recursively(path: &StdPath, state: AppState) -> io::Result<()> {
-    if path.is_dir() {
-        let mut entries = tokio::fs::read_dir(path).await?;
-        while let Some(entry) = entries.next_entry().await? {
-            let entry_path = entry.path();
-            visit_files_recursively(
-                &entry_path,
-                AppState {
-                    tasks: Arc::clone(&state.tasks),
-                    results: Arc::clone(&state.results),
-                },
-            )
-            .await?;
-        }
-    } else if path.is_file() {
-        let file_path = path.to_string_lossy().to_string();
-        let handle = tokio::task::spawn_blocking({
-            let file_path = file_path.clone();
-            move || hash_file(&file_path)
-        });
-
-        // Track the task and handle its completion
-        state.tasks.lock().await.insert(file_path.clone(), handle);
-
-        let tasks_clone = Arc::clone(&state.tasks);
-        let results_clone = Arc::clone(&state.results);
-        let file_path_clone = file_path.clone();
-        tokio::spawn(async move {
-            let result = handle.await;
-            let mut tasks = tasks_clone.lock().await;
-            tasks.remove(&file_path);
-
-            let mut results = results_clone.lock().await;
-            match result {
-                Ok(Ok(hash)) => {
-                    results.insert(file_path, hash);
-                }
-                Ok(Err(e)) => {
-                    eprintln!("Error hashing file: {}", e);
-                }
-                Err(e) => {
-                    eprintln!("Task panicked: {}", e);
-                }
+fn visit_files_recursively<'a>(
+    path: &'a StdPath,
+    state: Arc<AppState>
+) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + Sync + 'a>> {
+    Box::pin(async move {
+        if path.is_dir() {
+            let mut entries = tokio::fs::read_dir(path).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let entry_path = entry.path();
+                visit_files_recursively(&entry_path, Arc::clone(&state)).await?;
             }
-        });
-    }
-    Ok(())
+        } else if path.is_file() {
+            let file_path = path.to_string_lossy().to_string();
+            let handle = tokio::task::spawn_blocking({
+                let file_path = file_path.clone();
+                move || hash_file(&file_path)
+            });
+
+            // Track the task and handle its completion
+            state.tasks.lock().await.insert(file_path.clone(), handle);
+
+            let tasks_clone = Arc::clone(&state.tasks);
+            let results_clone = Arc::clone(&state.results);
+            let file_path_clone = file_path.clone();
+            tokio::spawn(async move {
+                let task_result = {
+                    let mut tasks = tasks_clone.lock().await;
+                    if let Some(handle) = tasks.get_mut(&file_path_clone) {
+                        Some(async { handle.await }.await)
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some(result) = task_result {
+                    match result {
+                        Ok(Ok(hash)) => {
+                            let mut results = results_clone.lock().await;
+                            results.insert(file_path_clone.clone(), hash);
+                        }
+                        Ok(Err(e)) => {
+                            eprintln!("Error hashing file: {}", e);
+                        }
+                        Err(e) => {
+                            eprintln!("Task panicked: {}", e);
+                        }
+                    }
+
+                    // Remove the task from HashMap after awaiting it (after it completes)
+                    let mut tasks = tasks_clone.lock().await;
+                    tasks.remove(&file_path_clone);
+                }
+            });
+
+            // Yield to allow other async tasks to make progress
+            tokio::task::yield_now().await;
+        }
+        Ok(())
+    })
 }
 
 fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
@@ -149,26 +164,30 @@ fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
 }
 
 async fn ready_handler(
-    AxumPath(file_path): AxumPath<String>,
-    State(state): State<AppState>,
+    // AxumPath(file_path): AxumPath<String>,
+    Query(query_params): Query<HashMap<String, String>>,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
+    let file_path = query_params.get("path").unwrap().to_owned();
     let results = state.results.lock().await;
     if results.contains_key(&file_path) {
-        (StatusCode::OK, "Ready")
+        (StatusCode::OK, "Ready".to_string())
     } else {
         let tasks = state.tasks.lock().await;
         if tasks.contains_key(&file_path) {
-            (StatusCode::PROCESSING, "Processing")
+            (StatusCode::PROCESSING, "Processing".to_string())
         } else {
-            (StatusCode::NOT_FOUND, "Not found")
+            (StatusCode::NOT_FOUND, "Not found".to_string())
         }
     }
 }
 
 async fn hash_handler(
-    AxumPath(file_path): AxumPath<String>,
-    State(state): State<AppState>,
+    // AxumPath(file_path): AxumPath<String>,
+    Query(query_params): Query<HashMap<String, String>>,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
+    let file_path = query_params.get("path").unwrap().to_owned();
     let results = state.results.lock().await;
     match results.get(&file_path) {
         Some(hash) => (StatusCode::OK, hex::encode(hash)),
@@ -181,4 +200,14 @@ async fn hash_handler(
             }
         }
     }
+}
+
+/// Testing endpoint handler for various purposes
+async fn echo(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(state): State<Arc<AppState>>
+) -> impl IntoResponse {
+    let file_path = query_params.get("path").unwrap().to_owned();
+    println!("File path: {:?}", file_path);
+    (StatusCode::OK, file_path)
 }
