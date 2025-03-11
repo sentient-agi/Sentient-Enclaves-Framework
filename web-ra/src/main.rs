@@ -1,4 +1,4 @@
-/// Remote attestation web-server for Sentient Secure Enclaves toolkit (aka Sentinel)
+/// Remote attestation web-server for Sentient Enclaves Framework
 
 use axum::{
     extract::{Query, State},
@@ -6,28 +6,46 @@ use axum::{
     http::{StatusCode, Uri},
     response::{Redirect, Html},
     routing::get,
+    routing::post,
     BoxError, Router,
 };
 use axum_extra::extract::Host;
 use axum_server::tls_rustls::RustlsConfig;
-use std::{future::Future, net::SocketAddr, path::PathBuf, time::Duration};
+use std::{future::Future, net::SocketAddr, time::Duration};
 use tokio::signal;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 // use tracing_subscriber::fmt::format;
 use tracing::{debug, info, error};
 
-use aws_nitro_enclaves_nsm_api::api::{Digest, Request, Response, AttestationDoc};
+use aws_nitro_enclaves_nsm_api::api::{Digest as NsmDigest, Request, Response, AttestationDoc};
 use aws_nitro_enclaves_nsm_api::driver::{nsm_exit, nsm_init, nsm_process_request};
 use serde_bytes::ByteBuf;
-use std::collections::BTreeSet;
 use aws_nitro_enclaves_cose::CoseSign1;
 use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
 use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, BTreeMap, BTreeSet},
     sync::{Arc, RwLock},
+    fs::{self, DirEntry},
+    path::PathBuf,
 };
+use std::io::Read;
+use std::pin::Pin;
+
+// use async_std::fs::{self, File};
+// use async_std::io::{self, BufWriter, Read};
+// use std::fs::{self, File};
+// use std::io::{self, BufWriter, Read};
+use async_std::io as async_io;
+use async_std::fs as async_fs;
+use async_std::path::Path;
+use async_std::prelude::*;
+use async_std::task::{Context, Poll, spawn_blocking};
+use futures::task::noop_waker;
+// use futures::FutureExt;
+use futures::future::{BoxFuture, FutureExt};
+use sha3::{Digest, Sha3_512};
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -39,12 +57,20 @@ type CachedState = Arc<RwLock<ServerState>>;
 
 #[derive(Default)]
 struct ServerState {
-    fds: HashMap<String, i32>,
-    att_docs: HashMap<String, Vec<u8>>,
+    nsm_fd: i32,
+    docs: HashMap<String, AttData>,
+}
+
+#[derive(Default)]
+struct AttData {
+    filename: String,
+    in_hash: String,
+    out_hash: String,
+    att_doc: Vec<u8>,
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), String> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -64,45 +90,46 @@ async fn main() {
     info!("NSM device initialized.");
 
     let cached_state = CachedState::default();
-    cached_state.write().unwrap().fds.insert("default_fd".to_string(), fd);
+    cached_state.write().unwrap().nsm_fd = fd;
 
     //Create a handle for our TLS server so the shutdown signal can all shutdown
     let handle = axum_server::Handle::new();
+
     //save the future for easy shutting down of redirect server
     let shutdown_future = shutdown_signal(handle.clone(), Arc::clone(&cached_state));
 
     // optional: spawn a second server to redirect http requests to this server
     tokio::spawn(redirect_http_to_https(ports, shutdown_future));
+
+    // configure certificate and private key used by https
+    let cert_dir = std::env::var("CERT_DIR").unwrap_or_else(|e| { error!("CERT_DIR env var is empty or not set: {:?}", e); "/app/certs/".to_string() } );
+    let config = RustlsConfig::from_pem_file(
+        PathBuf::from(&cert_dir)
+            .join("cert.pem"),
+        PathBuf::from(&cert_dir)
+            .join("key.pem"),
+    )
+    .await
+    .unwrap();
 /*
     // configure certificate and private key used by https
     let config = RustlsConfig::from_pem_file(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        PathBuf::from("/app")
             .join("self_signed_certs")
             .join("cert.pem"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        PathBuf::from("/app")
             .join("self_signed_certs")
             .join("key.pem"),
     )
     .await
     .unwrap();
 */
-    // configure certificate and private key used by https
-    let config = RustlsConfig::from_pem_file(
-        PathBuf::from("/app")
-            .join("self_signed_certs")
-            .join("cert.pem"),
-        PathBuf::from("/app")
-            .join("self_signed_certs")
-            .join("key.pem"),
-    )
-    .await
-    .unwrap();
-
     let app = Router::new()
         .route("/hello", get(hello).with_state(Arc::clone(&cached_state)))
         .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&cached_state)))
         .route("/rng_seq", get(rng_seq).with_state(Arc::clone(&cached_state)))
-        .route("/att_doc", get(att_doc).with_state(Arc::clone(&cached_state)));
+        .route("/att_docs", get(att_docs).with_state(Arc::clone(&cached_state)))
+        .route("/gen_att_docs", get(gen_att_docs).with_state(Arc::clone(&cached_state)));
 
     // run https server
     let addr = SocketAddr::from(([127, 0, 0, 1], ports.https));
@@ -112,25 +139,29 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
+
+    Ok(())
 }
 
 async fn hello(Query(query_params): Query<HashMap<String, String>>, State(cached_state): State<CachedState>)
     -> Html<&'static str> {
         info!("{query_params:?}");
+        let fd = cached_state.read().unwrap().nsm_fd;
+        info!("fd: {fd:?}");
+
         match query_params.get("view").unwrap().as_str() {
             "bin" | "raw" => (),
             "hex" => (),
             "fmt" | "str" => (),
             _ => (),
         }
-        let fd = cached_state.read().unwrap().fds.get("default_fd").unwrap().clone();
-        info!("fd: {fd:?}");
+
         Html("<h1>Hello, World!</h1>\n")
     }
 
 async fn nsm_desc(Query(query_params): Query<HashMap<String, String>>, State(cached_state): State<CachedState>) -> String {
     info!("{query_params:?}");
-    let fd = cached_state.read().unwrap().fds.get("default_fd").unwrap().clone();
+    let fd = cached_state.read().unwrap().nsm_fd;
     let description = get_nsm_description(fd);
     assert_eq!(
         description.max_pcrs, 32,
@@ -167,14 +198,15 @@ async fn nsm_desc(Query(query_params): Query<HashMap<String, String>>, State(cac
 
 async fn rng_seq(Query(query_params): Query<HashMap<String, String>>, State(cached_state): State<CachedState>) -> String {
     info!("{query_params:?}");
-    let fd = cached_state.read().unwrap().fds.get("default_fd").unwrap().clone();
+    let fd = cached_state.read().unwrap().nsm_fd;
     let randomness_sequence = get_randomness_sequence(fd);
     format!("{:?}\n", hex::encode(randomness_sequence))
 }
 
-async fn att_doc(Query(query_params): Query<HashMap<String, String>>, State(cached_state): State<CachedState>) -> String {
+async fn att_docs(Query(query_params): Query<HashMap<String, String>>, State(cached_state): State<CachedState>) -> String {
     info!("{query_params:?}");
-    let fd = cached_state.read().unwrap().fds.get("default_fd").unwrap().clone();
+    let fd = cached_state.read().unwrap().nsm_fd;
+
     let mut random_user_data = [0u8; 1024];
     OsRng.fill_bytes(&mut random_user_data);
     let mut random_nonce = [0u8; 1024];
@@ -207,6 +239,142 @@ async fn att_doc(Query(query_params): Query<HashMap<String, String>>, State(cach
     )
 }
 
+#[axum_macros::debug_handler]
+async fn gen_att_docs(Query(query_params): Query<HashMap<String, String>>, State(cached_state): State<CachedState>) -> String {
+    info!("{query_params:?}");
+    let fd = cached_state.read().unwrap().nsm_fd;
+
+    let path = match query_params.get("path").ok_or_else(|| "Missing path parameter in request".to_string()) {
+        Ok(val) => val.to_owned(),
+        Err(error) => {
+            error!("No path in request query parameters or path is empty: {:?}", error);
+            "".to_string().to_owned()
+        }
+    };
+
+    if path.is_empty() {
+        error!("Missing path parameter in request");
+        return "Missing path parameter in request".to_string()
+    };
+
+    let fs_path = PathBuf::from(path.clone());
+
+//    let results = recursive_hash_dir(path.as_str()).await.unwrap();
+    let _results = recursive_hash_dir(path.as_str());
+
+//    format!("\nFinal Hash Results:");
+//    for (file_path, hash) in results {
+//        format!("{}: {}", file_path, hex::encode(hash));
+//    }
+
+    "".to_string()
+}
+
+/// Recursively hashes all files in the given directory, using a `HashMap` for task tracking.
+async fn recursive_hash_dir(dir_path: &str) -> async_io::Result<HashMap<String, Vec<u8>>> {
+    let mut results = HashMap::new();
+    let tasks: Arc<async_std::sync::Mutex<HashMap<String, Pin<Box<async_std::task::JoinHandle<std::io::Result<Vec<u8>>>>>>>> = Arc::new(async_std::sync::Mutex::new(HashMap::new()));
+
+    visit_files_recursively(Path::new(dir_path), tasks.clone()).await?;
+
+    // Check readiness of tasks
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    loop {
+        let mut tasks_lock = tasks.lock().await;
+        if tasks_lock.is_empty() {
+            break;
+        }
+
+        let mut completed_tasks = Vec::new();
+
+        for (file_path, task) in tasks_lock.iter_mut() {
+            if check_task_readiness(file_path, task, &mut results, &mut cx).await {
+                completed_tasks.push(file_path.clone());
+            }
+        }
+
+        // Remove completed tasks from the hashmap
+        for file_path in completed_tasks {
+            tasks_lock.remove(&file_path);
+        }
+
+        // Yield to allow other async tasks to make progress
+        async_std::task::yield_now().await;
+    }
+
+    Ok(results)
+}
+
+/// Checks the readiness of a specific task by file path.
+async fn check_task_readiness(
+    file_path: &str,
+    task: &mut Pin<Box<async_std::task::JoinHandle<std::io::Result<Vec<u8>>>>>,
+    results: &mut HashMap<String, Vec<u8>>,
+    cx: &mut Context<'_>,
+) -> bool {
+    match task.as_mut().poll(cx) {
+        Poll::Ready(Ok(hash)) => {
+            results.insert(file_path.to_string(), hash);
+            true // Task is complete
+        }
+        Poll::Ready(Err(e)) => {
+            eprintln!("Error processing {}: {}", file_path, e);
+            true // Task is complete
+        }
+//        Poll::Ready(Err(e)) => {
+//            eprintln!("Task panicked for {}: {}", file_path, e);
+//            true // Task is complete
+//        }
+        Poll::Pending => false, // Task is not complete
+    }
+}
+
+/// Visits all files recursively in a directory and spawns hashing tasks.
+fn visit_files_recursively<'a>(
+    path: &'a Path,
+    tasks: Arc<async_std::sync::Mutex<HashMap<String, Pin<Box<async_std::task::JoinHandle<std::io::Result<Vec<u8>>>>>>>>,
+) -> BoxFuture<'a, async_io::Result<()>> {
+    async move {
+        if path.is_dir().await {
+            let mut entries = async_fs::read_dir(path).await?;
+            while let Some(entry) = entries.next().await {
+                let entry = entry?;
+                visit_files_recursively(entry.path().as_path(), tasks.clone()).await?;
+            }
+        } else if path.is_file().await {
+            let file_path_hash = path.to_string_lossy().to_string();
+            let file_path_task = file_path_hash.clone();
+            let task = spawn_blocking(move || {
+                // Perform hashing in a separate thread
+                hash_file(&file_path_hash)
+            });
+            tasks.lock().await.insert(file_path_task, Box::pin(task));
+        }
+        Ok(())
+    }.boxed()
+}
+
+/// Hashes a single file using SHA3-512.
+fn hash_file(file_path: &str) -> std::io::Result<Vec<u8>> {
+    let mut file = std::fs::File::open(file_path)?;
+    let mut hasher = Sha3_512::new();
+    let mut buffer = [0; 8192];
+
+    // Read the file in chunks and update the hash
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    // Finalize and return the hash
+    Ok(hasher.finalize().to_vec())
+}
+
 async fn shutdown_signal(handle: axum_server::Handle, cached_state: CachedState) {
     let ctrl_c = async {
         signal::ctrl_c()
@@ -231,7 +399,7 @@ async fn shutdown_signal(handle: axum_server::Handle, cached_state: CachedState)
     }
 
     info!("Received termination signal shutting down");
-    let fd = cached_state.read().unwrap().fds.get("default_fd").unwrap().clone();
+    let fd = cached_state.read().unwrap().nsm_fd;
     // close device file descriptor before app exit
     nsm_exit(fd);
     println!("NSM device closed.");
@@ -284,7 +452,7 @@ struct NsmDescription {
     module_id: String,
     max_pcrs: u16,
     locked_pcrs: BTreeSet<u16>,
-    digest: Digest,
+    digest: NsmDigest,
 }
 
 fn get_nsm_description(fd: i32) -> NsmDescription {
