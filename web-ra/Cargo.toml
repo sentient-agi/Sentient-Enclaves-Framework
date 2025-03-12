@@ -9,15 +9,16 @@ axum = { git = "https://github.com/tokio-rs/axum.git", branch = "main" }
 axum-extra = { git = "https://github.com/tokio-rs/axum.git", branch = "main" }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 axum-macros = "0.5.0"
+futures = "0.3"
 tokio = { version = "1.36.0", features = ["full"] }
+async-std = "1.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-futures = "0.3"
+hex = "0.4"
+# sha3 = "0.11.0-pre.4"
+sha3 = "0.10.8"
+rand_core = { version = "0.6.4", features = ["getrandom"] }
 aws-nitro-enclaves-nsm-api = { git = "https://github.com/andrcmdr/aws-nitro-enclaves-nsm-api.git", branch = "main", version = "0.4.0" }
 aws-nitro-enclaves-cose = { git = "https://github.com/andrcmdr/aws-nitro-enclaves-cose.git", branch = "main", version = "0.5.2", features = ["key_openssl_pkey"] }
 serde_bytes = "0.11"
 serde_cbor = "0.11"
-hex = "0.4"
-rand_core = { version = "0.6.4", features = ["getrandom"] }
-async-std = "1.13"
-sha3 = "0.10.8"

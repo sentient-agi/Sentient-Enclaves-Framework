@@ -11,8 +11,10 @@ use axum::{
 };
 use axum_extra::extract::Host;
 use axum_server::tls_rustls::RustlsConfig;
+
 use std::{future::Future, net::SocketAddr, time::Duration};
 use tokio::signal;
+
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 // use tracing_subscriber::fmt::format;
 use tracing::{debug, info, error};
@@ -45,6 +47,7 @@ use async_std::task::{Context, Poll, spawn_blocking};
 use futures::task::noop_waker;
 // use futures::FutureExt;
 use futures::future::{BoxFuture, FutureExt};
+
 use sha3::{Digest, Sha3_512};
 
 #[derive(Clone, Copy)]
@@ -64,8 +67,8 @@ struct ServerState {
 #[derive(Default)]
 struct AttData {
     filename: String,
-    in_hash: String,
-    out_hash: String,
+    sha3_hash: String,
+    vrf_hash: String,
     att_doc: Vec<u8>,
 }
 
@@ -94,16 +97,18 @@ async fn main() -> Result<(), String> {
 
     //Create a handle for our TLS server so the shutdown signal can all shutdown
     let handle = axum_server::Handle::new();
-
     //save the future for easy shutting down of redirect server
     let shutdown_future = shutdown_signal(handle.clone(), Arc::clone(&cached_state));
-
-    // optional: spawn a second server to redirect http requests to this server
+    // spawn a second server to redirect http requests to this server
     tokio::spawn(redirect_http_to_https(ports, shutdown_future));
 
     // configure certificate and private key used by https
-    let cert_dir = std::env::var("CERT_DIR").unwrap_or_else(|e| { error!("CERT_DIR env var is empty or not set: {:?}", e); "/app/certs/".to_string() } );
-    let config = RustlsConfig::from_pem_file(
+    let cert_dir = std::env::var("CERT_DIR")
+        .unwrap_or_else(|e| {
+            error!("CERT_DIR env var is empty or not set: {:?}", e);
+            "/app/certs/".to_string()
+        });
+    let tls_config = RustlsConfig::from_pem_file(
         PathBuf::from(&cert_dir)
             .join("cert.pem"),
         PathBuf::from(&cert_dir)
@@ -111,30 +116,25 @@ async fn main() -> Result<(), String> {
     )
     .await
     .unwrap();
-/*
-    // configure certificate and private key used by https
-    let config = RustlsConfig::from_pem_file(
-        PathBuf::from("/app")
-            .join("self_signed_certs")
-            .join("cert.pem"),
-        PathBuf::from("/app")
-            .join("self_signed_certs")
-            .join("key.pem"),
-    )
-    .await
-    .unwrap();
-*/
+
     let app = Router::new()
-        .route("/hello", get(hello).with_state(Arc::clone(&cached_state)))
-        .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&cached_state)))
-        .route("/rng_seq", get(rng_seq).with_state(Arc::clone(&cached_state)))
-        .route("/att_docs", get(att_docs).with_state(Arc::clone(&cached_state)))
-        .route("/gen_att_docs", get(gen_att_docs).with_state(Arc::clone(&cached_state)));
+        .route("/hello", get(hello))
+        .route("/nsm_desc", get(nsm_desc))
+        .route("/rng_seq", get(rng_seq))
+        .route("/att_docs", get(att_docs))
+        .route("/gen_att_docs", get(gen_att_docs))
+        .with_state(Arc::clone(&cached_state));
 
     // run https server
-    let addr = SocketAddr::from(([127, 0, 0, 1], ports.https));
-    debug!("listening on {addr}");
-    axum_server::bind_rustls(addr, config)
+    use std::str::FromStr;
+    let listening_address = core::net::SocketAddr::new(
+        core::net::IpAddr::V4(
+            core::net::Ipv4Addr::from_str("127.0.0.1").unwrap()
+        ),
+        ports.https
+    );
+    debug!("listening on {listening_address}");
+    axum_server::bind_rustls(listening_address, tls_config)
         .handle(handle)
         .serve(app.into_make_service())
         .await
