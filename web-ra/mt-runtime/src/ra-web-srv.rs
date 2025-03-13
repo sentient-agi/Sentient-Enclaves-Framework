@@ -1,26 +1,77 @@
+/// Remote attestation web-server for Sentient Enclaves Framework
+
 use axum::{
     extract::{Path as AxumPath, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
+    handler::HandlerWithoutStateExt,
+    http::{StatusCode, Uri},
+    response::{IntoResponse, Redirect, Html},
     routing::{get, post},
-    Json, Router,
+    Router,
+    BoxError,
+    Json,
 };
-use serde::Deserialize;
+use axum_extra::extract::Host;
+use axum_server::tls_rustls::RustlsConfig;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value as JsonValue};
+
 use sha3::{Digest, Sha3_512};
+
 use std::{
-    collections::HashMap,
+    collections::{HashMap, BTreeMap, BTreeSet},
+    sync::{Arc, RwLock},
+    pin::Pin,
+    future::Future,
     io::{self, Read},
-    path::Path as StdPath,
-    sync::Arc,
+    fs::{self, DirEntry},
+    path::{Path as StdPath, PathBuf},
+    net::SocketAddr, time::Duration,
 };
-use std::future::Future;
-use std::pin::Pin;
+use std::net::IpAddr;
 use tokio::sync::Mutex;
+use tokio::signal;
+
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+// use tracing_subscriber::fmt::format;
+use tracing::{debug, info, error};
+
+use aws_nitro_enclaves_nsm_api::api::{Digest as NsmDigest, Request, Response, AttestationDoc};
+use aws_nitro_enclaves_nsm_api::driver::{nsm_exit, nsm_init, nsm_process_request};
+use serde_bytes::ByteBuf;
+use aws_nitro_enclaves_cose::CoseSign1;
+use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
+use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
+
+#[derive(Clone, Copy)]
+struct Ports {
+    http: u16,
+    https: u16,
+}
+
+#[derive(Default)]
+struct AppState {
+    nsm_fd: i32,
+}
+
+#[derive(Default)]
+struct AppCache {
+    docs: HashMap<String, AttData>,
+}
+
+#[derive(Default)]
+struct AttData {
+    filename: String,
+    sha3_hash: String,
+    vrf_hash: String,
+    att_doc: JsonValue,
+}
 
 #[derive(Clone)]
-struct AppState {
+struct ServerState {
     tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<io::Result<Vec<u8>>>>>>,
     results: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    nsm_fd: Arc<RwLock<AppState>>,
+    docs: Arc<RwLock<AppCache>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,26 +81,86 @@ struct GenerateRequest {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let state = Arc::new(AppState {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    let ports = Ports {
+        http: 8080,
+        https: 8443,
+    };
+
+    // let fd = 3;
+    let fd = nsm_init();
+    assert!(fd >= 0, "[Error] NSM initialization returned {}.", fd);
+    info!("NSM device initialized.");
+
+    let state = Arc::new(ServerState {
         tasks: Arc::new(Mutex::new(HashMap::new())),
         results: Arc::new(Mutex::new(HashMap::new())),
+        nsm_fd: Arc::new(RwLock::new(AppState::default())),
+        docs: Arc::new(RwLock::new(AppCache::default())),
     });
+
+    // Share NSM file descriptor for future calls to NSM device
+    state.nsm_fd.write().unwrap().nsm_fd = fd;
+
+    //Create a handle for our TLS server so the shutdown signal can all shutdown
+    let handle = axum_server::Handle::new();
+    //save the future for easy shutting down of redirect server
+    let shutdown_future = shutdown_signal(handle.clone(), Arc::clone(&state.nsm_fd));
+    // spawn a second server to redirect http requests to this server
+    tokio::spawn(redirect_http_to_https(ports, shutdown_future));
+
+    // configure certificate and private key used by https
+    let cert_dir = std::env::var("CERT_DIR")
+        .unwrap_or_else(|e| {
+            error!("CERT_DIR env var is empty or not set: {:?}", e);
+            "/app/certs/".to_string()
+        });
+    let tls_config = RustlsConfig::from_pem_file(
+        PathBuf::from(&cert_dir)
+            .join("cert.pem"),
+        PathBuf::from(&cert_dir)
+            .join("key.pem"),
+    )
+    .await
+    .unwrap();
 
     let app = Router::new()
         .route("/generate", post(generate_handler))
         .route("/ready/", get(ready_handler))
         .route("/hash/", get(hash_handler))
         .route("/echo/", get(echo))
+        .route("/hello", get(hello))
+        .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&state.nsm_fd)))
+        .route("/rng_seq", get(rng_seq).with_state(Arc::clone(&state.nsm_fd)))
+        .route("/att_docs", get(gen_att_doc))
         .with_state(state.clone());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8888").await?;
-    axum_server::Server::from_tcp(listener.into_std()?).serve(app.into_make_service()).await?;
+    // run https server
+    use std::str::FromStr;
+    let listening_address = core::net::SocketAddr::new(
+        IpAddr::V4(
+            core::net::Ipv4Addr::from_str("127.0.0.1").unwrap()
+        ),
+        ports.https
+    );
+    debug!("listening on {listening_address}");
+    axum_server::bind_rustls(listening_address, tls_config)
+        .handle(handle)
+        .serve(app.into_make_service())
+        .await?;
 
     Ok(())
 }
 
 async fn generate_handler(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<ServerState>>,
     Json(payload): Json<GenerateRequest>,
 ) -> impl IntoResponse {
     let path_str = payload.path.clone();
@@ -88,7 +199,7 @@ async fn generate_handler(
 
 fn visit_files_recursively<'a>(
     path: &'a StdPath,
-    state: Arc<AppState>
+    state: Arc<ServerState>
 ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + Sync + 'a>> {
     Box::pin(async move {
         if path.is_dir() {
@@ -166,7 +277,7 @@ fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
 async fn ready_handler(
     // AxumPath(file_path): AxumPath<String>,
     Query(query_params): Query<HashMap<String, String>>,
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
     let file_path = query_params.get("path").unwrap().to_owned();
     let results = state.results.lock().await;
@@ -185,7 +296,7 @@ async fn ready_handler(
 async fn hash_handler(
     // AxumPath(file_path): AxumPath<String>,
     Query(query_params): Query<HashMap<String, String>>,
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
     let file_path = query_params.get("path").unwrap().to_owned();
     let results = state.results.lock().await;
@@ -205,9 +316,287 @@ async fn hash_handler(
 /// Testing endpoint handler for various purposes
 async fn echo(
     Query(query_params): Query<HashMap<String, String>>,
-    State(state): State<Arc<AppState>>
+    State(server_state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
     let file_path = query_params.get("path").unwrap().to_owned();
     println!("File path: {:?}", file_path);
     (StatusCode::OK, file_path)
+}
+
+async fn hello(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> Html<&'static str> {
+        info!("{query_params:?}");
+        let fd = server_state.nsm_fd.read().unwrap().nsm_fd;
+        info!("fd: {fd:?}");
+
+        match query_params.get("view").unwrap().as_str() {
+            "bin" | "raw" => (),
+            "hex" => (),
+            "fmt" | "str" => (),
+            _ => (),
+        }
+/*
+        println!("\nFinal Hash Results:");
+        for (file_path, hash) in results {
+            println!("{}: {}", file_path, hex::encode(hash));
+        }
+*/
+        Html("<h1>Hello, World!</h1>\n")
+    }
+
+async fn nsm_desc(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(app_state): State<Arc<RwLock<AppState>>>
+) -> String {
+    info!("{query_params:?}");
+    let fd = app_state.read().unwrap().nsm_fd;
+    let description = get_nsm_description(fd).unwrap();
+    assert_eq!(
+        description.max_pcrs, 32,
+        "[Error] NSM PCR count is {}.",
+        description.max_pcrs
+    );
+    assert!(
+        !description.module_id.is_empty(),
+        "[Error] NSM module ID is missing."
+    );
+
+    info!(
+        "NSM description: [major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {:?}].",
+        description.version_major,
+        description.version_minor,
+        description.version_patch,
+        description.module_id,
+        description.max_pcrs,
+        description.locked_pcrs,
+        description.digest
+    );
+
+    format!(
+        "NSM description: [major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {:?}].\n",
+        description.version_major,
+        description.version_minor,
+        description.version_patch,
+        description.module_id,
+        description.max_pcrs,
+        description.locked_pcrs,
+        description.digest
+    )
+}
+
+async fn rng_seq(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(app_state): State<Arc<RwLock<AppState>>>
+) -> String {
+    info!("{query_params:?}");
+    let fd = app_state.read().unwrap().nsm_fd;
+    let randomness_sequence = get_randomness_sequence(fd);
+    format!("{:?}\n", hex::encode(randomness_sequence))
+}
+
+async fn gen_att_doc(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> String {
+    info!("{query_params:?}");
+    let fd = server_state.nsm_fd.read().unwrap().nsm_fd;
+
+    let mut random_user_data = [0u8; 1024];
+    OsRng.fill_bytes(&mut random_user_data);
+    let mut random_nonce = [0u8; 1024];
+    OsRng.fill_bytes(&mut random_nonce);
+    let mut random_public_key = [0u8; 1024];
+    OsRng.fill_bytes(&mut random_public_key);
+
+    let document = get_attestation_doc(
+        fd,
+        Some(ByteBuf::from(&random_user_data[..])),
+        Some(ByteBuf::from(&random_nonce[..])),
+        Some(ByteBuf::from(&random_public_key[..])),
+    );
+
+    let cose_doc = CoseSign1::from_bytes(document.as_slice()).unwrap();
+    let (protected_header, attestation_doc_bytes) =
+        cose_doc.get_protected_and_payload::<Openssl>(None).unwrap();
+    println!("Protected header: {:?}", protected_header);
+    let unprotected_header = cose_doc.get_unprotected();
+    println!("Unprotected header: {:?}", unprotected_header);
+    let attestation_doc_signature = cose_doc.get_signature();
+    let attestation_doc = AttestationDoc::from_binary(&attestation_doc_bytes[..]).unwrap();
+    println!("Attestation document: {:?}", attestation_doc);
+    println!("Attestation document signature: {:?}", hex::encode(attestation_doc_signature.clone()));
+
+    format!("Attestation document: {:?}\n\
+             Attestation document signature: {:?}\n",
+            attestation_doc,
+            hex::encode(attestation_doc_signature),
+    )
+}
+
+struct NsmDescription {
+    version_major: u16,
+    version_minor: u16,
+    version_patch: u16,
+    module_id: String,
+    max_pcrs: u16,
+    locked_pcrs: BTreeSet<u16>,
+    digest: NsmDigest,
+}
+
+fn get_nsm_description(fd: i32) -> Result<NsmDescription, ()> {
+    let response = nsm_process_request(fd, Request::DescribeNSM);
+    match response {
+        Response::DescribeNSM {
+            version_major,
+            version_minor,
+            version_patch,
+            module_id,
+            max_pcrs,
+            locked_pcrs,
+            digest,
+        } => Ok(NsmDescription {
+            version_major,
+            version_minor,
+            version_patch,
+            module_id,
+            max_pcrs,
+            locked_pcrs,
+            digest,
+        }),
+        _ => {
+            error!(
+                "[Error] Request::DescribeNSM got invalid response: {:?}",
+                response
+            );
+            eprintln!("[Error] Request::DescribeNSM got invalid response: {:?}", response);
+            Err(())
+        }
+    }
+}
+
+fn get_randomness_sequence(fd: i32) -> Vec<u8> {
+    let mut prev_random: Vec<u8> = vec![];
+    let mut random: Vec<u8> = vec![];
+
+    for _ in 0..16 {
+        random = match nsm_process_request(fd, Request::GetRandom) {
+            Response::GetRandom { random } => {
+                assert!(!random.is_empty());
+                assert!(prev_random != random);
+                prev_random = random.clone();
+                println!("Random bytes: {:?}", random.clone());
+                random
+            }
+            resp => {
+                println!(
+                    "GetRandom: expecting Response::GetRandom, but got {:?} instead",
+                    resp
+                );
+                vec![0u8; 64]
+            },
+        }
+    };
+    random
+}
+
+fn get_attestation_doc (
+    fd: i32,
+    user_data: Option<ByteBuf>,
+    nonce: Option<ByteBuf>,
+    public_key: Option<ByteBuf>,
+) -> Vec<u8> {
+    let response = nsm_process_request(
+        fd,
+        Request::Attestation {
+            user_data,
+            nonce,
+            public_key,
+        },
+    );
+    match response {
+        Response::Attestation { document } => {
+            assert_ne!(document.len(), 0, "[Error] COSE document is empty.");
+            println!("COSE document length: {:?} bytes", document.len());
+            // println!("Attestation document: {:?}", document);
+            document
+        }
+        _ => {
+            println!(
+                "[Error] Request::Attestation got invalid response: {:?}",
+                response
+            );
+            vec![0u8, 64]
+        },
+    }
+}
+
+async fn redirect_http_to_https<F>(ports: Ports, signal: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    fn make_https(host: String, uri: Uri, ports: Ports) -> Result<Uri, BoxError> {
+        let mut parts = uri.into_parts();
+
+        parts.scheme = Some(axum::http::uri::Scheme::HTTPS);
+
+        if parts.path_and_query.is_none() {
+            parts.path_and_query = Some("/".parse().unwrap());
+        }
+
+        let https_host = host.replace(&ports.http.to_string(), &ports.https.to_string());
+        parts.authority = Some(https_host.parse()?);
+
+        Ok(Uri::from_parts(parts)?)
+    }
+
+    let redirect = move |Host(host): Host, uri: Uri| async move {
+        match make_https(host, uri, ports) {
+            Ok(uri) => Ok(Redirect::permanent(&uri.to_string())),
+            Err(error) => {
+                tracing::warn!(%error, "failed to convert URI to HTTPS");
+                Err(StatusCode::BAD_REQUEST)
+            }
+        }
+    };
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], ports.http));
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    debug!("listening on {addr}");
+    axum::serve(listener, redirect.into_make_service())
+        .with_graceful_shutdown(signal)
+        .await
+        .unwrap();
+}
+
+async fn shutdown_signal(handle: axum_server::Handle, app_state: Arc<RwLock<AppState>>) {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    info!("Received termination signal shutting down");
+    let fd = app_state.read().unwrap().nsm_fd;
+    // close device file descriptor before app exit
+    nsm_exit(fd);
+    println!("NSM device closed.");
+    handle.graceful_shutdown(Some(Duration::from_secs(10))); // 10 secs is how long docker will wait to force shutdown
 }
