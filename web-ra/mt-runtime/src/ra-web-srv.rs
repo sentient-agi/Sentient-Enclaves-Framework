@@ -1,7 +1,7 @@
 /// Remote attestation web-server for Sentient Enclaves Framework
 
 use axum::{
-    extract::{Path as AxumPath, Query, State},
+    extract::{Query, State},
     handler::HandlerWithoutStateExt,
     http::{StatusCode, Uri},
     response::{IntoResponse, Redirect, Html},
@@ -28,6 +28,7 @@ use std::{
     net::SocketAddr, time::Duration,
 };
 use std::net::IpAddr;
+use async_std::prelude::FutureExt;
 use tokio::sync::Mutex;
 use tokio::signal;
 
@@ -94,7 +95,7 @@ async fn main() -> io::Result<()> {
         https: 8443,
     };
 
-    // let fd = 3;
+    // let fd = 3; // testing file descriptor, for usage with NSM device emulator
     let fd = nsm_init();
     assert!(fd >= 0, "[Error] NSM initialization returned {}.", fd);
     info!("NSM device initialized.");
@@ -135,11 +136,12 @@ async fn main() -> io::Result<()> {
         .route("/generate", post(generate_handler))
         .route("/ready/", get(ready_handler))
         .route("/hash/", get(hash_handler))
+        .route("/hashes/", get(hashes))
         .route("/echo/", get(echo))
-        .route("/hello", get(hello))
+        .route("/hello/", get(hello))
         .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&state.nsm_fd)))
         .route("/rng_seq", get(rng_seq).with_state(Arc::clone(&state.nsm_fd)))
-        .route("/att_docs", get(gen_att_doc))
+        .route("/gen_att_doc/", get(gen_att_doc))
         .with_state(state.clone());
 
     // run https server
@@ -275,7 +277,6 @@ fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
 }
 
 async fn ready_handler(
-    // AxumPath(file_path): AxumPath<String>,
     Query(query_params): Query<HashMap<String, String>>,
     State(state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
@@ -294,7 +295,6 @@ async fn ready_handler(
 }
 
 async fn hash_handler(
-    // AxumPath(file_path): AxumPath<String>,
     Query(query_params): Query<HashMap<String, String>>,
     State(state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
@@ -313,37 +313,87 @@ async fn hash_handler(
     }
 }
 
-/// Testing endpoint handler for various purposes
+/// Testing echo endpoint handler for API protocol and parameters parsing various testing purposes
 async fn echo(
     Query(query_params): Query<HashMap<String, String>>,
     State(server_state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
+    info!("{query_params:?}");
+
+    let fd = server_state.nsm_fd.read().unwrap().nsm_fd;
+    info!("fd: {fd:?}");
+
     let file_path = query_params.get("path").unwrap().to_owned();
-    println!("File path: {:?}", file_path);
-    (StatusCode::OK, file_path)
+    info!("File path: {:?}", file_path);
+
+    let response = query_params.iter()
+        .map(
+            |(key, val)| {
+                let output = format!("Query Parameter: {:?}; Value: {:?};\n", key, val);
+                info!("{output:?}");
+                output
+            }
+        )
+        .collect::<Vec<String>>()
+        .join("\n");
+    info!("{response:?}");
+
+    (StatusCode::OK, response)
 }
 
+/// A handler stub for testing purposes
 async fn hello(
     Query(query_params): Query<HashMap<String, String>>,
     State(server_state): State<Arc<ServerState>>,
-) -> Html<&'static str> {
+) -> impl IntoResponse {
         info!("{query_params:?}");
+
         let fd = server_state.nsm_fd.read().unwrap().nsm_fd;
         info!("fd: {fd:?}");
+
+        let path = query_params.get("path").unwrap().to_owned();
+        info!("Path: {:?}", path);
 
         match query_params.get("view").unwrap().as_str() {
             "bin" | "raw" => (),
             "hex" => (),
             "fmt" | "str" => (),
+            "json" => (),
             _ => (),
         }
-/*
-        println!("\nFinal Hash Results:");
-        for (file_path, hash) in results {
-            println!("{}: {}", file_path, hex::encode(hash));
-        }
-*/
-        Html("<h1>Hello, World!</h1>\n")
+
+        (StatusCode::OK, Html("<h1>Hello, World!</h1>\n"))
+    }
+
+async fn hashes(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+        info!("{query_params:?}");
+
+        let fd = server_state.nsm_fd.read().unwrap().nsm_fd;
+        info!("fd: {fd:?}");
+
+        let path = query_params.get("path").unwrap().to_owned();
+        info!("Path: {:?}", path);
+
+        let hashes = server_state.results.lock().await;
+        let response = hashes.iter()
+            .filter(
+                |(key, _)|
+                    key.contains(path.as_str())
+            ).map(
+                |(path, hash)| {
+                    let output = format!("Path: {:?}; Hash: {:?};", path, hex::encode(hash.as_slice()));
+                    info!("{output:?}");
+                    output
+                }
+            )
+            .collect::<Vec<String>>()
+            .join("\n");
+        info!("{response:?}");
+
+        (StatusCode::OK, response)
     }
 
 async fn nsm_desc(
