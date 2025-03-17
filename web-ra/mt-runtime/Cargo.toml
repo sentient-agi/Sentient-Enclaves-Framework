@@ -31,5 +31,8 @@ aws-nitro-enclaves-nsm-api = { git = "https://github.com/andrcmdr/aws-nitro-encl
 aws-nitro-enclaves-cose = { git = "https://github.com/andrcmdr/aws-nitro-enclaves-cose.git", branch = "main", version = "0.5.2", features = ["key_openssl_pkey"] }
 serde_bytes = "0.11"
 serde_cbor = "0.11"
+toml = "0.8"
+openssl = "0.10.72"
+vrf = "0.2.4"
 
 [workspace]

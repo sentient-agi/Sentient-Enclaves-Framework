@@ -17,6 +17,8 @@ use serde_json::{json, Value as JsonValue};
 
 use sha3::{Digest, Sha3_512};
 
+use std::option::Option;
+
 use std::{
     collections::{HashMap, BTreeMap, BTreeSet},
     sync::{Arc, RwLock},
@@ -28,6 +30,7 @@ use std::{
     net::SocketAddr, time::Duration,
 };
 use std::net::IpAddr;
+use std::ptr::write;
 use async_std::prelude::FutureExt;
 use tokio::sync::Mutex;
 use tokio::signal;
@@ -43,39 +46,63 @@ use aws_nitro_enclaves_cose::CoseSign1;
 use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
 use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
-#[derive(Clone, Copy)]
+use openssl::pkey::{PKey, Private, Public};
+
+use vrf::openssl::{CipherSuite, Error, ECVRF};
+use vrf::VRF;
+
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
 struct Ports {
     http: u16,
     https: u16,
 }
 
-#[derive(Default)]
-struct AppState {
-    nsm_fd: i32,
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct Keys {
+    sk4proofs: Option<String>,
+    sk4docs: Option<String>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct Config {
+    nsm_fd: Option<String>,
+    ports: Ports,
+    keys: Keys,
+}
+
+struct AppConfig {
+    inner: Arc<RwLock<Config>>,
+}
+
+#[derive(Default, Debug, Clone)]
+struct AppState {
+    nsm_fd: i32,
+    sk4proofs: Vec<u8>,
+    sk4docs: Vec<u8>,
+}
+
+#[derive(Default, Debug, Clone)]
 struct AppCache {
     docs: HashMap<String, AttData>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 struct AttData {
-    filename: String,
+    file_path: String,
     sha3_hash: String,
-    vrf_hash: String,
-    att_doc: JsonValue,
+    vrf_proof: String,
+    att_doc: Vec<u8>,
 }
 
-#[derive(Clone)]
+#[derive(Default, Debug, Clone)]
 struct ServerState {
     tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<io::Result<Vec<u8>>>>>>,
     results: Arc<Mutex<HashMap<String, Vec<u8>>>>,
-    nsm_fd: Arc<RwLock<AppState>>,
+    app_state: Arc<RwLock<AppState>>,
     docs: Arc<RwLock<AppCache>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize)]
 struct GenerateRequest {
     path: String,
 }
@@ -90,30 +117,92 @@ async fn main() -> io::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let ports = Ports {
-        http: 8080,
-        https: 8443,
+    let config_path = "./.config/config.toml";
+    let raw_config_string = std::fs::read_to_string(config_path)
+        .expect("Missing `config.toml` file.");
+    let config = toml::from_str::<Config>(raw_config_string.as_str()).expect("Failed to parse `config.toml` file.");
+    let app_config = AppConfig {
+        inner: Arc::new(RwLock::new(config))
     };
 
-    // let fd = 3; // testing file descriptor, for usage with NSM device emulator
-    let fd = nsm_init();
+    let ports = Ports {
+        http: app_config.inner.read().unwrap().ports.http,
+        https: app_config.inner.read().unwrap().ports.https,
+    };
+
+    let fd = if let Some(fd) = app_config.inner.read().unwrap().nsm_fd.clone() {
+        match fd.as_str() {
+            // file descriptor returned by NSM device initialization function
+            "nsm" | "nsm_dev" => nsm_init(),
+            // testing file descriptor, for usage with NSM device emulator
+            "debug" => 3,
+            // particular file descriptor, for usage with NSM device emulator
+            nsm_fd => nsm_fd.parse::<i32>().unwrap(),
+        }
+    } else { 3 }; // testing file descriptor, for usage with NSM device emulator
     assert!(fd >= 0, "[Error] NSM initialization returned {}.", fd);
     info!("NSM device initialized.");
 
     let state = Arc::new(ServerState {
         tasks: Arc::new(Mutex::new(HashMap::new())),
         results: Arc::new(Mutex::new(HashMap::new())),
-        nsm_fd: Arc::new(RwLock::new(AppState::default())),
+        app_state: Arc::new(RwLock::new(AppState::default())),
         docs: Arc::new(RwLock::new(AppCache::default())),
     });
 
     // Share NSM file descriptor for future calls to NSM device
-    state.nsm_fd.write().unwrap().nsm_fd = fd;
+    state.app_state.write().unwrap().nsm_fd = fd;
+
+    match app_config.inner.read().unwrap().keys.sk4proofs.clone() {
+        None => {
+            let (skey, _pkey) = generate_ec256_keypair();
+            info!("SK for VRF Proofs length: {:?}; {:?}", skey.private_key_to_pem_pkcs8().unwrap().len(), skey.private_key_to_pem_pkcs8().unwrap());
+
+            state.app_state.write().unwrap().sk4proofs = skey.private_key_to_pem_pkcs8().unwrap();
+
+            let skey_hex = hex::encode(skey.private_key_to_pem_pkcs8().unwrap());
+            println!("App Config: {:?}; {:?}", app_config.inner.read().unwrap(), skey_hex.clone());
+            app_config.inner.write().unwrap().keys.sk4proofs = Some(skey_hex.clone());
+            let app_config_clone = app_config.inner.read().unwrap().to_owned();
+            let toml_config = toml::to_string(&app_config_clone).unwrap();
+            async_std::fs::write(&config_path, &toml_config).await.unwrap();
+        },
+        Some(sk4proofs) => {
+            // Check if SK for proof generation has correct length
+//            if hex::decode(sk4proofs.clone()).unwrap().len() != 237 {
+//                panic!("[Error] SK length for VRF Proofs mismatch.");
+//            };
+            state.app_state.write().unwrap().sk4proofs = hex::decode(sk4proofs).unwrap();
+        },
+    };
+
+    match app_config.inner.read().unwrap().keys.sk4docs.clone() {
+        None => {
+            let (skey, _pkey) = generate_ec512_keypair();
+            info!("SK for attestation documents signing length: {:?}; {:?}", skey.private_key_to_pem_pkcs8().unwrap().len(), skey.private_key_to_pem_pkcs8().unwrap());
+
+            state.app_state.write().unwrap().sk4docs = skey.private_key_to_pem_pkcs8().unwrap();
+
+            let skey_hex = hex::encode(skey.private_key_to_pem_pkcs8().unwrap());
+            println!("App Config: {:?}; {:?}", app_config.inner.read().unwrap(), skey_hex);
+            app_config.inner.write().unwrap().keys.sk4docs = Some(skey_hex.clone());
+            let app_config_clone = app_config.inner.read().unwrap().clone();
+            let toml_config = toml::to_string(&app_config_clone).unwrap();
+            std::fs::write(&config_path, &toml_config).unwrap();
+        },
+        Some(sk4docs) => {
+            // Check if SK for attestation documents signing has correct length
+//            if hex::decode(sk4docs.clone()).unwrap().len() != 384 {
+//                panic!("[Error] SK length for attestation documents signing mismatch.");
+//            };
+            state.app_state.write().unwrap().sk4docs = hex::decode(sk4docs).unwrap();
+        },
+    };
 
     //Create a handle for our TLS server so the shutdown signal can all shutdown
     let handle = axum_server::Handle::new();
     //save the future for easy shutting down of redirect server
-    let shutdown_future = shutdown_signal(handle.clone(), Arc::clone(&state.nsm_fd));
+    let shutdown_future = shutdown_signal(handle.clone(), Arc::clone(&state.app_state));
     // spawn a second server to redirect http requests to this server
     tokio::spawn(redirect_http_to_https(ports, shutdown_future));
 
@@ -135,12 +224,17 @@ async fn main() -> io::Result<()> {
     let app = Router::new()
         .route("/generate", post(generate_handler))
         .route("/ready/", get(ready_handler))
-        .route("/hash/", get(hash_handler))
+//        .route("/hash/", get(hash_handler))
         .route("/hashes/", get(hashes))
+        .route("/hash/", get(hashes))
+//        .route("/proofs/", get(proofs))
+//        .route("/proof/", get(proofs))
+//        .route("/docs/", get(docs))
+//        .route("/doc/", get(docs))
         .route("/echo/", get(echo))
         .route("/hello/", get(hello))
-        .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&state.nsm_fd)))
-        .route("/rng_seq", get(rng_seq).with_state(Arc::clone(&state.nsm_fd)))
+        .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&state.app_state)))
+        .route("/rng_seq", get(rng_seq).with_state(Arc::clone(&state.app_state)))
         .route("/gen_att_doc/", get(gen_att_doc))
         .with_state(state.clone());
 
@@ -276,6 +370,30 @@ fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
     Ok(hasher.finalize().to_vec())
 }
 
+fn vrf_proof(message: &[u8], secret_key: &[u8]) -> Result<Vec<u8>, String> {
+    let mut vrf  = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+    let public_key = vrf.derive_public_key(&secret_key).unwrap();
+    let proof = vrf.prove(&secret_key, &message).unwrap();
+    Ok(proof)
+}
+
+fn vrf_verify(message: &[u8], proof: &[u8], public_key: &[u8]) -> Result<bool, Error> {
+    let mut vrf  = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+    let hash = vrf.proof_to_hash(&proof).unwrap();
+    let outcome = vrf.verify(&public_key, &proof, &message);
+    match outcome {
+        Ok(outcome) => {
+            info!("VRF proof is valid!");
+            let result = if hash == outcome { true } else { false };
+            Ok(result)
+        }
+        Err(e) => {
+            error!("VRF proof is not valid! Error: {}", e);
+            Err(e)
+        }
+    }
+}
+
 async fn ready_handler(
     Query(query_params): Query<HashMap<String, String>>,
     State(state): State<Arc<ServerState>>,
@@ -320,7 +438,7 @@ async fn echo(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let fd = server_state.nsm_fd.read().unwrap().nsm_fd;
+    let fd = server_state.app_state.read().unwrap().nsm_fd;
     info!("fd: {fd:?}");
 
     let file_path = query_params.get("path").unwrap().to_owned();
@@ -348,7 +466,7 @@ async fn hello(
 ) -> impl IntoResponse {
         info!("{query_params:?}");
 
-        let fd = server_state.nsm_fd.read().unwrap().nsm_fd;
+        let fd = server_state.app_state.read().unwrap().nsm_fd;
         info!("fd: {fd:?}");
 
         let path = query_params.get("path").unwrap().to_owned();
@@ -371,7 +489,7 @@ async fn hashes(
 ) -> impl IntoResponse {
         info!("{query_params:?}");
 
-        let fd = server_state.nsm_fd.read().unwrap().nsm_fd;
+        let fd = server_state.app_state.read().unwrap().nsm_fd;
         info!("fd: {fd:?}");
 
         let path = query_params.get("path").unwrap().to_owned();
@@ -451,7 +569,7 @@ async fn gen_att_doc(
     State(server_state): State<Arc<ServerState>>,
 ) -> String {
     info!("{query_params:?}");
-    let fd = server_state.nsm_fd.read().unwrap().nsm_fd;
+    let fd = server_state.app_state.read().unwrap().nsm_fd;
 
     let mut random_user_data = [0u8; 1024];
     OsRng.fill_bytes(&mut random_user_data);
@@ -482,6 +600,32 @@ async fn gen_att_doc(
              Attestation document signature: {:?}\n",
             attestation_doc,
             hex::encode(attestation_doc_signature),
+    )
+}
+
+/// Randomly generate PRIME256V1/P-256 key to use for validating signing internally
+fn generate_ec256_keypair() -> (PKey<Private>, PKey<Public>) {
+//    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::X9_62_PRIME256V1).unwrap();
+    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP256K1).unwrap();
+    let ec_private = openssl::ec::EcKey::generate(&alg).unwrap();
+    let ec_public =
+        openssl::ec::EcKey::from_public_key(&alg, ec_private.public_key()).unwrap();
+    (
+        PKey::from_ec_key(ec_private).unwrap(),
+        PKey::from_ec_key(ec_public).unwrap(),
+    )
+}
+
+/// Randomly generate SECP521R1/P-512 key to use for validating signing internally
+fn generate_ec512_keypair() -> (PKey<Private>, PKey<Public>) {
+//    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP521R1).unwrap();
+    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP521R1).unwrap();
+    let ec_private = openssl::ec::EcKey::generate(&alg).unwrap();
+    let ec_public =
+        openssl::ec::EcKey::from_public_key(&alg, ec_private.public_key()).unwrap();
+    (
+        PKey::from_ec_key(ec_private).unwrap(),
+        PKey::from_ec_key(ec_public).unwrap(),
     )
 }
 

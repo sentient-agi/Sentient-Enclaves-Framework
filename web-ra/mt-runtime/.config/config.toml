@@ -1,0 +1,9 @@
+nsm_fd = "3"
+
+[ports]
+http = 8080
+https = 8443
+
+[keys]
+sk4proofs = ""
+sk4docs = ""
