@@ -18,10 +18,9 @@ use serde_json::{json, Value as JsonValue};
 use sha3::{Digest, Sha3_512};
 
 use std::option::Option;
-
 use std::{
     collections::{HashMap, BTreeMap, BTreeSet},
-    sync::{Arc, RwLock},
+    sync::Arc,
     pin::Pin,
     future::Future,
     io::{self, Read},
@@ -30,7 +29,7 @@ use std::{
     net::SocketAddr, time::Duration,
 };
 use std::net::IpAddr;
-use std::ptr::write;
+
 use async_std::prelude::FutureExt;
 use tokio::sync::Mutex;
 use tokio::signal;
@@ -46,12 +45,14 @@ use aws_nitro_enclaves_cose::CoseSign1;
 use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
 use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
+use parking_lot::RwLock;
+
 use openssl::pkey::{PKey, Private, Public};
 
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
 
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct Ports {
     http: u16,
     https: u16,
@@ -70,6 +71,7 @@ struct Config {
     keys: Keys,
 }
 
+#[derive(Default, Debug, Clone)]
 struct AppConfig {
     inner: Arc<RwLock<Config>>,
 }
@@ -126,11 +128,11 @@ async fn main() -> io::Result<()> {
     };
 
     let ports = Ports {
-        http: app_config.inner.read().unwrap().ports.http,
-        https: app_config.inner.read().unwrap().ports.https,
+        http: app_config.inner.read().ports.http,
+        https: app_config.inner.read().ports.https,
     };
 
-    let fd = if let Some(fd) = app_config.inner.read().unwrap().nsm_fd.clone() {
+    let fd = if let Some(fd) = app_config.inner.read().clone().nsm_fd {
         match fd.as_str() {
             // file descriptor returned by NSM device initialization function
             "nsm" | "nsm_dev" => nsm_init(),
@@ -151,52 +153,136 @@ async fn main() -> io::Result<()> {
     });
 
     // Share NSM file descriptor for future calls to NSM device
-    state.app_state.write().unwrap().nsm_fd = fd;
+    state.app_state.write().nsm_fd = fd;
 
-    match app_config.inner.read().unwrap().keys.sk4proofs.clone() {
-        None => {
-            let (skey, _pkey) = generate_ec256_keypair();
-            info!("SK for VRF Proofs length: {:?}; {:?}", skey.private_key_to_pem_pkcs8().unwrap().len(), skey.private_key_to_pem_pkcs8().unwrap());
+    let skey_opt = {
+        let lock = app_config.inner.read();
+        let val = lock.keys.sk4proofs.clone();
+        val
+    }; // lock dropped here
+    if let Some(sk4proofs) = skey_opt {
+        match sk4proofs.as_str() {
+            "" => {
+                let (skey, _pkey) = generate_ec256_keypair();
+                let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
+                info!("SK for VRF Proofs length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
 
-            state.app_state.write().unwrap().sk4proofs = skey.private_key_to_pem_pkcs8().unwrap();
+                state.app_state.write().sk4proofs = skey_bytes.clone();
+                let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
+                std::fs::create_dir_all("./.keys/").unwrap();
+                std::fs::write("./.keys/sk4proofs.pkcs8.pem", skey_string).unwrap();
 
-            let skey_hex = hex::encode(skey.private_key_to_pem_pkcs8().unwrap());
-            println!("App Config: {:?}; {:?}", app_config.inner.read().unwrap(), skey_hex.clone());
-            app_config.inner.write().unwrap().keys.sk4proofs = Some(skey_hex.clone());
-            let app_config_clone = app_config.inner.read().unwrap().to_owned();
-            let toml_config = toml::to_string(&app_config_clone).unwrap();
-            async_std::fs::write(&config_path, &toml_config).await.unwrap();
-        },
-        Some(sk4proofs) => {
-            // Check if SK for proof generation has correct length
-//            if hex::decode(sk4proofs.clone()).unwrap().len() != 237 {
-//                panic!("[Error] SK length for VRF Proofs mismatch.");
-//            };
-            state.app_state.write().unwrap().sk4proofs = hex::decode(sk4proofs).unwrap();
-        },
+                let skey_hex = hex::encode(skey_bytes);
+
+                let mut config = app_config.inner.write();
+                info!("App Config locked: {:?};", config);
+                config.keys.sk4proofs = Some(skey_hex.clone());
+                info!("App Config: {:?}; {:?}", config, skey_hex.clone());
+                drop(config);
+
+                let app_config_clone = app_config.inner.read().to_owned();
+                let toml_config = toml::to_string(&app_config_clone).unwrap();
+                std::fs::create_dir_all("./.config/").unwrap();
+                std::fs::write(&config_path, &toml_config).unwrap();
+            },
+            _ => {
+                // Check if SK for proof generation has correct length
+                if hex::decode(sk4proofs.clone()).unwrap().len() != 237 {
+                    panic!("[Error] SK length for VRF Proofs mismatch.");
+                };
+                state.app_state.write().sk4proofs = hex::decode(sk4proofs).unwrap();
+                let state = state.app_state.read().clone();
+                let config = app_config.inner.read().clone();
+                info!("App State & Config:\n {:?}\n {:?}", state, config);
+            },
+        }
+    } else {
+        let (skey, _pkey) = generate_ec256_keypair();
+        let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
+        info!("SK for VRF Proofs length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
+
+        state.app_state.write().sk4proofs = skey_bytes.clone();
+        let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
+        std::fs::create_dir_all("./.keys/").unwrap();
+        std::fs::write("./.keys/sk4proofs.pkcs8.pem", skey_string).unwrap();
+
+        let skey_hex = hex::encode(skey_bytes);
+
+        let mut config = app_config.inner.write();
+        info!("App Config locked: {:?};", config);
+        config.keys.sk4proofs = Some(skey_hex.clone());
+        info!("App Config: {:?}; {:?}", config, skey_hex.clone());
+        drop(config);
+
+        let app_config_clone = app_config.inner.read().to_owned();
+        let toml_config = toml::to_string(&app_config_clone).unwrap();
+        std::fs::create_dir_all("./.config/").unwrap();
+        std::fs::write(&config_path, &toml_config).unwrap();
     };
 
-    match app_config.inner.read().unwrap().keys.sk4docs.clone() {
-        None => {
-            let (skey, _pkey) = generate_ec512_keypair();
-            info!("SK for attestation documents signing length: {:?}; {:?}", skey.private_key_to_pem_pkcs8().unwrap().len(), skey.private_key_to_pem_pkcs8().unwrap());
+    let skey_opt = {
+        let lock = app_config.inner.read();
+        let val = lock.keys.sk4docs.clone();
+        val
+    }; // lock dropped here
+    if let Some(sk4docs) = skey_opt {
+        match sk4docs.as_str() {
+            "" => {
+                let (skey, _pkey) = generate_ec512_keypair();
+                let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
+                info!("SK for attestation documents signing length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
 
-            state.app_state.write().unwrap().sk4docs = skey.private_key_to_pem_pkcs8().unwrap();
+                state.app_state.write().sk4docs = skey_bytes.clone();
+                let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
+                std::fs::create_dir_all("./.keys/").unwrap();
+                std::fs::write("./.keys/sk4docs.pkcs8.pem", skey_string).unwrap();
 
-            let skey_hex = hex::encode(skey.private_key_to_pem_pkcs8().unwrap());
-            println!("App Config: {:?}; {:?}", app_config.inner.read().unwrap(), skey_hex);
-            app_config.inner.write().unwrap().keys.sk4docs = Some(skey_hex.clone());
-            let app_config_clone = app_config.inner.read().unwrap().clone();
-            let toml_config = toml::to_string(&app_config_clone).unwrap();
-            std::fs::write(&config_path, &toml_config).unwrap();
-        },
-        Some(sk4docs) => {
-            // Check if SK for attestation documents signing has correct length
-//            if hex::decode(sk4docs.clone()).unwrap().len() != 384 {
-//                panic!("[Error] SK length for attestation documents signing mismatch.");
-//            };
-            state.app_state.write().unwrap().sk4docs = hex::decode(sk4docs).unwrap();
-        },
+                let skey_hex = hex::encode(skey_bytes);
+
+                let mut config = app_config.inner.write();
+                info!("App Config locked: {:?};", config);
+                config.keys.sk4docs = Some(skey_hex.clone());
+                info!("App Config: {:?}; {:?}", config, skey_hex.clone());
+                drop(config);
+
+                let app_config_clone = app_config.inner.read().to_owned();
+                let toml_config = toml::to_string(&app_config_clone).unwrap();
+                std::fs::create_dir_all("./.config/").unwrap();
+                std::fs::write(&config_path, &toml_config).unwrap();
+            },
+            _ => {
+                // Check if SK for attestation documents signing has correct length
+                if hex::decode(sk4docs.clone()).unwrap().len() != 384 {
+                    panic!("[Error] SK length for attestation documents signing mismatch.");
+                };
+                state.app_state.write().sk4docs = hex::decode(sk4docs).unwrap();
+                let state = state.app_state.read().clone();
+                let config = app_config.inner.read().clone();
+                info!("App State & Config:\n {:?}\n {:?}", state, config);
+            },
+        }
+    }  else {
+        let (skey, _pkey) = generate_ec512_keypair();
+        let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
+        info!("SK for attestation documents signing length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
+
+        state.app_state.write().sk4docs = skey_bytes.clone();
+        let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
+        std::fs::create_dir_all("./.keys/").unwrap();
+        std::fs::write("./.keys/sk4docs.pkcs8.pem", skey_string).unwrap();
+
+        let skey_hex = hex::encode(skey_bytes);
+
+        let mut config = app_config.inner.write();
+        info!("App Config locked: {:?};", config);
+        config.keys.sk4docs = Some(skey_hex.clone());
+        info!("App Config: {:?}; {:?}", config, skey_hex.clone());
+        drop(config);
+
+        let app_config_clone = app_config.inner.read().to_owned();
+        let toml_config = toml::to_string(&app_config_clone).unwrap();
+        std::fs::create_dir_all("./.config/").unwrap();
+        std::fs::write(&config_path, &toml_config).unwrap();
     };
 
     //Create a handle for our TLS server so the shutdown signal can all shutdown
@@ -204,7 +290,7 @@ async fn main() -> io::Result<()> {
     //save the future for easy shutting down of redirect server
     let shutdown_future = shutdown_signal(handle.clone(), Arc::clone(&state.app_state));
     // spawn a second server to redirect http requests to this server
-    tokio::spawn(redirect_http_to_https(ports, shutdown_future));
+    tokio::spawn(redirect_http_to_https(ports.clone(), shutdown_future));
 
     // configure certificate and private key used by https
     let cert_dir = std::env::var("CERT_DIR")
@@ -231,11 +317,14 @@ async fn main() -> io::Result<()> {
 //        .route("/proof/", get(proofs))
 //        .route("/docs/", get(docs))
 //        .route("/doc/", get(docs))
+//        .route("/pubkeys/", get(pubkeys))
+//        .route("/verify_proof/", get(verify_proof))
+//        .route("/verify_doc/", get(verify_doc))
         .route("/echo/", get(echo))
         .route("/hello/", get(hello))
         .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&state.app_state)))
         .route("/rng_seq", get(rng_seq).with_state(Arc::clone(&state.app_state)))
-        .route("/gen_att_doc/", get(gen_att_doc))
+//        .route("/gen_att_doc/", get(gen_att_doc))
         .with_state(state.clone());
 
     // run https server
@@ -335,11 +424,15 @@ fn visit_files_recursively<'a>(
                         }
                         Ok(Err(e)) => {
                             eprintln!("Error hashing file: {}", e);
+                            error!("Error hashing file: {}", e);
                         }
                         Err(e) => {
                             eprintln!("Task panicked: {}", e);
+                            error!("Task panicked: {}", e);
                         }
                     }
+
+                    // Proofs gen, Docs gen logic
 
                     // Remove the task from HashMap after awaiting it (after it completes)
                     let mut tasks = tasks_clone.lock().await;
@@ -438,7 +531,7 @@ async fn echo(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let fd = server_state.app_state.read().unwrap().nsm_fd;
+    let fd = server_state.app_state.read().nsm_fd;
     info!("fd: {fd:?}");
 
     let file_path = query_params.get("path").unwrap().to_owned();
@@ -466,7 +559,7 @@ async fn hello(
 ) -> impl IntoResponse {
         info!("{query_params:?}");
 
-        let fd = server_state.app_state.read().unwrap().nsm_fd;
+        let fd = server_state.app_state.read().nsm_fd;
         info!("fd: {fd:?}");
 
         let path = query_params.get("path").unwrap().to_owned();
@@ -489,7 +582,7 @@ async fn hashes(
 ) -> impl IntoResponse {
         info!("{query_params:?}");
 
-        let fd = server_state.app_state.read().unwrap().nsm_fd;
+        let fd = server_state.app_state.read().nsm_fd;
         info!("fd: {fd:?}");
 
         let path = query_params.get("path").unwrap().to_owned();
@@ -519,7 +612,7 @@ async fn nsm_desc(
     State(app_state): State<Arc<RwLock<AppState>>>
 ) -> String {
     info!("{query_params:?}");
-    let fd = app_state.read().unwrap().nsm_fd;
+    let fd = app_state.read().nsm_fd;
     let description = get_nsm_description(fd).unwrap();
     assert_eq!(
         description.max_pcrs, 32,
@@ -559,7 +652,7 @@ async fn rng_seq(
     State(app_state): State<Arc<RwLock<AppState>>>
 ) -> String {
     info!("{query_params:?}");
-    let fd = app_state.read().unwrap().nsm_fd;
+    let fd = app_state.read().nsm_fd;
     let randomness_sequence = get_randomness_sequence(fd);
     format!("{:?}\n", hex::encode(randomness_sequence))
 }
@@ -569,7 +662,7 @@ async fn gen_att_doc(
     State(server_state): State<Arc<ServerState>>,
 ) -> String {
     info!("{query_params:?}");
-    let fd = server_state.app_state.read().unwrap().nsm_fd;
+    let fd = server_state.app_state.read().nsm_fd;
 
     let mut random_user_data = [0u8; 1024];
     OsRng.fill_bytes(&mut random_user_data);
@@ -745,8 +838,9 @@ where
         Ok(Uri::from_parts(parts)?)
     }
 
+    let ports_clone = ports.clone();
     let redirect = move |Host(host): Host, uri: Uri| async move {
-        match make_https(host, uri, ports) {
+        match make_https(host, uri, ports_clone) {
             Ok(uri) => Ok(Redirect::permanent(&uri.to_string())),
             Err(error) => {
                 tracing::warn!(%error, "failed to convert URI to HTTPS");
@@ -788,7 +882,7 @@ async fn shutdown_signal(handle: axum_server::Handle, app_state: Arc<RwLock<AppS
     }
 
     info!("Received termination signal shutting down");
-    let fd = app_state.read().unwrap().nsm_fd;
+    let fd = app_state.read().nsm_fd;
     // close device file descriptor before app exit
     nsm_exit(fd);
     println!("NSM device closed.");

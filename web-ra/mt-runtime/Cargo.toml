@@ -32,6 +32,7 @@ aws-nitro-enclaves-cose = { git = "https://github.com/andrcmdr/aws-nitro-enclave
 serde_bytes = "0.11"
 serde_cbor = "0.11"
 toml = "0.8"
+parking_lot = "0.12"
 openssl = "0.10.72"
 vrf = "0.2.4"
 
