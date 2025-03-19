@@ -43,6 +43,8 @@ use aws_nitro_enclaves_nsm_api::driver::{nsm_exit, nsm_init, nsm_process_request
 use serde_bytes::ByteBuf;
 use aws_nitro_enclaves_cose::CoseSign1;
 use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
+use futures::AsyncReadExt;
+use futures::stream::Count;
 use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
 use parking_lot::RwLock;
@@ -85,7 +87,7 @@ struct AppState {
 
 #[derive(Default, Debug, Clone)]
 struct AppCache {
-    docs: HashMap<String, AttData>,
+    att_data: HashMap<String, AttData>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -101,7 +103,7 @@ struct ServerState {
     tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<io::Result<Vec<u8>>>>>>,
     results: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     app_state: Arc<RwLock<AppState>>,
-    docs: Arc<RwLock<AppCache>>,
+    app_cache: Arc<RwLock<AppCache>>,
 }
 
 #[derive(Default, Debug, Clone, Deserialize)]
@@ -149,7 +151,7 @@ async fn main() -> io::Result<()> {
         tasks: Arc::new(Mutex::new(HashMap::new())),
         results: Arc::new(Mutex::new(HashMap::new())),
         app_state: Arc::new(RwLock::new(AppState::default())),
-        docs: Arc::new(RwLock::new(AppCache::default())),
+        app_cache: Arc::new(RwLock::new(AppCache::default())),
     });
 
     // Share NSM file descriptor for future calls to NSM device
@@ -406,6 +408,8 @@ fn visit_files_recursively<'a>(
             let tasks_clone = Arc::clone(&state.tasks);
             let results_clone = Arc::clone(&state.results);
             let file_path_clone = file_path.clone();
+            let app_state_clone = Arc::clone(&state.app_state);
+            let app_cache_clone = Arc::clone(&state.app_cache);
             tokio::spawn(async move {
                 let task_result = {
                     let mut tasks = tasks_clone.lock().await;
@@ -420,7 +424,43 @@ fn visit_files_recursively<'a>(
                     match result {
                         Ok(Ok(hash)) => {
                             let mut results = results_clone.lock().await;
-                            results.insert(file_path_clone.clone(), hash);
+                            results.insert(file_path_clone.clone(), hash.clone());
+
+                            // Proofs gen logic
+
+                            let app_state = app_state_clone.read().clone();
+
+                            let skey4proofs_bytes = app_state.sk4proofs;
+                            let skey4proofs_pkey = PKey::private_key_from_pem(skey4proofs_bytes.as_slice()).unwrap();
+                            let skey4proofs_eckey = skey4proofs_pkey.ec_key().unwrap();
+                            let skey4proofs_bignum = skey4proofs_eckey.private_key().to_owned().unwrap();
+                            let skey4proofs_vec = skey4proofs_bignum.to_vec();
+                            let vrf_proof = vrf_proof(skey4proofs_vec.as_slice(), hash.as_slice()).unwrap();
+
+                            // Docs gen logic
+
+                            let mut app_cache = app_cache_clone.write();
+
+                            let fd = app_state.nsm_fd;
+                            let nonce = get_randomness_sequence(fd.clone(), 1024);
+                            let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP256K1).unwrap();
+                            let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
+                            let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey).unwrap();
+                            let skey4proofs_pubkey_pem = skey4proofs_pkey_pubkey.public_key_to_pem().unwrap();
+
+                            let att_doc = get_attestation_doc(
+                                fd,
+                                Some(ByteBuf::from(vrf_proof.clone())),
+                                Some(ByteBuf::from(nonce.clone())),
+                                Some(ByteBuf::from(skey4proofs_pubkey_pem.clone())),
+                            );
+
+                            app_cache.att_data.insert(file_path_clone.clone(), AttData {
+                                file_path: file_path_clone.clone(),
+                                sha3_hash: hex::encode(hash.clone()),
+                                vrf_proof: hex::encode(vrf_proof.clone()),
+                                att_doc: att_doc.clone(),
+                            });
                         }
                         Ok(Err(e)) => {
                             eprintln!("Error hashing file: {}", e);
@@ -431,8 +471,6 @@ fn visit_files_recursively<'a>(
                             error!("Task panicked: {}", e);
                         }
                     }
-
-                    // Proofs gen, Docs gen logic
 
                     // Remove the task from HashMap after awaiting it (after it completes)
                     let mut tasks = tasks_clone.lock().await;
@@ -653,7 +691,7 @@ async fn rng_seq(
 ) -> String {
     info!("{query_params:?}");
     let fd = app_state.read().nsm_fd;
-    let randomness_sequence = get_randomness_sequence(fd);
+    let randomness_sequence = get_randomness_sequence(fd, 2048);
     format!("{:?}\n", hex::encode(randomness_sequence))
 }
 
@@ -763,25 +801,25 @@ fn get_nsm_description(fd: i32) -> Result<NsmDescription, ()> {
     }
 }
 
-fn get_randomness_sequence(fd: i32) -> Vec<u8> {
+fn get_randomness_sequence(fd: i32, count_bytes: u32) -> Vec<u8> {
     let mut prev_random: Vec<u8> = vec![];
     let mut random: Vec<u8> = vec![];
 
-    for _ in 0..16 {
+    for _ in 0..count_bytes {
         random = match nsm_process_request(fd, Request::GetRandom) {
             Response::GetRandom { random } => {
                 assert!(!random.is_empty());
                 assert!(prev_random != random);
                 prev_random = random.clone();
-                println!("Random bytes: {:?}", random.clone());
+                info!("Random bytes: {:?}", random.clone());
                 random
             }
             resp => {
-                println!(
+                error!(
                     "GetRandom: expecting Response::GetRandom, but got {:?} instead",
                     resp
                 );
-                vec![0u8; 64]
+                vec![]
             },
         }
     };
@@ -805,16 +843,16 @@ fn get_attestation_doc (
     match response {
         Response::Attestation { document } => {
             assert_ne!(document.len(), 0, "[Error] COSE document is empty.");
-            println!("COSE document length: {:?} bytes", document.len());
+            info!("COSE document length: {:?} bytes", document.len());
             // println!("Attestation document: {:?}", document);
             document
         }
         _ => {
-            println!(
+            error!(
                 "[Error] Request::Attestation got invalid response: {:?}",
                 response
             );
-            vec![0u8, 64]
+            vec![]
         },
     }
 }
@@ -885,6 +923,6 @@ async fn shutdown_signal(handle: axum_server::Handle, app_state: Arc<RwLock<AppS
     let fd = app_state.read().nsm_fd;
     // close device file descriptor before app exit
     nsm_exit(fd);
-    println!("NSM device closed.");
+    info!("NSM device closed.");
     handle.graceful_shutdown(Some(Duration::from_secs(10))); // 10 secs is how long docker will wait to force shutdown
 }
