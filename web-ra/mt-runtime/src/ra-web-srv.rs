@@ -26,13 +26,13 @@ use std::{
     io::{self, Read},
     fs::{self, DirEntry},
     path::{Path as StdPath, PathBuf},
-    net::SocketAddr, time::Duration,
+    net::{SocketAddr, IpAddr}, time::Duration,
 };
-use std::net::IpAddr;
 
-use async_std::prelude::FutureExt;
 use tokio::sync::Mutex;
 use tokio::signal;
+
+use parking_lot::RwLock;
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 // use tracing_subscriber::fmt::format;
@@ -43,11 +43,8 @@ use aws_nitro_enclaves_nsm_api::driver::{nsm_exit, nsm_init, nsm_process_request
 use serde_bytes::ByteBuf;
 use aws_nitro_enclaves_cose::CoseSign1;
 use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
-use futures::AsyncReadExt;
-use futures::stream::Count;
-use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
-use parking_lot::RwLock;
+use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
 use openssl::pkey::{PKey, Private, Public};
 
@@ -76,6 +73,68 @@ struct Config {
 #[derive(Default, Debug, Clone)]
 struct AppConfig {
     inner: Arc<RwLock<Config>>,
+}
+
+impl AppConfig {
+    fn new_from_file(config_path: &str) -> Self {
+        let raw_config_string = fs::read_to_string(config_path)
+            .expect(format!("Failed to read config file via provided path {:?}. Missing 'config.toml' file.", config_path).as_str());
+        let config = toml::from_str::<Config>(raw_config_string.as_str())
+            .expect("Invalid TOML format. Failed to parse 'config.toml' file.");
+        AppConfig {
+            inner: Arc::new(RwLock::new(config))
+        }
+    }
+
+    fn save_to_file(&self, path: &str) {
+        let config = self.inner.read();
+        let toml_str = toml::to_string(&*config).expect("Failed to serialize config.");
+        fs::write(path, toml_str).expect("Failed to write config file.");
+    }
+
+    fn update_nsm_fd(&self, new_nsm_fd: i32) {
+        let mut config = self.inner.write();
+        config.nsm_fd = Some(new_nsm_fd.to_string());
+    }
+
+    fn update_keys(&self, new_keys: Keys) {
+        let mut config = self.inner.write();
+        config.keys = Keys {
+            sk4proofs: new_keys.sk4proofs,
+            sk4docs: new_keys.sk4docs,
+        };
+        drop(config);
+    }
+
+    fn update_ports(&self, new_ports: Ports) {
+        let mut config = self.inner.write();
+        config.ports = Ports {
+            http: new_ports.http,
+            https: new_ports.https,
+        };
+    }
+
+    fn get_nsm_fd(&self) -> i32 {
+        let nsm_fd = if let Some(fd) = self.inner.read().clone().nsm_fd {
+            match fd.as_str() {
+                // file descriptor returned by NSM device initialization function
+                "nsm" | "nsm_dev" => nsm_init(),
+                // testing file descriptor, for usage with NSM device emulator
+                "debug" => 3,
+                // particular file descriptor, for usage with NSM device emulator
+                nsm_fd => nsm_fd.parse::<i32>().unwrap(),
+            }
+        } else { 3 }; // testing file descriptor, for usage with NSM device emulator
+        nsm_fd
+    }
+
+    fn get_keys(&self) -> Keys {
+        self.inner.read().keys.clone()
+    }
+
+    fn get_ports(&self) -> Ports {
+        self.inner.read().ports.clone()
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -122,28 +181,14 @@ async fn main() -> io::Result<()> {
         .init();
 
     let config_path = "./.config/config.toml";
-    let raw_config_string = std::fs::read_to_string(config_path)
-        .expect("Missing `config.toml` file.");
-    let config = toml::from_str::<Config>(raw_config_string.as_str()).expect("Failed to parse `config.toml` file.");
-    let app_config = AppConfig {
-        inner: Arc::new(RwLock::new(config))
-    };
+    let app_config = AppConfig::new_from_file(config_path);
 
     let ports = Ports {
-        http: app_config.inner.read().ports.http,
-        https: app_config.inner.read().ports.https,
+        http: app_config.get_ports().http,
+        https: app_config.get_ports().https,
     };
 
-    let fd = if let Some(fd) = app_config.inner.read().clone().nsm_fd {
-        match fd.as_str() {
-            // file descriptor returned by NSM device initialization function
-            "nsm" | "nsm_dev" => nsm_init(),
-            // testing file descriptor, for usage with NSM device emulator
-            "debug" => 3,
-            // particular file descriptor, for usage with NSM device emulator
-            nsm_fd => nsm_fd.parse::<i32>().unwrap(),
-        }
-    } else { 3 }; // testing file descriptor, for usage with NSM device emulator
+    let fd = app_config.get_nsm_fd();
     assert!(fd >= 0, "[Error] NSM initialization returned {}.", fd);
     info!("NSM device initialized.");
 
@@ -157,134 +202,88 @@ async fn main() -> io::Result<()> {
     // Share NSM file descriptor for future calls to NSM device
     state.app_state.write().nsm_fd = fd;
 
-    let skey_opt = {
-        let lock = app_config.inner.read();
-        let val = lock.keys.sk4proofs.clone();
+    let skey4proofs = {
+        let config = app_config.inner.read();
+        let sk4proofs = config.keys.sk4proofs.clone();
+        let val = sk4proofs.unwrap_or_else(|| "".to_string());
         val
     }; // lock dropped here
-    if let Some(sk4proofs) = skey_opt {
-        match sk4proofs.as_str() {
-            "" => {
-                let (skey, _pkey) = generate_ec256_keypair();
-                let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
-                info!("SK for VRF Proofs length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
 
-                state.app_state.write().sk4proofs = skey_bytes.clone();
-                let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
-                std::fs::create_dir_all("./.keys/").unwrap();
-                std::fs::write("./.keys/sk4proofs.pkcs8.pem", skey_string).unwrap();
+    match skey4proofs.as_str() {
+        "" => {
+            let (skey, _pkey) = generate_ec256_keypair();
+            let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
+            info!("SK for VRF Proofs length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
 
-                let skey_hex = hex::encode(skey_bytes);
+            state.app_state.write().sk4proofs = skey_bytes.clone();
+            let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
+            std::fs::create_dir_all("./.keys/").unwrap();
+            std::fs::write("./.keys/sk4proofs.pkcs8.pem", skey_string).unwrap();
 
-                let mut config = app_config.inner.write();
-                info!("App Config locked: {:?};", config);
-                config.keys.sk4proofs = Some(skey_hex.clone());
-                info!("App Config: {:?}; {:?}", config, skey_hex.clone());
-                drop(config);
+            let skey_hex = hex::encode(skey_bytes);
 
-                let app_config_clone = app_config.inner.read().to_owned();
-                let toml_config = toml::to_string(&app_config_clone).unwrap();
-                std::fs::create_dir_all("./.config/").unwrap();
-                std::fs::write(&config_path, &toml_config).unwrap();
-            },
-            _ => {
-                // Check if SK for proof generation has correct length
-                if hex::decode(sk4proofs.clone()).unwrap().len() != 237 {
-                    panic!("[Error] SK length for VRF Proofs mismatch.");
-                };
-                state.app_state.write().sk4proofs = hex::decode(sk4proofs).unwrap();
-                let state = state.app_state.read().clone();
-                let config = app_config.inner.read().clone();
-                info!("App State & Config:\n {:?}\n {:?}", state, config);
-            },
-        }
-    } else {
-        let (skey, _pkey) = generate_ec256_keypair();
-        let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
-        info!("SK for VRF Proofs length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
+            info!("App Config: {:?};", app_config.inner.read().clone());
+            app_config.update_keys(Keys {
+                sk4proofs: Some(skey_hex.clone()),
+                sk4docs: app_config.get_keys().sk4docs,
+            });
+            info!("App Config: {:?}; {:?}", app_config.inner.read().clone(), skey_hex.clone());
 
-        state.app_state.write().sk4proofs = skey_bytes.clone();
-        let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
-        std::fs::create_dir_all("./.keys/").unwrap();
-        std::fs::write("./.keys/sk4proofs.pkcs8.pem", skey_string).unwrap();
-
-        let skey_hex = hex::encode(skey_bytes);
-
-        let mut config = app_config.inner.write();
-        info!("App Config locked: {:?};", config);
-        config.keys.sk4proofs = Some(skey_hex.clone());
-        info!("App Config: {:?}; {:?}", config, skey_hex.clone());
-        drop(config);
-
-        let app_config_clone = app_config.inner.read().to_owned();
-        let toml_config = toml::to_string(&app_config_clone).unwrap();
-        std::fs::create_dir_all("./.config/").unwrap();
-        std::fs::write(&config_path, &toml_config).unwrap();
+            std::fs::create_dir_all("./.config/").unwrap();
+            app_config.save_to_file(config_path);
+        },
+        skey => {
+            // Check if SK for proof generation has correct length
+            if hex::decode(skey.clone()).unwrap().len() != 237 {
+                panic!("[Error] SK length for VRF Proofs mismatch.");
+            };
+            state.app_state.write().sk4proofs = hex::decode(skey.clone()).unwrap();
+            let state = state.app_state.read().clone();
+            let config = app_config.inner.read().clone();
+            info!("App State & App Config:\n {:?}\n {:?}", state, config);
+        },
     };
 
-    let skey_opt = {
-        let lock = app_config.inner.read();
-        let val = lock.keys.sk4docs.clone();
+    let skey4docs = {
+        let config = app_config.inner.read();
+        let sk4docs = config.keys.sk4docs.clone();
+        let val = sk4docs.unwrap_or_else(|| "".to_string());
         val
     }; // lock dropped here
-    if let Some(sk4docs) = skey_opt {
-        match sk4docs.as_str() {
-            "" => {
-                let (skey, _pkey) = generate_ec512_keypair();
-                let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
-                info!("SK for attestation documents signing length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
 
-                state.app_state.write().sk4docs = skey_bytes.clone();
-                let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
-                std::fs::create_dir_all("./.keys/").unwrap();
-                std::fs::write("./.keys/sk4docs.pkcs8.pem", skey_string).unwrap();
+    match skey4docs.as_str() {
+        "" => {
+            let (skey, _pkey) = generate_ec512_keypair();
+            let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
+            info!("SK for attestation documents signing length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
 
-                let skey_hex = hex::encode(skey_bytes);
+            state.app_state.write().sk4docs = skey_bytes.clone();
+            let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
+            std::fs::create_dir_all("./.keys/").unwrap();
+            std::fs::write("./.keys/sk4docs.pkcs8.pem", skey_string).unwrap();
 
-                let mut config = app_config.inner.write();
-                info!("App Config locked: {:?};", config);
-                config.keys.sk4docs = Some(skey_hex.clone());
-                info!("App Config: {:?}; {:?}", config, skey_hex.clone());
-                drop(config);
+            let skey_hex = hex::encode(skey_bytes);
 
-                let app_config_clone = app_config.inner.read().to_owned();
-                let toml_config = toml::to_string(&app_config_clone).unwrap();
-                std::fs::create_dir_all("./.config/").unwrap();
-                std::fs::write(&config_path, &toml_config).unwrap();
-            },
-            _ => {
-                // Check if SK for attestation documents signing has correct length
-                if hex::decode(sk4docs.clone()).unwrap().len() != 384 {
-                    panic!("[Error] SK length for attestation documents signing mismatch.");
-                };
-                state.app_state.write().sk4docs = hex::decode(sk4docs).unwrap();
-                let state = state.app_state.read().clone();
-                let config = app_config.inner.read().clone();
-                info!("App State & Config:\n {:?}\n {:?}", state, config);
-            },
-        }
-    }  else {
-        let (skey, _pkey) = generate_ec512_keypair();
-        let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
-        info!("SK for attestation documents signing length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
+            info!("App Config: {:?};", app_config.inner.read().clone());
+            app_config.update_keys(Keys {
+                sk4proofs: app_config.get_keys().sk4proofs,
+                sk4docs: Some(skey_hex.clone()),
+            });
+            info!("App Config: {:?}; {:?}", app_config.inner.read().clone(), skey_hex.clone());
 
-        state.app_state.write().sk4docs = skey_bytes.clone();
-        let skey_string = String::from_utf8(skey_bytes.clone()).unwrap();
-        std::fs::create_dir_all("./.keys/").unwrap();
-        std::fs::write("./.keys/sk4docs.pkcs8.pem", skey_string).unwrap();
-
-        let skey_hex = hex::encode(skey_bytes);
-
-        let mut config = app_config.inner.write();
-        info!("App Config locked: {:?};", config);
-        config.keys.sk4docs = Some(skey_hex.clone());
-        info!("App Config: {:?}; {:?}", config, skey_hex.clone());
-        drop(config);
-
-        let app_config_clone = app_config.inner.read().to_owned();
-        let toml_config = toml::to_string(&app_config_clone).unwrap();
-        std::fs::create_dir_all("./.config/").unwrap();
-        std::fs::write(&config_path, &toml_config).unwrap();
+            std::fs::create_dir_all("./.config/").unwrap();
+            app_config.save_to_file(config_path);
+        },
+        skey => {
+            // Check if SK for attestation documents signing has correct length
+            if hex::decode(skey.clone()).unwrap().len() != 384 {
+                panic!("[Error] SK length for attestation documents signing mismatch.");
+            };
+            state.app_state.write().sk4docs = hex::decode(skey.clone()).unwrap();
+            let state = state.app_state.read().clone();
+            let config = app_config.inner.read().clone();
+            info!("App State & App Config:\n {:?}\n {:?}", state, config);
+        },
     };
 
     //Create a handle for our TLS server so the shutdown signal can all shutdown
@@ -442,7 +441,7 @@ fn visit_files_recursively<'a>(
                             let mut app_cache = app_cache_clone.write();
 
                             let fd = app_state.nsm_fd;
-                            let nonce = get_randomness_sequence(fd.clone(), 1024);
+                            let nonce = get_randomness_sequence(fd.clone(), 512);
                             let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP256K1).unwrap();
                             let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
                             let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey).unwrap();
