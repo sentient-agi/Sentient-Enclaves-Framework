@@ -12,6 +12,7 @@ use axum::{
 };
 use axum_extra::extract::Host;
 use axum_server::tls_rustls::RustlsConfig;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 
@@ -358,7 +359,7 @@ async fn generate_handler(
         Err(e) => {
             return (
                 StatusCode::NOT_FOUND,
-                format!("Path not found: {}", e),
+                format!("Path not found: {:?}\n", e),
             );
         }
     };
@@ -380,7 +381,7 @@ async fn generate_handler(
     } else {
         "Started processing file"
     };
-    (StatusCode::ACCEPTED, message.to_string())
+    (StatusCode::ACCEPTED, format!("{:?}\n", message.to_string()))
 }
 
 fn visit_files_recursively<'a>(
@@ -500,29 +501,57 @@ fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
     Ok(hasher.finalize().to_vec())
 }
 
-fn vrf_proof(message: &[u8], secret_key: &[u8]) -> Result<Vec<u8>, String> {
-    let mut vrf  = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
-    let public_key = vrf.derive_public_key(&secret_key).unwrap();
-    let proof = vrf.prove(&secret_key, &message).unwrap();
-    Ok(proof)
+/// Testing echo endpoint handler for API protocol and parameters parsing various testing purposes
+async fn echo(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+    info!("{query_params:?}");
+
+    let fd = server_state.app_state.read().nsm_fd;
+    info!("fd: {fd:?}");
+
+    let file_path = query_params.get("path").unwrap().to_owned();
+    info!("File path: {:?}", file_path);
+
+    let response = query_params.iter()
+        .map(
+            |(key, val)| {
+                let output = format!("Query Parameter: {:?}; Value: {:?};\n", key, val);
+                info!("{output:?}");
+                output
+            }
+        )
+        .collect::<Vec<String>>()
+        .join("\n");
+    info!("{response:?}");
+
+    (StatusCode::OK, format!("{:?}\n", response))
 }
 
-fn vrf_verify(message: &[u8], proof: &[u8], public_key: &[u8]) -> Result<bool, Error> {
-    let mut vrf  = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
-    let hash = vrf.proof_to_hash(&proof).unwrap();
-    let outcome = vrf.verify(&public_key, &proof, &message);
-    match outcome {
-        Ok(outcome) => {
-            info!("VRF proof is valid!");
-            let result = if hash == outcome { true } else { false };
-            Ok(result)
+/// A handler stub for testing purposes
+async fn hello(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+        info!("{query_params:?}");
+
+        let fd = server_state.app_state.read().nsm_fd;
+        info!("fd: {fd:?}");
+
+        let path = query_params.get("path").unwrap().to_owned();
+        info!("Path: {:?}", path);
+
+        match query_params.get("view").unwrap().as_str() {
+            "bin" | "raw" => (),
+            "hex" => (),
+            "fmt" | "str" => (),
+            "json" => (),
+            _ => (),
         }
-        Err(e) => {
-            error!("VRF proof is not valid! Error: {}", e);
-            Err(e)
-        }
+
+        (StatusCode::OK, Html("<h1>Hello, World!</h1>\n"))
     }
-}
 
 async fn ready_handler(
     Query(query_params): Query<HashMap<String, String>>,
@@ -561,8 +590,7 @@ async fn hash_handler(
     }
 }
 
-/// Testing echo endpoint handler for API protocol and parameters parsing various testing purposes
-async fn echo(
+async fn hashes(
     Query(query_params): Query<HashMap<String, String>>,
     State(server_state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
@@ -571,13 +599,17 @@ async fn echo(
     let fd = server_state.app_state.read().nsm_fd;
     info!("fd: {fd:?}");
 
-    let file_path = query_params.get("path").unwrap().to_owned();
-    info!("File path: {:?}", file_path);
+    let path = query_params.get("path").unwrap().to_owned();
+    info!("Path: {:?}", path);
 
-    let response = query_params.iter()
-        .map(
-            |(key, val)| {
-                let output = format!("Query Parameter: {:?}; Value: {:?};\n", key, val);
+    let hashes = server_state.results.lock().await;
+    let response = hashes.iter()
+        .filter(
+            |(key, _)|
+                key.contains(path.as_str())
+        ).map(
+            |(path, hash)| {
+                let output = format!("Path: {:?}; Hash: {:?};", path, hex::encode(hash.as_slice()));
                 info!("{output:?}");
                 output
             }
@@ -586,68 +618,13 @@ async fn echo(
         .join("\n");
     info!("{response:?}");
 
-    (StatusCode::OK, response)
+    (StatusCode::OK, format!("{:?}\n", response))
 }
-
-/// A handler stub for testing purposes
-async fn hello(
-    Query(query_params): Query<HashMap<String, String>>,
-    State(server_state): State<Arc<ServerState>>,
-) -> impl IntoResponse {
-        info!("{query_params:?}");
-
-        let fd = server_state.app_state.read().nsm_fd;
-        info!("fd: {fd:?}");
-
-        let path = query_params.get("path").unwrap().to_owned();
-        info!("Path: {:?}", path);
-
-        match query_params.get("view").unwrap().as_str() {
-            "bin" | "raw" => (),
-            "hex" => (),
-            "fmt" | "str" => (),
-            "json" => (),
-            _ => (),
-        }
-
-        (StatusCode::OK, Html("<h1>Hello, World!</h1>\n"))
-    }
-
-async fn hashes(
-    Query(query_params): Query<HashMap<String, String>>,
-    State(server_state): State<Arc<ServerState>>,
-) -> impl IntoResponse {
-        info!("{query_params:?}");
-
-        let fd = server_state.app_state.read().nsm_fd;
-        info!("fd: {fd:?}");
-
-        let path = query_params.get("path").unwrap().to_owned();
-        info!("Path: {:?}", path);
-
-        let hashes = server_state.results.lock().await;
-        let response = hashes.iter()
-            .filter(
-                |(key, _)|
-                    key.contains(path.as_str())
-            ).map(
-                |(path, hash)| {
-                    let output = format!("Path: {:?}; Hash: {:?};", path, hex::encode(hash.as_slice()));
-                    info!("{output:?}");
-                    output
-                }
-            )
-            .collect::<Vec<String>>()
-            .join("\n");
-        info!("{response:?}");
-
-        (StatusCode::OK, response)
-    }
 
 async fn nsm_desc(
     Query(query_params): Query<HashMap<String, String>>,
     State(app_state): State<Arc<RwLock<AppState>>>
-) -> String {
+) -> impl IntoResponse {
     info!("{query_params:?}");
     let fd = app_state.read().nsm_fd;
     let description = get_nsm_description(fd).unwrap();
@@ -672,7 +649,7 @@ async fn nsm_desc(
         description.digest
     );
 
-    format!(
+    (StatusCode::OK, format!(
         "NSM description: [major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {:?}].\n",
         description.version_major,
         description.version_minor,
@@ -681,17 +658,22 @@ async fn nsm_desc(
         description.max_pcrs,
         description.locked_pcrs,
         description.digest
-    )
+    ))
 }
 
 async fn rng_seq(
     Query(query_params): Query<HashMap<String, String>>,
     State(app_state): State<Arc<RwLock<AppState>>>
-) -> String {
+) -> impl IntoResponse {
     info!("{query_params:?}");
     let fd = app_state.read().nsm_fd;
-    let randomness_sequence = get_randomness_sequence(fd, 2048);
-    format!("{:?}\n", hex::encode(randomness_sequence))
+    let length = query_params.get("length");
+    let randomness_sequence = if let Some(length) = length {
+        let len = length.to_owned().parse::<u32>().unwrap_or_else(|_| 512u32);
+        get_randomness_sequence(fd, len)
+    } else { get_randomness_sequence(fd, 512) };
+
+    (StatusCode::OK, format!("{:?}\n", hex::encode(randomness_sequence)))
 }
 
 async fn gen_att_doc(
@@ -757,6 +739,30 @@ fn generate_ec512_keypair() -> (PKey<Private>, PKey<Public>) {
         PKey::from_ec_key(ec_private).unwrap(),
         PKey::from_ec_key(ec_public).unwrap(),
     )
+}
+
+fn vrf_proof(message: &[u8], secret_key: &[u8]) -> Result<Vec<u8>, String> {
+    let mut vrf  = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+    let public_key = vrf.derive_public_key(&secret_key).unwrap();
+    let proof = vrf.prove(&secret_key, &message).unwrap();
+    Ok(proof)
+}
+
+fn vrf_verify(message: &[u8], proof: &[u8], public_key: &[u8]) -> Result<bool, Error> {
+    let mut vrf  = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+    let hash = vrf.proof_to_hash(&proof).unwrap();
+    let outcome = vrf.verify(&public_key, &proof, &message);
+    match outcome {
+        Ok(outcome) => {
+            info!("VRF proof is valid!");
+            let result = if hash == outcome { true } else { false };
+            Ok(result)
+        }
+        Err(e) => {
+            error!("VRF proof is not valid! Error: {}", e);
+            Err(e)
+        }
+    }
 }
 
 struct NsmDescription {
