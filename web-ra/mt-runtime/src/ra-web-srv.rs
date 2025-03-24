@@ -15,6 +15,8 @@ use axum_server::tls_rustls::RustlsConfig;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use serde_cbor::Value as CborValue;
+use serde_cbor::Error as CborError;
 
 use sha3::{Digest, Sha3_512};
 
@@ -48,7 +50,8 @@ use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
 use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
 use openssl::pkey::{PKey, Private, Public};
-
+use tokio::io::join;
+use tracing_subscriber::fmt::format;
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
 
@@ -312,21 +315,19 @@ async fn main() -> io::Result<()> {
     let app = Router::new()
         .route("/generate", post(generate_handler))
         .route("/ready/", get(ready_handler))
-//        .route("/hash/", get(hash_handler))
         .route("/hashes/", get(hashes))
-        .route("/hash/", get(hashes))
-//        .route("/proofs/", get(proofs))
-//        .route("/proof/", get(proofs))
-//        .route("/docs/", get(docs))
-//        .route("/doc/", get(docs))
-//        .route("/pubkeys/", get(pubkeys))
+        .route("/hash/", get(hash_handler))
+        .route("/proofs/", get(proofs))
+        .route("/proof/", get(proof_handler))
+        .route("/docs/", get(docs))
+        .route("/doc/", get(doc_handler))
+        .route("/pubkeys/", get(pubkeys))
 //        .route("/verify_proof/", get(verify_proof))
 //        .route("/verify_doc/", get(verify_doc))
         .route("/echo/", get(echo))
         .route("/hello/", get(hello))
         .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&state.app_state)))
         .route("/rng_seq", get(rng_seq).with_state(Arc::clone(&state.app_state)))
-//        .route("/gen_att_doc/", get(gen_att_doc))
         .with_state(state.clone());
 
     // run https server
@@ -529,7 +530,7 @@ async fn echo(
     (StatusCode::OK, format!("{:?}\n", response))
 }
 
-/// A handler stub for testing purposes
+/// A handler stub for various testing purposes
 async fn hello(
     Query(query_params): Query<HashMap<String, String>>,
     State(server_state): State<Arc<ServerState>>,
@@ -557,7 +558,11 @@ async fn ready_handler(
     Query(query_params): Query<HashMap<String, String>>,
     State(state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
+    info!("{query_params:?}");
+
     let file_path = query_params.get("path").unwrap().to_owned();
+    info!("File path: {:?}", file_path);
+
     let results = state.results.lock().await;
     if results.contains_key(&file_path) {
         (StatusCode::OK, "Ready".to_string())
@@ -575,10 +580,75 @@ async fn hash_handler(
     Query(query_params): Query<HashMap<String, String>>,
     State(state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
+    info!("{query_params:?}");
+
     let file_path = query_params.get("path").unwrap().to_owned();
+    info!("File path: {:?}", file_path);
+
     let results = state.results.lock().await;
     match results.get(&file_path) {
         Some(hash) => (StatusCode::OK, hex::encode(hash)),
+        None => {
+            let tasks = state.tasks.lock().await;
+            if tasks.contains_key(&file_path) {
+                (StatusCode::ACCEPTED, "Processing".to_string())
+            } else {
+                (StatusCode::NOT_FOUND, "Not found".to_string())
+            }
+        }
+    }
+}
+
+async fn proof_handler(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+    info!("{query_params:?}");
+
+    let file_path = query_params.get("path").unwrap().to_owned();
+    info!("File path: {:?}", file_path);
+
+    let app_cache = state.app_cache.read().clone().att_data;
+    match app_cache.get(&file_path) {
+        Some(att_data) => (StatusCode::OK, json!({
+            "path": att_data.file_path,
+            "hash": att_data.sha3_hash,
+            "proof": att_data.vrf_proof,
+        }).to_string()),
+        None => {
+            let tasks = state.tasks.lock().await;
+            if tasks.contains_key(&file_path) {
+                (StatusCode::ACCEPTED, "Processing".to_string())
+            } else {
+                (StatusCode::NOT_FOUND, "Not found".to_string())
+            }
+        }
+    }
+}
+
+async fn doc_handler(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+    info!("{query_params:?}");
+
+    let file_path = query_params.get("path").unwrap().to_owned();
+    info!("File path: {:?}", file_path);
+
+    let view = query_params.get("view").unwrap().to_owned();
+    info!("View: {:?}", view);
+
+    let app_cache = state.app_cache.read().clone().att_data;
+    match app_cache.get(&file_path) {
+        Some(att_data) => {
+            let att_doc_fmt = att_doc_fmt(att_data.att_doc.as_slice(), view.as_str());
+            (StatusCode::OK, json!({
+                "path": att_data.file_path,
+                "hash": att_data.sha3_hash,
+                "proof": att_data.vrf_proof,
+                "att_doc": att_doc_fmt,
+            }).to_string())
+        },
         None => {
             let tasks = state.tasks.lock().await;
             if tasks.contains_key(&file_path) {
@@ -596,9 +666,6 @@ async fn hashes(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let fd = server_state.app_state.read().nsm_fd;
-    info!("fd: {fd:?}");
-
     let path = query_params.get("path").unwrap().to_owned();
     info!("Path: {:?}", path);
 
@@ -609,7 +676,10 @@ async fn hashes(
                 key.contains(path.as_str())
         ).map(
             |(path, hash)| {
-                let output = format!("Path: {:?}; Hash: {:?};", path, hex::encode(hash.as_slice()));
+                let output = json!({
+                    "path": path,
+                    "hash": hex::encode(hash.as_slice()),
+                }).to_string();
                 info!("{output:?}");
                 output
             }
@@ -619,6 +689,145 @@ async fn hashes(
     info!("{response:?}");
 
     (StatusCode::OK, format!("{:?}\n", response))
+}
+
+async fn proofs(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+    info!("{query_params:?}");
+
+    let path = query_params.get("path").unwrap().to_owned();
+    info!("Path: {:?}", path);
+
+    let app_cache = server_state.app_cache.read();
+    let response = app_cache.att_data.iter()
+        .filter(
+            |(key, _)|
+                key.contains(path.as_str())
+        ).map(
+            |(path, att_data)| {
+                let output = json!({
+                    "path": path,
+                    "hash": att_data.sha3_hash,
+                    "proof": att_data.vrf_proof,
+                }).to_string();
+                info!("{output:?}");
+                output
+            }
+        )
+        .collect::<Vec<String>>()
+        .join("\n");
+    info!("{response:?}");
+
+    (StatusCode::OK, format!("{:?}\n", response))
+}
+
+async fn docs(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+    info!("{query_params:?}");
+
+    let path = query_params.get("path").unwrap().to_owned();
+    info!("Path: {:?}", path);
+
+    let view = query_params.get("view").unwrap().to_owned();
+    info!("View: {:?}", view);
+
+    let app_cache = server_state.app_cache.read();
+    let response = app_cache.att_data.iter()
+        .filter(
+            |(key, _)|
+                key.contains(path.as_str())
+        ).map(
+            |(path, att_data)| {
+                let att_doc_fmt = att_doc_fmt(att_data.att_doc.as_slice(), view.as_str());
+                let output = json!({
+                    "path": path,
+                    "hash": att_data.sha3_hash,
+                    "proof": att_data.vrf_proof,
+                    "att_doc": att_doc_fmt,
+                }).to_string();
+                info!("{output:?}");
+                output
+            }
+        )
+        .collect::<Vec<String>>()
+        .join("\n");
+    info!("{response:?}");
+
+    (StatusCode::OK, format!("{:?}\n", response))
+}
+
+async fn pubkeys(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+    info!("{query_params:?}");
+
+    let view = query_params.get("view").unwrap().to_owned();
+    info!("View: {:?}", view);
+
+    let fmt = query_params.get("fmt").unwrap().to_owned();
+    info!("Key Format: {:?}", fmt);
+
+    let app_state = server_state.app_state.read().clone();
+
+    // SKey & PKey for proofs
+
+    let skey4proofs_bytes = app_state.sk4proofs;
+    let skey4proofs_pkey = PKey::private_key_from_pem(skey4proofs_bytes.as_slice()).unwrap();
+    let skey4proofs_eckey = skey4proofs_pkey.ec_key().unwrap();
+    let skey4proofs_bignum = skey4proofs_eckey.private_key().to_owned().unwrap();
+    let skey4proofs_vec = skey4proofs_bignum.to_vec();
+
+    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP256K1).unwrap();
+    let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
+    let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey).unwrap();
+    let skey4proofs_pubkey = match fmt.as_str() {
+        "pem" => skey4proofs_pkey_pubkey.public_key_to_pem().unwrap(),
+        "der" => skey4proofs_pkey_pubkey.public_key_to_der().unwrap(),
+        _ =>skey4proofs_pkey_pubkey.public_key_to_pem().unwrap(),
+    };
+
+    let skey4proofs_pubkey_hex_string = hex::encode(skey4proofs_pubkey.clone());
+    let skey4proofs_pubkey_string = String::from_utf8(skey4proofs_pubkey.clone()).unwrap();
+
+    // SKey & PKey for docs
+
+    let skey4docs_bytes = app_state.sk4docs;
+    let skey4docs_pkey = PKey::private_key_from_pem(skey4docs_bytes.as_slice()).unwrap();
+    let skey4docs_eckey = skey4docs_pkey.ec_key().unwrap();
+    let skey4docs_bignum = skey4docs_eckey.private_key().to_owned().unwrap();
+    let skey4docs_vec = skey4docs_bignum.to_vec();
+
+    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP521R1).unwrap();
+    let skey4docs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4docs_eckey.public_key()).unwrap();
+    let skey4docs_pkey_pubkey = PKey::from_ec_key(skey4docs_ec_pubkey).unwrap();
+    let skey4docs_pubkey = match fmt.as_str() {
+        "pem" => skey4docs_pkey_pubkey.public_key_to_pem().unwrap(),
+        "der" => skey4docs_pkey_pubkey.public_key_to_pem().unwrap(),
+        _ => skey4docs_pkey_pubkey.public_key_to_pem().unwrap(),
+    };
+
+    let skey4docs_pubkey_hex_string = hex::encode(skey4docs_pubkey.clone());
+    let skey4docs_pubkey_string = String::from_utf8(skey4docs_pubkey.clone()).unwrap();
+
+    match view.as_str() {
+        "hex" => (StatusCode::OK, json!({
+            "pubkey4proofs": skey4proofs_pubkey_hex_string,
+            "pubkey4docs": skey4docs_pubkey_hex_string,
+        }).to_string()),
+        "string" => (StatusCode::OK, format!(
+            "pubkey4proofs:\n{}\n\npubkey4docs:\n{}\n\n",
+            skey4proofs_pubkey_string, skey4docs_pubkey_string
+        )),
+        _ => (StatusCode::OK, format!(
+            "pubkey4proofs:\n{}\n\npubkey4docs:\n{}\n\n",
+            skey4proofs_pubkey_string, skey4docs_pubkey_string
+        )),
+    }
 }
 
 async fn nsm_desc(
@@ -676,43 +885,47 @@ async fn rng_seq(
     (StatusCode::OK, format!("{:?}\n", hex::encode(randomness_sequence)))
 }
 
-async fn gen_att_doc(
-    Query(query_params): Query<HashMap<String, String>>,
-    State(server_state): State<Arc<ServerState>>,
+fn att_doc_fmt(
+    att_doc: &[u8],
+    view: &str,
 ) -> String {
-    info!("{query_params:?}");
-    let fd = server_state.app_state.read().nsm_fd;
-
-    let mut random_user_data = [0u8; 1024];
-    OsRng.fill_bytes(&mut random_user_data);
-    let mut random_nonce = [0u8; 1024];
-    OsRng.fill_bytes(&mut random_nonce);
-    let mut random_public_key = [0u8; 1024];
-    OsRng.fill_bytes(&mut random_public_key);
-
-    let document = get_attestation_doc(
-        fd,
-        Some(ByteBuf::from(&random_user_data[..])),
-        Some(ByteBuf::from(&random_nonce[..])),
-        Some(ByteBuf::from(&random_public_key[..])),
-    );
-
-    let cose_doc = CoseSign1::from_bytes(document.as_slice()).unwrap();
+    let cose_doc = CoseSign1::from_bytes(att_doc).unwrap();
     let (protected_header, attestation_doc_bytes) =
         cose_doc.get_protected_and_payload::<Openssl>(None).unwrap();
-    println!("Protected header: {:?}", protected_header);
+    info!("Protected header: {:?}", protected_header);
     let unprotected_header = cose_doc.get_unprotected();
-    println!("Unprotected header: {:?}", unprotected_header);
-    let attestation_doc_signature = cose_doc.get_signature();
+    info!("Unprotected header: {:?}", unprotected_header);
     let attestation_doc = AttestationDoc::from_binary(&attestation_doc_bytes[..]).unwrap();
-    println!("Attestation document: {:?}", attestation_doc);
-    println!("Attestation document signature: {:?}", hex::encode(attestation_doc_signature.clone()));
+    info!("Attestation document: {:?}", attestation_doc);
+    let attestation_doc_signature = cose_doc.get_signature();
+    info!("Attestation document signature: {:?}", hex::encode(attestation_doc_signature.clone()));
 
-    format!("Attestation document: {:?}\n\
-             Attestation document signature: {:?}\n",
-            attestation_doc,
-            hex::encode(attestation_doc_signature),
+    let header_protected_str = protected_header.into_inner().iter().map(
+        |(key, val)|
+            format!("\"{:?}\": \"{:?}\"", hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
     )
+    .collect::<Vec<String>>()
+    .join(",");
+
+    let header_unprotected_str = unprotected_header.into_inner().iter().map(
+        |(key, val)|
+            format!("\"{:?}\": \"{:?}\"", hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
+    )
+    .collect::<Vec<String>>()
+    .join(",");
+
+    let output = match view {
+        "bin" => hex::encode(att_doc),
+        "hex" => json!({
+            "protected_header": format!("{{ {:?} }}", header_protected_str),
+            "unprotected_header":  format!("{{ {:?} }}", header_unprotected_str),
+            "payload": serde_json::to_string(&attestation_doc).unwrap_or("".to_string()),
+            "signature": format!("\"{}\"", hex::encode(attestation_doc_signature.clone())),
+        }).to_string(),
+        "pretty_print" => "".to_string(),
+        _ => "".to_string(),
+    };
+    output
 }
 
 /// Randomly generate PRIME256V1/P-256 key to use for validating signing internally
