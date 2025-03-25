@@ -50,8 +50,7 @@ use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
 use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
 use openssl::pkey::{PKey, Private, Public};
-use tokio::io::join;
-use tracing_subscriber::fmt::format;
+
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
 
@@ -237,7 +236,7 @@ async fn main() -> io::Result<()> {
             app_config.save_to_file(config_path);
         },
         skey => {
-            // Check if SK for proof generation has correct length
+            // Check if SK for proof generation has the correct length
             if hex::decode(skey.clone()).unwrap().len() != 237 {
                 panic!("[Error] SK length for VRF Proofs mismatch.");
             };
@@ -279,7 +278,7 @@ async fn main() -> io::Result<()> {
             app_config.save_to_file(config_path);
         },
         skey => {
-            // Check if SK for attestation documents signing has correct length
+            // Check if SK for attestation documents signing has the correct length
             if hex::decode(skey.clone()).unwrap().len() != 384 {
                 panic!("[Error] SK length for attestation documents signing mismatch.");
             };
@@ -301,13 +300,13 @@ async fn main() -> io::Result<()> {
     let cert_dir = std::env::var("CERT_DIR")
         .unwrap_or_else(|e| {
             error!("CERT_DIR env var is empty or not set: {:?}", e);
-            "/app/certs/".to_string()
+            "/apps/certs/".to_string()
         });
     let tls_config = RustlsConfig::from_pem_file(
         PathBuf::from(&cert_dir)
             .join("cert.pem"),
         PathBuf::from(&cert_dir)
-            .join("key.pem"),
+            .join("skey.pem"),
     )
     .await
     .unwrap();
@@ -338,7 +337,7 @@ async fn main() -> io::Result<()> {
         ),
         ports.https
     );
-    debug!("listening on {listening_address}");
+    debug!("listening on {listening_address:?}");
     axum_server::bind_rustls(listening_address, tls_config)
         .handle(handle)
         .serve(app.into_make_service())
@@ -373,7 +372,8 @@ async fn generate_handler(
     tokio::spawn(async move {
         let path_buf = StdPath::new(&path_str).to_path_buf();
         if let Err(e) = visit_files_recursively(&path_buf, state_clone).await {
-            eprintln!("Error processing path {}: {}", path_buf.display(), e);
+            eprintln!("Error processing path {:?}: {:?}", path_buf.display(), e);
+            error!("Error processing path {:?}: {:?}", path_buf.display(), e);
         }
     });
 
@@ -464,12 +464,12 @@ fn visit_files_recursively<'a>(
                             });
                         }
                         Ok(Err(e)) => {
-                            eprintln!("Error hashing file: {}", e);
-                            error!("Error hashing file: {}", e);
+                            eprintln!("Error hashing file: {:?}", e);
+                            error!("Error hashing file: {:?}", e);
                         }
                         Err(e) => {
-                            eprintln!("Task panicked: {}", e);
-                            error!("Task panicked: {}", e);
+                            eprintln!("Task panicked: {:?}", e);
+                            error!("Task panicked: {:?}", e);
                         }
                     }
 
@@ -535,24 +535,24 @@ async fn hello(
     Query(query_params): Query<HashMap<String, String>>,
     State(server_state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
-        info!("{query_params:?}");
+    info!("{query_params:?}");
 
-        let fd = server_state.app_state.read().nsm_fd;
-        info!("fd: {fd:?}");
+    let fd = server_state.app_state.read().nsm_fd;
+    info!("fd: {fd:?}");
 
-        let path = query_params.get("path").unwrap().to_owned();
-        info!("Path: {:?}", path);
+    let path = query_params.get("path").unwrap().to_owned();
+    info!("Path: {:?}", path);
 
-        match query_params.get("view").unwrap().as_str() {
-            "bin" | "raw" => (),
-            "hex" => (),
-            "fmt" | "str" => (),
-            "json" => (),
-            _ => (),
-        }
-
-        (StatusCode::OK, Html("<h1>Hello, World!</h1>\n"))
+    match query_params.get("view").unwrap().as_str() {
+        "bin" | "raw" => (),
+        "hex" => (),
+        "fmt" | "str" => (),
+        "json" => (),
+        _ => (),
     }
+
+    (StatusCode::OK, Html("<h1>Hello, World!</h1>\n"))
+}
 
 async fn ready_handler(
     Query(query_params): Query<HashMap<String, String>>,
@@ -914,16 +914,78 @@ fn att_doc_fmt(
     .collect::<Vec<String>>()
     .join(",");
 
-    let output = match view {
-        "bin" => hex::encode(att_doc),
-        "hex" => json!({
+    let cabundle_fmt = attestation_doc.cabundle.iter().map(
+        |item| format!("\"{:?}\"", hex::encode(item.clone().into_vec()))
+    )
+    .collect::<Vec<String>>()
+    .join(",");
+
+    let pcrs_fmt = attestation_doc.pcrs.iter().map(
+        |(key, val)| format!("\"{:?}\": \"{:?}\"", key.to_string(), hex::encode(val.clone().into_vec()))
+    )
+    .collect::<Vec<String>>()
+    .join(",");
+
+    let output =  match view {
+        "bin_hex" => hex::encode(att_doc),
+
+        "json_hex" => json!({
+            "protected_header": format!("{{ {:?} }}", header_protected_str),
+            "unprotected_header":  format!("{{ {:?} }}", header_unprotected_str),
+            "payload": {
+                "module_id": attestation_doc.module_id,
+                "digest": format!(":{:?}", attestation_doc.digest),
+                "timestamp": attestation_doc.timestamp.to_string(),
+                "PCRs": format!("{{ {:?} }}", pcrs_fmt),
+                "certificate": hex::encode(attestation_doc.certificate.into_vec()),
+                "ca_bundle": [
+                    cabundle_fmt,
+                ],
+                "public_key": hex::encode(attestation_doc.public_key.unwrap_or(ByteBuf::new()).into_vec()),
+                "user_data": hex::encode(attestation_doc.user_data.unwrap_or(ByteBuf::new()).into_vec()),
+                "nonce": hex::encode(attestation_doc.nonce.unwrap_or(ByteBuf::new()).into_vec()),
+            },
+            "signature": format!("\"{:?}\"", hex::encode(attestation_doc_signature.clone())),
+        }).to_string(),
+
+        "json_str" => json!({
             "protected_header": format!("{{ {:?} }}", header_protected_str),
             "unprotected_header":  format!("{{ {:?} }}", header_unprotected_str),
             "payload": serde_json::to_string(&attestation_doc).unwrap_or("".to_string()),
-            "signature": format!("\"{}\"", hex::encode(attestation_doc_signature.clone())),
+            "signature": format!("\"{:?}\"", hex::encode(attestation_doc_signature.clone())),
         }).to_string(),
-        "pretty_print" => "".to_string(),
-        _ => "".to_string(),
+
+        "json_debug" => json!({
+            "protected_header": format!("\"{:?}\"", protected_header),
+            "unprotected_header":  format!("\"{:?}\"", unprotected_header),
+            "payload": serde_json::to_string(&attestation_doc).unwrap_or("".to_string()),
+            "signature": format!("\"{:?}\"", attestation_doc_signature.clone()),
+        }).to_string(),
+
+        "debug" => format!("{:?}", cose_doc),
+
+        "debug_pp" => json!({
+            "protected_header": format!("\"{:?}\"", protected_header),
+            "unprotected_header":  format!("\"{:?}\"", unprotected_header),
+            "payload": {
+                "module_id": attestation_doc.module_id,
+                "digest": format!(":{:?}", attestation_doc.digest),
+                "timestamp": attestation_doc.timestamp.to_string(),
+                "PCRs": format!("\"{:?}\"", attestation_doc.pcrs),
+                "certificate": format!("\"{:?}\"", attestation_doc.certificate),
+                "ca_bundle": format!("\"{:?}\"", attestation_doc.cabundle),
+                "public_key": format!("\"{:?}\"", attestation_doc.public_key),
+                "user_data": format!("\"{:?}\"", attestation_doc.user_data),
+                "nonce": format!("\"{:?}\"", attestation_doc.nonce),
+            },
+            "signature": format!("\"{:?}\"", attestation_doc_signature),
+        }).to_string(),
+
+        _ => format!("Attestation document ('bin_hex' string):{:?}\n\n\
+            Set the 'view' format string parameter for attestation document:\n\
+            'view=bin_hex|json_hex|json_str|json_debug|debug|debug_pp'",
+            hex::encode(att_doc)
+        ),
     };
     output
 }
@@ -1142,5 +1204,5 @@ async fn shutdown_signal(handle: axum_server::Handle, app_state: Arc<RwLock<AppS
     // close device file descriptor before app exit
     nsm_exit(fd);
     info!("NSM device closed.");
-    handle.graceful_shutdown(Some(Duration::from_secs(10))); // 10 secs is how long docker will wait to force shutdown
+    handle.graceful_shutdown(Some(Duration::from_secs(10))); // 10 secs are how long docker will wait to force shutdown
 }
