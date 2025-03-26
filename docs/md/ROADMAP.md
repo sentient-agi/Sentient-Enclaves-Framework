@@ -4,8 +4,18 @@
 
 - **0.7.0** - web protocol for RA, with VRF proofs for attestation docs, mt-runtime, mass-production of attestation docs,
         hot cache and cold DB (Sled) integration for storing attestation docs.
+        Providing per file attestation of enclave's file system upon web request to attest exact file or attest files in requested directory or
+        directories in enclave's file system.
+        Providing the control of files and file system integrity via providing per file hashing.
+        These file integrity hashes used to generate proofs (based on VRF, for not to rely on enclave or system entropy)
+        and per file attestation docs, that include file proofs, based on file integrity hashes.
 
-- **0.8.0** - file system monitor, for automagic mass-production of attestation docs, with mt-runtime integration as well.
+- **0.8.0** - file system monitor, for automagic unconditional unattended mass-production of attestation docs,
+            with mt-runtime integration as well.
+            Providing CoW layer above the base enclave file system layer in enclave's run-time for immutably tracking the
+            whole file system changes per file and control integrity via providing per file hashing.
+            These file integrity hashes used to generate proofs (based on VRF, for not to rely on enclave or system entropy)
+            and per file attestation docs, that include file proofs, based on file integrity hashes.
 
 - **0.9.0** - cryptography stack, for buffer level SLC and content encryption.
 
