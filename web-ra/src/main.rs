@@ -106,13 +106,13 @@ async fn main() -> Result<(), String> {
     let cert_dir = std::env::var("CERT_DIR")
         .unwrap_or_else(|e| {
             error!("CERT_DIR env var is empty or not set: {:?}", e);
-            "/app/certs/".to_string()
+            "/apps/certs/".to_string()
         });
     let tls_config = RustlsConfig::from_pem_file(
         PathBuf::from(&cert_dir)
             .join("cert.pem"),
         PathBuf::from(&cert_dir)
-            .join("key.pem"),
+            .join("skey.pem"),
     )
     .await
     .unwrap();
