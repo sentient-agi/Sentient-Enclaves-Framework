@@ -18,4 +18,3 @@ vulkan = ["llama-cpp-2/vulkan"]
 
 [build-dependencies]
 bindgen = { version = "0.69.5", default-features=false, features = ["logging", "prettyplease", "runtime"] }
-

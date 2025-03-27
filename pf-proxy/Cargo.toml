@@ -28,7 +28,7 @@ anyhow = "1.0.80"
 clap = { version = "4.5.1", features = ["derive"] }
 futures = "0.3"
 thiserror = "1.0.57"
-tokio = { version = "1.36.0", features = ["full"] }
+tokio = { version = "1.44", features = ["full"] }
 tokio-vsock = "0.5.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]

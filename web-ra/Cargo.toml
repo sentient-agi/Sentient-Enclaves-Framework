@@ -10,7 +10,7 @@ axum-extra = { git = "https://github.com/tokio-rs/axum.git", branch = "main" }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 axum-macros = "0.5.0"
 futures = "0.3"
-tokio = { version = "1.36.0", features = ["full"] }
+tokio = { version = "1.44", features = ["full"] }
 async-std = "1.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

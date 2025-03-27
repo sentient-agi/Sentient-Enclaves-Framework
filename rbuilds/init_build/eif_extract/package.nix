@@ -28,14 +28,14 @@ pkgs.rustPlatform.buildRustPackage {
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [ openssl ];
 #  src = pkgs.fetchgit {
-#    url = "https://github.com/maayank/aws-nitro-enclaves-image-format.git";
-#    hash = "sha256-u/d4dKoW5Xt1tMApB9HcPfVYyhOAOazLnzB7Tft4CiM=";
+#    url = "https://github.com/andrcmdr/aws-nitro-enclaves-image-format-build-extract.git";
+#    hash = "";
 #  };
   src = fetchFromGitHub {
-    owner = "maayank";
-    repo = "aws-nitro-enclaves-image-format";
-    rev = "ff7af7e";
-    hash = "sha256-u/d4dKoW5Xt1tMApB9HcPfVYyhOAOazLnzB7Tft4CiM=";
+    owner = "andrcmdr";
+    repo = "aws-nitro-enclaves-image-format-build-extract";
+    rev = "ca810fb";
+    hash = "";
   };
 #  buildAndTestSubdir = "./";
   cargoBuildFlags = "--release --all";
