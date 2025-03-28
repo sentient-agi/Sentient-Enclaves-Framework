@@ -72,12 +72,12 @@ impl Default for InferenceParams {
 impl From<LoadParams> for llama_cpp_2::model::params::LlamaModelParams {
     fn from(params: LoadParams) -> Self {
         // Initialize default parameters and set existing fields
-        let mut model_params = llama_cpp_2::model::params::LlamaModelParams::default()
+        let model_params = llama_cpp_2::model::params::LlamaModelParams::default()
             .with_n_gpu_layers(params.n_gpu_layers as u32)
             .with_use_mlock(params.use_mlock)
             .with_vocab_only(params.vocab_only);
         model_params
-    }        
+    }
 }
 
 impl From<InferenceParams> for llama_cpp_2::context::params::LlamaContextParams {
@@ -107,11 +107,11 @@ impl LLM {
         let model_path = match model_type {
             ModelType::Local { path } => path
         };
-        
+
         let model_params = LlamaModelParams::from(load_params);
         let model = LlamaModel::load_from_file(backend, &model_path, &model_params)
             .with_context(|| "unable to load model")?;
-            
+
         Ok(LLM {
             model,
         })
@@ -126,7 +126,7 @@ impl LLM {
         let t_main_start = ggml_time_us();
         let max_tokens = inference_params.max_tokens;
         let ctx_params = LlamaContextParams::from(inference_params);
-        
+
         let mut ctx = self
             .model
             .new_context(backend, ctx_params)
@@ -167,7 +167,7 @@ impl LLM {
             // Decode token to string
             let output_bytes = self.model.token_to_bytes(new_token_id, Special::Tokenize)?;
             let mut token_string = String::with_capacity(32);
-            decoder.decode_to_string(&output_bytes, &mut token_string, false);
+            let _ = decoder.decode_to_string(&output_bytes, &mut token_string, false);
             output.push_str(&token_string);
 
             // Call the callback with the new token
@@ -189,7 +189,7 @@ impl LLM {
             duration.as_secs_f32(),
             n_decode as f32 / duration.as_secs_f32()
         );
-    
+
         callback("\n");
 
         Ok(output)

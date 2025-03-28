@@ -1,4 +1,3 @@
-mod lib;
 use axum::{
     extract::{Json, State},
     response::IntoResponse,
@@ -6,7 +5,7 @@ use axum::{
     Router,
 };
 use std::net::SocketAddr;
-use lib::{FingerprintRequest, GenerateFingerprintRequest, ServerConfig};
+use fingerprinting_server::{FingerprintRequest, GenerateFingerprintRequest, ServerConfig};
 use std::sync::{Arc, Mutex};
 use serde_json::json;
 use axum::debug_handler;
@@ -96,7 +95,7 @@ async fn fingerprint_handler(
     State(state): State<Arc<Mutex<AppState>>>,
     Json(payload): Json<FingerprintRequest>,
 ) -> impl IntoResponse {
-    
+
     let mut app_state = state.lock().unwrap();
     if app_state.fingerprinting {
         let response = json!({
@@ -115,13 +114,12 @@ async fn fingerprint_handler(
     }
     app_state.fingerprinting = true;
     app_state.config_hash = Some(generate_config_hash(&payload));
-    
 
     // Clone state for the spawned task
     let state_for_thread = state.clone();
     let hash = app_state.config_hash.clone().unwrap_or_default();
     // Spawn the fingerprinting task
-    let thread = tokio::spawn(async move {
+    let _thread = tokio::spawn(async move {
         let deepspeed_command = format!("{}/deepspeed", &SERVER_CONFIG.deepspeed_dir);
         println!("Deepspeed command: {}", deepspeed_command);
         let mut command = tokio::process::Command::new(deepspeed_command);
@@ -173,7 +171,6 @@ async fn fingerprint_handler(
    async fn generate_fingerprints_handler(
        State(state): State<Arc<Mutex<AppState>>>,
        Json(payload): Json<GenerateFingerprintRequest>
-       
    ) -> impl IntoResponse {
     let mut app_state = state.lock().unwrap();
     if app_state.fingerprinting {
@@ -193,13 +190,12 @@ async fn fingerprint_handler(
     }
     app_state.generating_fingerprints = true;
     app_state.config_hash = Some("SOME_HASH for generate_fingerprint".to_string());
-    
 
     // Clone state for the spawned task
     let state_for_thread = state.clone();
     let hash = app_state.config_hash.clone().unwrap_or_default();
     // Spawn the fingerprinting task
-    let thread = tokio::spawn(async move {
+    let _thread = tokio::spawn(async move {
         // If fingerprint file path already exists, delete it
         if std::path::Path::new(&payload.output_file).exists() {
             println!("Fingerprint file already exists, deleting it");

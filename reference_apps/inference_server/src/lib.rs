@@ -15,7 +15,7 @@ impl Default for CompletionRequest {
         Self {
             model: "".to_string(),
             prompt: "Who are you?".to_string(),
-            max_tokens: 100,      
+            max_tokens: 100,
             seed: 1234,
             n_threads: 5,
             n_ctx: 2048,

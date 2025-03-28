@@ -36,7 +36,7 @@ async fn main() {
     let port = matches.get_one::<String>("port").unwrap_or(&default_port);
 
     let models: Arc<RwLock<HashMap<String, Arc<LLM>>>> = Arc::new(RwLock::new(HashMap::new()));
-    
+
     let app = Router::new()
         .route("/", post(handle_post))
         .route("/completions", post(serve_completions))
@@ -78,7 +78,7 @@ async fn load_model_handler(
 
     let mut models_lock = models.write().await;
     models_lock.insert(payload.model_name.clone(), Arc::new(model));
-    
+
     Json(json!({
         "Message": format!("{} Model loaded", payload.model_name)
     })).into_response()
@@ -90,15 +90,14 @@ async fn status_handler(
 ) -> Response {
     let models_lock = models.read().await;
     let model_names: Vec<String> = models_lock.keys().cloned().collect();
-    
+
     // Join the model names into a single string separated by newlines
     let response_text = model_names.join("\n");
-    
-        Json(json!({
-            "Message": response_text
-        })).into_response()
-}
 
+    Json(json!({
+        "Message": response_text
+    })).into_response()
+}
 
 async fn serve_completions(State(models): State<Arc<RwLock<HashMap<String, Arc<LLM>>>>>, Json(payload): Json<CompletionRequest>) -> Response {
     let user_prompt = payload.prompt.clone();

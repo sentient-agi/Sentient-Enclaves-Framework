@@ -6,13 +6,13 @@ use serde_json::Value;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    
+
     let client = Client::new();
     let config_path = format!("{}/tests/config.json", env!("CARGO_MANIFEST_DIR"));
-    let config = fs::read_to_string(config_path)?;
-    let config: Value = serde_json::from_str(&config)?;
+    let config_file = fs::read_to_string(config_path)?;
+    let _config: Value = serde_json::from_str(&config_file)?;
 
-    while true {
+    loop {
         println!("================================================================================================");
         println!("Please choose an action: fingerprinting, status, or fingerprint_generation, or quit");
         let mut input = String::new();
@@ -51,8 +51,8 @@ async fn handle_response(response: reqwest::Response) -> Result<(), Box<dyn Erro
             } else if status.get("operation").unwrap() == "generate_fingerprints" {
                 println!("A fingerprints generation job is already running with the following config hash: {:?}", status.get("config_hash").unwrap());
             }
-            
-        } 
+
+        }
         else if status.get("status").unwrap() == "Started" {
             if status.get("operation").unwrap() == "fingerprint" {
                 println!("A fingerprinting job is started with the following config hash: {:?}", status.get("config_hash").unwrap());
@@ -68,12 +68,12 @@ async fn handle_response(response: reqwest::Response) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
-// 1. Request fingerprinting using POST 
+// 1. Request fingerprinting using POST
 async fn request_finetuning(client: &Client) -> Result<(), Box<dyn Error>> {
     let config_path = format!("{}/tests/config.json", env!("CARGO_MANIFEST_DIR"));
-    let config = fs::read_to_string(config_path)?;
-    let config: Value = serde_json::from_str(&config)?;
-    
+    let config_file = fs::read_to_string(config_path)?;
+    let config: Value = serde_json::from_str(&config_file)?;
+
     let request_body = FingerprintRequest {
         model_path: config["fingerprint_request"]["model_path"]
             .as_str()
@@ -128,8 +128,6 @@ async fn request_finetuning(client: &Client) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-
-
 // 2. Request status using GET
 async fn request_status(client: &Client) -> Result<(), Box<dyn Error>> {
     let response = client
@@ -141,10 +139,11 @@ async fn request_status(client: &Client) -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
 async fn request_fingerprint_generation(client: &Client) -> Result<(), Box<dyn Error>> {
     let config_path = format!("{}/tests/config.json", env!("CARGO_MANIFEST_DIR"));
-    let config = fs::read_to_string(config_path)?;
-    let config: Value = serde_json::from_str(&config)?;
+    let config_file = fs::read_to_string(config_path)?;
+    let config: Value = serde_json::from_str(&config_file)?;
 
     let request_body = GenerateFingerprintRequest {
         key_length: config["generate_fingerprint_request"]["key_length"]

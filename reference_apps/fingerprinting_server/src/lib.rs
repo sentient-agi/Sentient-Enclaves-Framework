@@ -74,16 +74,15 @@ impl GenerateFingerprintRequest {
 pub struct Args {
     #[arg(long, help = "Path to config file")]
     pub config: Option<PathBuf>,
-    
+
     #[arg(long, help = "Path to deepspeed executable")]
     pub deepspeed_path: Option<String>,
-    
+
     #[arg(long, help = "Working directory for fingerprinting operations")]
     pub working_dir: Option<String>,
 
     #[arg(long, help = "Port to use for the server")]
     pub port: Option<u16>
-
 }
 
 #[derive(Debug, Clone)]
@@ -96,7 +95,7 @@ pub struct ServerConfig {
 impl ServerConfig {
     pub fn new() -> Result<Self, config::ConfigError> {
         let args = Args::parse();
-        
+
         // Start with default config
         let mut settings = config::Config::builder()
             .set_default("port", 3001)?
@@ -121,7 +120,7 @@ impl ServerConfig {
             .unwrap_or_else(|| config.get_string("fingerprinting_source_dir").unwrap());
         let port = args.port
             .unwrap_or_else(|| config.get_int("port").unwrap() as u16);
-        
+
         println!("deepspeed_dir: {}", deepspeed_dir);
         println!("fingerprinting_source_dir: {}", fingerprinting_source_dir);
         println!("port: {}", port);
@@ -132,4 +131,3 @@ impl ServerConfig {
         })
     }
 }
-

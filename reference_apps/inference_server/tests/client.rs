@@ -5,10 +5,10 @@ use rand::Rng;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    
+
     let client = Client::new();
 
-    while true {
+    loop {
         println!("================================================================================================");
         println!("Please choose an action: Load model, status, inference, or quit");
         let mut input = String::new();
