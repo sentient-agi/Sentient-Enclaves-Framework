@@ -50,6 +50,7 @@ use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
 use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
 use openssl::pkey::{PKey, Private, Public};
+use openssl::nid::Nid as CipherID;
 
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
@@ -71,6 +72,7 @@ struct Config {
     nsm_fd: Option<String>,
     ports: Ports,
     keys: Keys,
+    vrf_cipher_suite: Option<CipherSuite>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -138,6 +140,55 @@ impl AppConfig {
     fn get_ports(&self) -> Ports {
         self.inner.read().ports.clone()
     }
+
+    fn get_vrf_cipher_suite(&self) -> CipherSuite {
+        let config = self.inner.read().clone();
+        if let Some(vrf_cipher_suite) = config.vrf_cipher_suite {
+            vrf_cipher_suite
+        } else { panic!("[Error] 'vrf_cipher_suite' not present in configuration file.") }
+    }
+}
+
+trait CipherMapper {
+    fn convert(&self) -> CipherID;
+}
+
+impl CipherMapper for CipherSuite {
+    fn convert(&self) -> CipherID {
+        match *self {
+            CipherSuite::SECP256K1_SHA256_TAI => CipherID::SECP256K1,
+            CipherSuite::P256_SHA256_TAI => CipherID::X9_62_PRIME256V1,
+            CipherSuite::K163_SHA256_TAI => CipherID::SECT163K1,
+
+            CipherSuite::SECP256R1_SHA256_TAI => CipherID::X9_62_PRIME256V1,
+            CipherSuite::SECP384R1_SHA384_TAI => CipherID::SECP384R1,
+            CipherSuite::SECP521R1_SHA512_TAI => CipherID::SECP521R1,
+
+            CipherSuite::ECDSA_SECP256R1_SHA256_TAI => CipherID::ECDSA_WITH_SHA256,
+            CipherSuite::ECDSA_SECP384R1_SHA384_TAI => CipherID::ECDSA_WITH_SHA384,
+            CipherSuite::ECDSA_SECP521R1_SHA512_TAI => CipherID::ECDSA_WITH_SHA512,
+
+            CipherSuite::SECT163K1_SHA256_TAI => CipherID::SECT163K1,
+            CipherSuite::SECT163R1_SHA256_TAI => CipherID::SECT163R1,
+            CipherSuite::SECT163R2_SHA256_TAI => CipherID::SECT163R2,
+            CipherSuite::SECT193R1_SHA256_TAI => CipherID::SECT193R1,
+            CipherSuite::SECT193R2_SHA256_TAI => CipherID::SECT193R2,
+            CipherSuite::SECT233K1_SHA256_TAI => CipherID::SECT233K1,
+            CipherSuite::SECT233R1_SHA256_TAI => CipherID::SECT233R1,
+            CipherSuite::SECT239K1_SHA256_TAI => CipherID::SECT239K1,
+            CipherSuite::SECT283K1_SHA384_TAI => CipherID::SECT283K1,
+            CipherSuite::SECT283R1_SHA384_TAI => CipherID::SECT283R1,
+            CipherSuite::SECT409K1_SHA384_TAI => CipherID::SECT409K1,
+            CipherSuite::SECT409R1_SHA384_TAI => CipherID::SECT409R1,
+            CipherSuite::SECT571K1_SHA512_TAI => CipherID::SECT571K1,
+            CipherSuite::SECT571R1_SHA512_TAI => CipherID::SECT571R1,
+
+            CipherSuite::BRAINPOOL_P256R1_SHA256_TAI => CipherID::BRAINPOOL_P256R1,
+            CipherSuite::BRAINPOOL_P320R1_SHA256_TAI => CipherID::BRAINPOOL_P320R1,
+            CipherSuite::BRAINPOOL_P384R1_SHA384_TAI => CipherID::BRAINPOOL_P384R1,
+            CipherSuite::BRAINPOOL_P512R1_SHA512_TAI => CipherID::BRAINPOOL_P512R1,
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -145,6 +196,7 @@ struct AppState {
     nsm_fd: i32,
     sk4proofs: Vec<u8>,
     sk4docs: Vec<u8>,
+    vrf_cipher_suite: CipherSuite,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -194,6 +246,7 @@ async fn main() -> io::Result<()> {
     let fd = app_config.get_nsm_fd();
     assert!(fd >= 0, "[Error] NSM initialization returned {}.", fd);
     info!("NSM device initialized.");
+    let vrf_cipher_suite = app_config.get_vrf_cipher_suite();
 
     let state = Arc::new(ServerState {
         tasks: Arc::new(Mutex::new(HashMap::new())),
@@ -202,8 +255,14 @@ async fn main() -> io::Result<()> {
         app_cache: Arc::new(RwLock::new(AppCache::default())),
     });
 
-    // Share NSM file descriptor for future calls to NSM device
-    state.app_state.write().nsm_fd = fd;
+    {
+        let mut app_state = state.app_state.write();
+        // Share NSM file descriptor for future calls to NSM device
+        app_state.nsm_fd = fd;
+        // Set VRF Cipher Suite
+        app_state.vrf_cipher_suite = vrf_cipher_suite;
+        drop(app_state);
+    };
 
     let skey4proofs = {
         let config = app_config.inner.read();
@@ -214,7 +273,9 @@ async fn main() -> io::Result<()> {
 
     match skey4proofs.as_str() {
         "" => {
-            let (skey, _pkey) = generate_ec256_keypair();
+            let cipher = app_config.get_vrf_cipher_suite().convert();
+            let (skey, _pkey) = generate_keypair(cipher);
+            // let (skey, _pkey) = generate_ec256_keypair();
             let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
             info!("SK for VRF Proofs length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
 
@@ -237,8 +298,10 @@ async fn main() -> io::Result<()> {
         },
         skey => {
             // Check if SK for proof generation has the correct length
-            if hex::decode(skey.clone()).unwrap().len() != 237 {
-                panic!("[Error] SK length for VRF Proofs mismatch.");
+            let skey_byte_len = hex::decode(skey.clone()).unwrap().len();
+            match skey_byte_len {
+                237 | 241 | 384 => (),
+                _ => panic!("[Error] SK length for VRF Proofs mismatch."),
             };
             state.app_state.write().sk4proofs = hex::decode(skey.clone()).unwrap();
             let state = state.app_state.read().clone();
@@ -256,6 +319,8 @@ async fn main() -> io::Result<()> {
 
     match skey4docs.as_str() {
         "" => {
+            // let cipher = app_config.get_vrf_cipher_suite().convert();
+            // let (skey, _pkey) = generate_keypair(cipher);
             let (skey, _pkey) = generate_ec512_keypair();
             let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
             info!("SK for attestation documents signing length: {:?}; {:?}", skey_bytes.len(), skey_bytes.clone());
@@ -279,8 +344,10 @@ async fn main() -> io::Result<()> {
         },
         skey => {
             // Check if SK for attestation documents signing has the correct length
-            if hex::decode(skey.clone()).unwrap().len() != 384 {
-                panic!("[Error] SK length for attestation documents signing mismatch.");
+            let skey_byte_len = hex::decode(skey.clone()).unwrap().len();
+            match skey_byte_len {
+                384 => (),
+                _ => panic!("[Error] SK length for attestation documents signing mismatch."),
             };
             state.app_state.write().sk4docs = hex::decode(skey.clone()).unwrap();
             let state = state.app_state.read().clone();
@@ -431,12 +498,14 @@ fn visit_files_recursively<'a>(
 
                             let app_state = app_state_clone.read().clone();
 
+                            let cipher_suite = app_state.vrf_cipher_suite;
+
                             let skey4proofs_bytes = app_state.sk4proofs;
                             let skey4proofs_pkey = PKey::private_key_from_pem(skey4proofs_bytes.as_slice()).unwrap();
                             let skey4proofs_eckey = skey4proofs_pkey.ec_key().unwrap();
                             let skey4proofs_bignum = skey4proofs_eckey.private_key().to_owned().unwrap();
                             let skey4proofs_vec = skey4proofs_bignum.to_vec();
-                            let vrf_proof = vrf_proof(skey4proofs_vec.as_slice(), hash.as_slice()).unwrap();
+                            let vrf_proof = vrf_proof(skey4proofs_vec.as_slice(), hash.as_slice(), cipher_suite.clone()).unwrap();
 
                             // Docs gen logic
 
@@ -444,7 +513,8 @@ fn visit_files_recursively<'a>(
 
                             let fd = app_state.nsm_fd;
                             let nonce = get_randomness_sequence(fd.clone(), 512);
-                            let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP256K1).unwrap();
+                            let cipher_id = cipher_suite.convert();
+                            let alg = openssl::ec::EcGroup::from_curve_name(cipher_id).unwrap();
                             let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
                             let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey).unwrap();
                             let skey4proofs_pubkey_pem = skey4proofs_pkey_pubkey.public_key_to_pem().unwrap();
@@ -774,6 +844,8 @@ async fn pubkeys(
 
     let app_state = server_state.app_state.read().clone();
 
+    let cipher = app_state.vrf_cipher_suite.convert();
+
     // SKey & PKey for proofs
 
     let skey4proofs_bytes = app_state.sk4proofs;
@@ -782,7 +854,7 @@ async fn pubkeys(
     let skey4proofs_bignum = skey4proofs_eckey.private_key().to_owned().unwrap();
     let skey4proofs_vec = skey4proofs_bignum.to_vec();
 
-    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP256K1).unwrap();
+    let alg = openssl::ec::EcGroup::from_curve_name(cipher).unwrap();
     let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
     let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey).unwrap();
     let skey4proofs_pubkey = match fmt.as_str() {
@@ -992,8 +1064,7 @@ fn att_doc_fmt(
 
 /// Randomly generate PRIME256V1/P-256 key to use for validating signing internally
 fn generate_ec256_keypair() -> (PKey<Private>, PKey<Public>) {
-//    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::X9_62_PRIME256V1).unwrap();
-    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP256K1).unwrap();
+    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::X9_62_PRIME256V1).unwrap();
     let ec_private = openssl::ec::EcKey::generate(&alg).unwrap();
     let ec_public =
         openssl::ec::EcKey::from_public_key(&alg, ec_private.public_key()).unwrap();
@@ -1005,7 +1076,6 @@ fn generate_ec256_keypair() -> (PKey<Private>, PKey<Public>) {
 
 /// Randomly generate SECP521R1/P-512 key to use for validating signing internally
 fn generate_ec512_keypair() -> (PKey<Private>, PKey<Public>) {
-//    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP521R1).unwrap();
     let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP521R1).unwrap();
     let ec_private = openssl::ec::EcKey::generate(&alg).unwrap();
     let ec_public =
@@ -1016,15 +1086,26 @@ fn generate_ec512_keypair() -> (PKey<Private>, PKey<Public>) {
     )
 }
 
-fn vrf_proof(message: &[u8], secret_key: &[u8]) -> Result<Vec<u8>, String> {
-    let mut vrf  = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+fn generate_keypair(cipher_id: CipherID) -> (PKey<Private>, PKey<Public>) {
+    let alg = openssl::ec::EcGroup::from_curve_name(cipher_id).unwrap();
+    let ec_private = openssl::ec::EcKey::generate(&alg).unwrap();
+    let ec_public =
+        openssl::ec::EcKey::from_public_key(&alg, ec_private.public_key()).unwrap();
+    (
+        PKey::from_ec_key(ec_private).unwrap(),
+        PKey::from_ec_key(ec_public).unwrap(),
+    )
+}
+
+fn vrf_proof(message: &[u8], secret_key: &[u8], cipher_suite: CipherSuite) -> Result<Vec<u8>, String> {
+    let mut vrf  = ECVRF::from_suite(cipher_suite).unwrap();
     let public_key = vrf.derive_public_key(&secret_key).unwrap();
     let proof = vrf.prove(&secret_key, &message).unwrap();
     Ok(proof)
 }
 
-fn vrf_verify(message: &[u8], proof: &[u8], public_key: &[u8]) -> Result<bool, Error> {
-    let mut vrf  = ECVRF::from_suite(CipherSuite::SECP256K1_SHA256_TAI).unwrap();
+fn vrf_verify(message: &[u8], proof: &[u8], public_key: &[u8], cipher_suite: CipherSuite) -> Result<bool, Error> {
+    let mut vrf  = ECVRF::from_suite(cipher_suite).unwrap();
     let hash = vrf.proof_to_hash(&proof).unwrap();
     let outcome = vrf.verify(&public_key, &proof, &message);
     match outcome {

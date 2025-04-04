@@ -1,4 +1,5 @@
 nsm_fd = "3"
+vrf_cipher_suite = "SECP256R1_SHA256_TAI"
 
 [ports]
 http = 8080
