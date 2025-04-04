@@ -148,7 +148,6 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_
     }
 
     if paths.len() > 1 {
-
         // If all paths in event are ignored, skip the event
         if paths.iter().all(|path| ignore_list.is_ignored(path)) {
             return Ok(());
@@ -156,16 +155,15 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_
 
     }
 
-
     match event.kind {
         EventKind::Create(CreateKind::File) => {
             handle_file_creation(paths.clone(), &file_infos);
         }
 
-
         EventKind::Modify(ModifyKind::Data(DataChange::Any) ) => {
            handle_file_data_modification(paths.clone(), &file_infos); 
         }
+
         // Need to handle Rename, Delete, etc.
         EventKind::Modify(ModifyKind::Name(rename_mode)) => {
             match rename_mode {
@@ -177,6 +175,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_
                 }
             }
         },
+
         // Handling end of file write
         EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
             handle_file_save_on_write(paths.clone(), &file_infos);
@@ -197,7 +196,6 @@ fn handle_file_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String, Fil
     let path = paths[0].clone();
     eprintln!("File created: {}", path);
     file_infos.insert(path.clone(), FileInfo {
-        // This insertion leads to empty hash when retrieving
             file_type: FileType::File,
             state: FileState::Created,
             version: 0,
@@ -280,15 +278,49 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     }
 }
 
-fn perform_file_hashing_new(path: String){
+async fn perform_file_hashing_new(path: String, hash_info: &Arc<HashInfoNew>){
     let file_path = path;
     let handle = tokio::task::spawn_blocking({
         let file_path = file_path.clone();
         move || hash_file(&file_path)
     });
 
+    hash_info.ongoing_tasks.lock().await.insert(file_path.clone(), handle);
 
+    let ongoing_tasks = Arc::clone(&hash_info.ongoing_tasks);
+    let hash_results = Arc::clone(&hash_info.hash_results);
+    let file_path_clone = file_path.clone();
+    tokio::spawn(async move {
+        let task_result = {
+            let mut tasks = ongoing_tasks.lock().await;
+            if let Some(handle) = tasks.get_mut(&file_path_clone) {
+                Some(async { handle.await }.await)
+            } else {
+                None
+            }
+        };
 
+        if let Some(result) = task_result {
+            match result {
+                Ok(Ok(hash)) => {
+                    let mut results = hash_results.lock().await;
+                    let mut hashes = results.get(&file_path_clone).unwrap_or(&Vec::new()).clone();
+                    hashes.push(hash);
+                    results.insert(file_path_clone.clone(), hashes);
+                }
+                Ok(Err(e)) => {
+                    eprintln!("Error hashing file: {}", e);
+                }
+                Err(e) => {
+                    eprintln!("Task panicked: {}", e);
+                }
+            }
+
+            // Remove the task from HashMap after awaiting it (after it completes)
+            let mut tasks = ongoing_tasks.lock().await;
+            tasks.remove(&file_path_clone);
+        }
+    });
 
 
 }
