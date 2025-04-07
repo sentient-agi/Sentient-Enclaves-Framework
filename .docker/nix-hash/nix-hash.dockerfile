@@ -1,4 +1,4 @@
-FROM nixos/nix:2.21.4 as build
+FROM nixos/nix:latest AS build
 ARG VER="linux-rolling-stable"
 ENV VER=${VER}
 
@@ -11,4 +11,4 @@ RUN nix-env -i gawk
 
 COPY --link nix-hash.sh nix-hash.sh
 
-CMD bash ./nix-hash.sh "${VER}"
+CMD bash ./nix-hash.sh "${VER}"; tail -f /dev/null

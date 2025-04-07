@@ -19,7 +19,7 @@ declare kversion_archive="$(echo -E "${kversion}" | grep -iPo '^(0|[1-9][0-9]*)(
 declare kbuild_user="sentient_build" # Username for kernel build
 declare kbuild_host="sentient_builder" # Hostname for kernel build
 
-declare eif_build_ref="3b047ff544c62188356227508405add360e531b0" # EIF build library dependency reference
+declare eif_build_ref="953d6ce800d5637b5dcae6fecc3fbbcbf23d0e6b" # EIF build library dependency reference
 
 declare enclave_mem='838656' # MiBs of memory allocated for Nitro Enclaves runt-time
 declare enclave_cpus='64' # Number of CPUs allocated for Nitro Enclaves runt-time
