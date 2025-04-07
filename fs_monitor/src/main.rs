@@ -1,7 +1,6 @@
 use notify::{recommended_watcher, Event, RecursiveMode, Result, Watcher, EventKind};
 use notify::event::{ModifyKind, DataChange, CreateKind, AccessKind, AccessMode, RenameMode};
 use tokio::sync::Mutex;
-use std::sync::mpsc;
 use std::path::Path;
 use std::fs;
 use sha3::{Digest, Sha3_512};
@@ -10,7 +9,6 @@ use std::{
     io::{self, Read},
     sync::Arc,
 };
-use std::thread;
 use dashmap::DashMap;
 
 mod state;
@@ -28,7 +26,7 @@ pub struct HashInfoNew{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Result<Event>>();
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
 
@@ -72,62 +70,79 @@ loop {
     println!("Enter path relative to current working directory to get hash of file");
     print!(">>> ");
     std::io::stdout().flush().unwrap();
+
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
     let path = input.trim();
+
     let path = handle_path(path);
     println!("path: {}", path);
-    let hash = retrieve_hash(&path, &file_infos, &hash_infos).await.expect("Expects hash of the file");
-    println!("{}", hash);
+    match retrieve_hash(&path, &file_infos, &hash_infos).await {
+         Ok(hash_string) => println!("Hash for {}: {}", path, hash_string),
+         Err(e) => eprintln!("Error retrieving hash for {}: {}", path, e),
+    }
     println!("================================================");
 }
 }
 
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    bytes.iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
+}
 
-async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>) -> Result<String> {
-    // Check if the requested file is a directory
-    if fs::metadata(path)?.is_dir(){
-        let mut hash_final = String::new();
-        for file in file_infos.iter(){
-            let file_name = file.key();
-            if file_name.starts_with(path){
-                hash_final.push_str(&retrieve_file_hash(&file_name, file_infos, hash_info).await.unwrap());
+async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>) -> io::Result<String> {
+    let metadata = fs::metadata(path).map_err(|e| {
+        io::Error::new(e.kind(), format!("Failed to get metadata for '{}': {}", path, e))
+    })?;
+
+    if metadata.is_dir() {
+        let mut files = Vec::new();
+        for entry in file_infos.iter() {
+            let file_path = entry.key();
+            if file_path.starts_with(path) && !file_path.ends_with('/') {
+                files.push(file_path.clone());
             }
         }
-        Ok(hash_final)
-    }
-    else{
-        retrieve_file_hash(path, file_infos, hash_info).await
+        
+        // Sort files for consistent hash results
+        files.sort();
+
+        let mut dir_hasher = Sha3_512::new();
+        for file_path in files {
+            let file_hash = retrieve_file_hash(&file_path, file_infos, hash_info).await?;
+            dir_hasher.update(file_hash);
+        }
+
+        Ok(bytes_to_hex(&dir_hasher.finalize()))
+    } else {
+        let hash_bytes = retrieve_file_hash(path, file_infos, hash_info).await?;
+        Ok(bytes_to_hex(&hash_bytes))
     }
 }
 
-async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>) -> Result<String> {
-    
-    // Check that file modification is done
-    if !file_infos.contains_key(path) || 
-    (file_infos.contains_key(path) && file_infos.get(path).unwrap().state != FileState::Closed){
-        Ok("Hash Unavailable".to_string())
+async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>) -> io::Result<Vec<u8>> {
+    let file_info = file_infos.get(path)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not tracked"))?;
+
+    if file_info.state != FileState::Closed {
+        return Err(io::Error::new(io::ErrorKind::Other, "File is yet to be closed"));
     }
-    else{
-        // Get latest version and then check if that hash is available
-        let latest_version = file_infos.get(path).unwrap().version;
-        let hashes = hash_info.hash_results.lock().await;
-        let hash_vector = hashes.get(path).unwrap();
-        if hash_vector.len() != latest_version.try_into().unwrap(){
-            return Ok("Hash Unavailable".to_string());
-        }
-        else{
-            // Fetch the latest version's hash
-            let latest_hash = hash_vector.get(latest_version).unwrap();
-            let hash_string = match String::from_utf8(latest_hash.to_vec()){
-                Ok(v) => v,
-                Err(e) => panic!("Invalid UTF-8 Sequence: {}", e),
-            };
-            Ok(hash_string)
-        }
-        
+
+    let results_map = hash_info.hash_results.lock().await;
+    let hash_vector = results_map.get(path)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No hashes recorded"))?;
+
+    let version = file_info.version as usize;
+    if hash_vector.len() != version {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "Latest hash is not available"));
     }
+
+    hash_vector.last()
+        .cloned()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No hash available"))
 }
+
 fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>, ignore_list: &IgnoreList) -> Result<()> {
     let paths_old: Vec<String> = event.paths.iter()
         .filter_map(|p| p.to_str().map(|s| s.to_string()))
@@ -146,7 +161,6 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_
         let path = paths[0].clone();
         // Ignore this event if it matches the regex pattern specified in fs_ignore
         if ignore_list.is_ignored(&path) {
-            // eprintln!("Ignoring event {:?} for path: {}", event.kind, path);
             return Ok(());
         }
     }
@@ -163,11 +177,9 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_
         EventKind::Create(CreateKind::File) => {
             handle_file_creation(paths.clone(), &file_infos);
         }
-
         EventKind::Modify(ModifyKind::Data(DataChange::Any) ) => {
            handle_file_data_modification(paths.clone(), &file_infos); 
         }
-
         // Need to handle Rename, Delete, etc.
         EventKind::Modify(ModifyKind::Name(rename_mode)) => {
             match rename_mode {
@@ -292,6 +304,7 @@ async fn perform_file_hashing(path: String, hash_info: Arc<HashInfoNew>){
     let ongoing_tasks = Arc::clone(&hash_info.ongoing_tasks);
     let hash_results = Arc::clone(&hash_info.hash_results);
     let file_path_clone = file_path.clone();
+    
     tokio::spawn(async move {
         let task_result = {
             let mut tasks = ongoing_tasks.lock().await;
@@ -317,7 +330,6 @@ async fn perform_file_hashing(path: String, hash_info: Arc<HashInfoNew>){
                     eprintln!("Task panicked: {}", e);
                 }
             }
-
             // Remove the task from HashMap after awaiting it (after it completes)
             let mut tasks = ongoing_tasks.lock().await;
             tasks.remove(&file_path_clone);
