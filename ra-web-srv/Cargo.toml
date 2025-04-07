@@ -35,5 +35,3 @@ toml = "0.8"
 parking_lot = "0.12"
 openssl = "0.10"
 vrf = { git = "https://github.com/andrcmdr/vrf-rs.git", branch = "main", version = "0.3.0" }
-# vrf = { path = "../../../vrf/", version = "0.3.0" }
-
