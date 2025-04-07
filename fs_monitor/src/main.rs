@@ -26,19 +26,20 @@ pub struct HashInfoNew{
     pub hash_results: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
 } 
 
-fn main() -> Result<()> {
-    let (tx, rx) = mpsc::channel::<Result<Event>>();
+#[tokio::main]
+async fn main() -> Result<()> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
 
-    let hash_info = Arc::new(HashInfoNew{
+    let hash_infos = Arc::new(HashInfoNew{
         ongoing_tasks: Arc::new(Mutex::new(HashMap::new())),
         hash_results: Arc::new(Mutex::new(HashMap::new())),
     });
     
     // Clone for the closure
     let file_infos_clone = Arc::clone(&file_infos);
-    
+    let hash_infos_clone = Arc::clone(&hash_infos);
     // Initialize the watcher
     let mut watcher = recommended_watcher(move |res: Result<Event>| {
         tx.send(res).expect("Failed to send event");
@@ -52,12 +53,12 @@ fn main() -> Result<()> {
     // TODO: Remove hardcoding of path. Make path relative to the src directory?
     ignore_list.populate_ignore_list("/home/ec2-user/pipeline-tee.rs/fs_monitor/fs_ignore");
     
-    // Start a thread to handle events
-    thread::spawn(move || {
-        for res in rx {
+    // Start a task to handle events
+    tokio::spawn(async move {
+        while let Some(res) = rx.recv().await {
             match res {
                 Ok(event) => {
-                handle_event(event, &file_infos_clone,&hash_info, &ignore_list).unwrap_or_else(|e| {
+                handle_event(event, &file_infos_clone,&hash_infos_clone, &ignore_list).unwrap_or_else(|e| {
                     eprintln!("Error handling event: {}", e);
                 });
             }
@@ -75,9 +76,9 @@ loop {
     std::io::stdin().read_line(&mut input).unwrap();
     let path = input.trim();
     let path = handle_path(path);
-    // println!("path: {}", path);
-    // let hash = retrieve_hash(&path, &file_infos)?;
-    // println!("{}", hash);
+    println!("path: {}", path);
+    let hash = retrieve_hash(&path, &file_infos, &hash_infos).await.expect("Expects hash of the file");
+    println!("{}", hash);
     println!("================================================");
 }
 }
