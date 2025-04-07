@@ -18,5 +18,5 @@ pub enum FileState {
 pub struct FileInfo {
     pub file_type: FileType,
     pub state: FileState,
-    pub version: i32,
+    pub version: usize,
 } 
