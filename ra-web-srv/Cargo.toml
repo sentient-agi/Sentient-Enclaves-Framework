@@ -1,15 +1,15 @@
 [package]
-name = "mt-runtime"
-version = "0.6.2"
+name = "ra-web-srv"
+version = "0.7.0"
 edition = "2021"
-
-[[bin]]
-name = "mt-runtime"
-path = "src/mt-runtime.rs"
 
 [[bin]]
 name = "ra-web-srv"
 path = "src/ra-web-srv.rs"
+
+[[bin]]
+name = "mt-runtime"
+path = "mt-runtime/mt-runtime.rs"
 
 [dependencies]
 axum = { git = "https://github.com/tokio-rs/axum.git", branch = "main" }
@@ -34,7 +34,6 @@ aws-nitro-enclaves-cose = { git = "https://github.com/andrcmdr/aws-nitro-enclave
 toml = "0.8"
 parking_lot = "0.12"
 openssl = "0.10"
-# vrf = { git = "https://github.com/andrcmdr/vrf-rs.git", branch = "main", version = "0.3.0" }
-vrf = { path = "../../../vrf/", version = "0.3.0" }
+vrf = { git = "https://github.com/andrcmdr/vrf-rs.git", branch = "main", version = "0.3.0" }
+# vrf = { path = "../../../vrf/", version = "0.3.0" }
 
-[workspace]

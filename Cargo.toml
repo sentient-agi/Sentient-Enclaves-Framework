@@ -2,10 +2,10 @@
 members = [
     "pipeline",
     "pf-proxy",
+    "ra-web-srv",
 ]
 exclude = [
     "cryptography",
-    "web-ra",
     "reference_apps",
 ]
 # edition = "2021"

@@ -1205,34 +1205,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mt-runtime"
-version = "0.6.2"
-dependencies = [
- "async-std",
- "aws-nitro-enclaves-cose",
- "aws-nitro-enclaves-nsm-api",
- "axum",
- "axum-extra",
- "axum-macros",
- "axum-server",
- "futures",
- "hex",
- "openssl",
- "parking_lot",
- "rand_core",
- "serde",
- "serde_bytes",
- "serde_cbor",
- "serde_json",
- "sha3",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "vrf",
-]
-
-[[package]]
 name = "nix"
 version = "0.26.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1457,6 +1429,34 @@ name = "r-efi"
 version = "5.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "74765f6d916ee2faa39bc8e68e4f3ed8949b48cccdac59983d287a7cb71ce9c5"
+
+[[package]]
+name = "ra-web-srv"
+version = "0.7.0"
+dependencies = [
+ "async-std",
+ "aws-nitro-enclaves-cose",
+ "aws-nitro-enclaves-nsm-api",
+ "axum",
+ "axum-extra",
+ "axum-macros",
+ "axum-server",
+ "futures",
+ "hex",
+ "openssl",
+ "parking_lot",
+ "rand_core",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+ "serde_json",
+ "sha3",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "vrf",
+]
 
 [[package]]
 name = "rand_core"
