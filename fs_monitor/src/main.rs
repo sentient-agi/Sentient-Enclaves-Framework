@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
 };
 use dashmap::DashMap;
+use clap::Parser;
 
 mod state;
 use state::{FileInfo, FileState, FileType};
@@ -19,18 +20,36 @@ use std::io::Write;
 
 
 #[derive(Debug, Clone)]
-pub struct HashInfoNew{
+pub struct HashInfo{
     pub ongoing_tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<io::Result<Vec<u8>>>>>>,
     pub hash_results: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
 } 
 
+
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Directory to watch
+    #[arg(short, long, value_name = "DIR", default_value = ".")]
+    directory: String,
+
+    /// Path to the ignore file (relative to watched directory or absolute)
+    #[arg(short, long, value_name = "FILE", default_value = ".fsignore")]
+    ignore_file: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = Args::parse();
+    let watch_path = Path::new(&args.directory);
+    let ignore_path = Path::new(&args.ignore_file);
+
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Result<Event>>();
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
 
-    let hash_infos = Arc::new(HashInfoNew{
+    let hash_infos = Arc::new(HashInfo{
         ongoing_tasks: Arc::new(Mutex::new(HashMap::new())),
         hash_results: Arc::new(Mutex::new(HashMap::new())),
     });
@@ -43,13 +62,13 @@ async fn main() -> Result<()> {
         tx.send(res).expect("Failed to send event");
     })?;
 
-    watcher.watch(Path::new("."), RecursiveMode::Recursive)?;
-    println!("Started watching current directory for changes...");
+    watcher.watch(watch_path, RecursiveMode::Recursive)?;
+    println!("Started watching {} for changes...", args.directory);
     
     let mut ignore_list = IgnoreList::new();
 
     // TODO: Remove hardcoding of path. Make path relative to the src directory?
-    ignore_list.populate_ignore_list("/home/ec2-user/pipeline-tee.rs/fs_monitor/fs_ignore");
+    ignore_list.populate_ignore_list(ignore_path);
     
     // Start a task to handle events
     tokio::spawn(async move {
@@ -91,7 +110,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>) -> io::Result<String> {
+async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<String> {
     let metadata = fs::metadata(path).map_err(|e| {
         io::Error::new(e.kind(), format!("Failed to get metadata for '{}': {}", path, e))
     })?;
@@ -121,7 +140,7 @@ async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, 
     }
 }
 
-async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>) -> io::Result<Vec<u8>> {
+async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<Vec<u8>> {
     let file_info = file_infos.get(path)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not tracked"))?;
 
@@ -143,7 +162,7 @@ async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInf
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No hash available"))
 }
 
-fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>, ignore_list: &IgnoreList) -> Result<()> {
+fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList) -> Result<()> {
     let paths_old: Vec<String> = event.paths.iter()
         .filter_map(|p| p.to_str().map(|s| s.to_string()))
         .collect();
@@ -164,7 +183,6 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_
             return Ok(());
         }
     }
-
     if paths.len() > 1 {
         // If all paths in event are ignored, skip the event
         if paths.iter().all(|path| ignore_list.is_ignored(path)) {
@@ -233,7 +251,7 @@ fn handle_file_data_modification(paths: Vec<String>, file_infos: &Arc<DashMap<St
     }
 }
 
-fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>) {
+fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) {
     if paths.len() != 1 {
         eprintln!("Save on write event has multiple paths: {:?}", paths);
         return;
@@ -253,7 +271,7 @@ fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<String
 
 
 // TODO: Handle rename events
-fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfoNew>, ignore_list: &IgnoreList) {
+fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList) {
     if paths.len() != 2 {
         eprintln!("Rename event should have 2 paths: {:?}", paths);
         return;
@@ -292,7 +310,7 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     }
 }
 
-async fn perform_file_hashing(path: String, hash_info: Arc<HashInfoNew>){
+async fn perform_file_hashing(path: String, hash_info: Arc<HashInfo>){
     let file_path = path;
     let handle = tokio::task::spawn_blocking({
         let file_path = file_path.clone();

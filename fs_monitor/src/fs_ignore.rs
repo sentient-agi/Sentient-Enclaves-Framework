@@ -1,6 +1,7 @@
 use glob::Pattern;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 pub struct IgnoreList {
     patterns: Vec<Pattern>,
 }
@@ -12,7 +13,7 @@ impl IgnoreList {
         }
     }
 
-    pub fn populate_ignore_list(&mut self, file_path: &str) {
+    pub fn populate_ignore_list(&mut self, file_path: &Path) {
         // read a file with the ignore list and populate the ignore list
         let file = File::open(file_path).unwrap();
         let reader = BufReader::new(file);
@@ -78,7 +79,7 @@ mod tests{
         let temp_file = create_temp_ignore_file(&patterns);
         
         let mut ignore_list = IgnoreList::new();
-        ignore_list.populate_ignore_list(temp_file.path().to_str().unwrap());
+        ignore_list.populate_ignore_list(temp_file.path());
 
     }
 
@@ -88,7 +89,7 @@ mod tests{
         let temp_file = create_temp_ignore_file(&patterns);
 
         let mut ignore_list = IgnoreList::new();
-        ignore_list.populate_ignore_list(temp_file.path().to_str().unwrap());
+        ignore_list.populate_ignore_list(temp_file.path());
 
         assert!(ignore_list.is_ignored(".cache"));
 
