@@ -44,7 +44,7 @@ use tracing::{debug, info, error};
 use aws_nitro_enclaves_nsm_api::api::{Digest as NsmDigest, Request, Response, AttestationDoc};
 use aws_nitro_enclaves_nsm_api::driver::{nsm_exit, nsm_init, nsm_process_request};
 use serde_bytes::ByteBuf;
-use aws_nitro_enclaves_cose::CoseSign1;
+use aws_nitro_enclaves_cose::{CoseSign1, error::CoseError};
 use aws_nitro_enclaves_cose::crypto::openssl::Openssl;
 
 use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
@@ -920,25 +920,25 @@ async fn nsm_desc(
     );
 
     info!(
-        "NSM description: [major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {:?}].",
+        "NSM description: [major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {}].",
         description.version_major,
         description.version_minor,
         description.version_patch,
         description.module_id,
         description.max_pcrs,
         description.locked_pcrs,
-        description.digest
+        LocalNsmDigest(description.digest)
     );
 
     (StatusCode::OK, format!(
-        "NSM description: [major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {:?}].\n",
+        "NSM description: [major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {}].\n",
         description.version_major,
         description.version_minor,
         description.version_patch,
         description.module_id,
         description.max_pcrs,
         description.locked_pcrs,
-        description.digest
+        LocalNsmDigest(description.digest)
     ))
 }
 
@@ -1006,7 +1006,7 @@ fn att_doc_fmt(
             "unprotected_header":  format!("{{ {:?} }}", header_unprotected_str),
             "payload": {
                 "module_id": attestation_doc.module_id,
-                "digest": format!(":{:?}", attestation_doc.digest),
+                "digest": format!("{}", LocalNsmDigest(attestation_doc.digest)),
                 "timestamp": attestation_doc.timestamp.to_string(),
                 "PCRs": format!("{{ {:?} }}", pcrs_fmt),
                 "certificate": hex::encode(attestation_doc.certificate.into_vec()),
@@ -1017,14 +1017,14 @@ fn att_doc_fmt(
                 "user_data": hex::encode(attestation_doc.user_data.unwrap_or(ByteBuf::new()).into_vec()),
                 "nonce": hex::encode(attestation_doc.nonce.unwrap_or(ByteBuf::new()).into_vec()),
             },
-            "signature": format!("\"{:?}\"", hex::encode(attestation_doc_signature.clone())),
+            "signature": hex::encode(attestation_doc_signature.clone()),
         }).to_string(),
 
         "json_str" => json!({
             "protected_header": format!("{{ {:?} }}", header_protected_str),
             "unprotected_header":  format!("{{ {:?} }}", header_unprotected_str),
             "payload": serde_json::to_string(&attestation_doc).unwrap_or("".to_string()),
-            "signature": format!("\"{:?}\"", hex::encode(attestation_doc_signature.clone())),
+            "signature": hex::encode(attestation_doc_signature.clone()),
         }).to_string(),
 
         "json_debug" => json!({
@@ -1036,12 +1036,12 @@ fn att_doc_fmt(
 
         "debug" => format!("{:?}", cose_doc),
 
-        "debug_pp" => json!({
+        "debug_pretty_print" => json!({
             "protected_header": format!("\"{:?}\"", protected_header),
             "unprotected_header":  format!("\"{:?}\"", unprotected_header),
             "payload": {
                 "module_id": attestation_doc.module_id,
-                "digest": format!(":{:?}", attestation_doc.digest),
+                "digest": format!("{}", LocalNsmDigest(attestation_doc.digest)),
                 "timestamp": attestation_doc.timestamp.to_string(),
                 "PCRs": format!("\"{:?}\"", attestation_doc.pcrs),
                 "certificate": format!("\"{:?}\"", attestation_doc.certificate),
@@ -1055,11 +1055,43 @@ fn att_doc_fmt(
 
         _ => format!("Attestation document ('bin_hex' string):{:?}\n\n\
             Set the 'view' format string parameter for attestation document:\n\
-            'view=bin_hex|json_hex|json_str|json_debug|debug|debug_pp'",
+            'view=bin_hex|json_hex|json_str|json_debug|debug|debug_pretty_print'",
             hex::encode(att_doc)
         ),
     };
     output
+}
+
+use std::str::FromStr;
+
+#[derive(Debug, Clone)]
+struct LocalNsmDigest(NsmDigest);
+
+impl FromStr for LocalNsmDigest {
+    type Err = CoseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "SHA256" => Ok(LocalNsmDigest(NsmDigest::SHA256)),
+            "SHA384" => Ok(LocalNsmDigest(NsmDigest::SHA384)),
+            "SHA512" => Ok(LocalNsmDigest(NsmDigest::SHA512)),
+            name => Err(CoseError::UnsupportedError(format!(
+                "Algorithm '{}' is not supported",
+                name
+            ))),
+        }
+    }
+}
+
+impl std::fmt::Display for LocalNsmDigest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self.0 {
+            NsmDigest::SHA256 => "SHA256",
+            NsmDigest::SHA384 => "SHA384",
+            NsmDigest::SHA512 => "SHA512",
+        };
+        write!(f, "{}", name)
+    }
 }
 
 /// Randomly generate PRIME256V1/P-256 key to use for validating signing internally
