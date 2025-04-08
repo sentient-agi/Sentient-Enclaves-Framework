@@ -4,3 +4,4 @@
 **/*.lock
 **/*.incomplete
 **/tmp_*
+**/*.swpx

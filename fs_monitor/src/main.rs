@@ -25,17 +25,19 @@ pub struct HashInfo{
     pub hash_results: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
 } 
 
-
-
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(
+    version,
+    about = "Filesystem monitoring tool that watches directories and calculates file hashes",
+    long_about = None
+)]
 struct Args {
     /// Directory to watch
-    #[arg(short, long, value_name = "DIR", default_value = ".")]
+    #[arg(short, long, value_name = "DIR", default_value = ".", help = "Specify the directory to watch for file changes.")]
     directory: String,
 
     /// Path to the ignore file (relative to watched directory or absolute)
-    #[arg(short, long, value_name = "FILE", default_value = ".fsignore")]
+    #[arg(short, long, value_name = "FILE", default_value = ".fsignore", help = "Specify the ignore file with patterns to exclude.")]
     ignore_file: String,
 }
 
@@ -54,9 +56,10 @@ async fn main() -> Result<()> {
         hash_results: Arc::new(Mutex::new(HashMap::new())),
     });
     
-    // Clone for the closure
+    // Clones for the closure
     let file_infos_clone = Arc::clone(&file_infos);
     let hash_infos_clone = Arc::clone(&hash_infos);
+    
     // Initialize the watcher
     let mut watcher = recommended_watcher(move |res: Result<Event>| {
         tx.send(res).expect("Failed to send event");
@@ -67,7 +70,6 @@ async fn main() -> Result<()> {
     
     let mut ignore_list = IgnoreList::new();
 
-    // TODO: Remove hardcoding of path. Make path relative to the src directory?
     ignore_list.populate_ignore_list(ignore_path);
     
     // Start a task to handle events
@@ -85,7 +87,6 @@ async fn main() -> Result<()> {
 });
 
 loop {
-    
     println!("Enter path relative to current working directory to get hash of file");
     print!(">>> ");
     std::io::stdout().flush().unwrap();
@@ -176,9 +177,7 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_
         return Ok(());
     }
     if paths.len() == 1 {
-        // eprintln!("Single path in event: {:?} {:?}", event.kind, paths);
         let path = paths[0].clone();
-        // Ignore this event if it matches the regex pattern specified in fs_ignore
         if ignore_list.is_ignored(&path) {
             return Ok(());
         }
@@ -188,7 +187,6 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_
         if paths.iter().all(|path| ignore_list.is_ignored(path)) {
             return Ok(());
         }
-
     }
 
     match event.kind {
@@ -214,7 +212,6 @@ fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_
             handle_file_save_on_write(paths.clone(), &file_infos, &hash_info);
         }
         _ => {
-            // eprintln!("#Unhandled event {:?} for: {}", event.kind, path);
         }
     }
 
@@ -240,13 +237,12 @@ fn handle_file_data_modification(paths: Vec<String>, file_infos: &Arc<DashMap<St
         eprintln!("Modify event has multiple paths: {:?}", paths);
         return;
     }
-
     let path = paths[0].clone();
-    // eprintln!("File modified: {}", path);
+    
     if let Some(mut file_info) = file_infos.get_mut(&path) {
         if file_info.file_type == FileType::File {
             file_info.state = FileState::Modified;
-            // TODO: Also reset hash here
+            // No need to modify hash here as we keep versions of hashes
         }
     }
 }
@@ -260,7 +256,6 @@ fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<String
     if let Some(mut file_info) = file_infos.get_mut(&path) {
         if file_info.file_type == FileType::File && file_info.state == FileState::Modified {
             eprintln!("File closed after write: {}", path);
-
             file_info.version += 1;
             eprintln!("File {} is ready for hashing.", path);
             file_info.state = FileState::Closed;
@@ -293,8 +288,9 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
         if !file_infos.contains_key(&to_path) {
             file_infos.insert(to_path.clone(), FileInfo {
                 file_type: FileType::File,
-                state: FileState::Renamed,
-                version: 0,
+                // File can only be renamed when it's closed
+                state: FileState::Closed,
+                version: 1,
             });
             tokio::spawn(perform_file_hashing(to_path.clone(), Arc::clone(hash_info)));
         }
@@ -305,11 +301,56 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
         // This is a normal rename event where the file is being renamed to some other name.
         // We need to update the entry in file_infos for the new path. The hash of the file should be recalculated?
         // Currently this event is also ignored.
+        // Confirm that the file hash is not changed. Confirm the new hash is equal to the latest hash already stored
         eprintln!("File renamed from {} to {}", from_path, to_path);
+        // Copy the file_info state for new file
+        if let Some(file_info) = file_infos.get(&from_path).map(|info| info.clone()) {
+            let from_path_clone = from_path.clone();
+            let to_path_clone = to_path.clone();
+            let file_infos_clone = Arc::clone(file_infos);
+            let hash_info_clone = Arc::clone(hash_info);
+            
+            tokio::spawn(async move {
+                // Calculate hash for the new file
+                match hash_file(&to_path_clone) {
+                    Ok(latest_hash) => {
+                        // Try to get the old hash for comparison
+                        match retrieve_file_hash(&from_path_clone, &file_infos_clone, &hash_info_clone).await {
+                            Ok(old_hash) => {
+                                if latest_hash != old_hash {
+                                    eprintln!("Warning: Hash mismatch after rename from {} to {}", 
+                                             from_path_clone, to_path_clone);
+                                }
+                                
+                                // Update entry in the dashmap regardless
+                                if let Some((_, info)) = file_infos_clone.remove(&from_path_clone) {
+                                    file_infos_clone.insert(to_path_clone.clone(), info);
+                                    
+                                    // Transfer hash history if available
+                                    if let Ok(mut results) = hash_info_clone.hash_results.try_lock() {
+                                        if let Some(hashes) = results.remove(&from_path_clone) {
+                                            results.insert(to_path_clone, hashes);
+                                        }
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("Error retrieving hash for {}: {}", from_path_clone, e);
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Error hashing file {}: {}", to_path_clone, e);
+                    }
+                }
+            });
+        }
        
     }
 }
 
+// This has become very complicated cause of MT-runtime incorporation.
+// Can we just await the task instead?
 async fn perform_file_hashing(path: String, hash_info: Arc<HashInfo>){
     let file_path = path;
     let handle = tokio::task::spawn_blocking({
