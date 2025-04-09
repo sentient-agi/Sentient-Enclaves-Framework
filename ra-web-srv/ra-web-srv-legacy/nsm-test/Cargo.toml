@@ -1,6 +1,6 @@
 [package]
 name = "nsm-test"
-version = "0.6.2"
+version = "0.7.0"
 authors = ["The AWS Nitro Enclaves Team <aws-nitro-enclaves-devel@amazon.com>", "Sentient Enclaves Team <sentient-enclaves-team@sentient.xyz>"]
 edition = "2021"
 
