@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use crate::hash::hasher;
 use crate::fs_ops::state::FileInfo;
+use crate::fs_ops::fs_utils;
 use dashmap::DashMap;
 use sha3::Digest;
 
@@ -105,20 +106,33 @@ pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo
         io::Error::new(e.kind(), format!("Failed to get metadata for '{}': {}", path, e))
     })?;
 
+    // First verify the directory exists in our tracking system
+    if metadata.is_dir() && !file_infos.contains_key(path) {
+        return Err(io::Error::new(io::ErrorKind::NotFound, 
+            format!("Directory '{}' is not being tracked", path)));
+    }
+
     if metadata.is_dir() {
         let mut files = Vec::new();
-        for entry in file_infos.iter() {
-            let file_path = entry.key();
-            if file_path.starts_with(path) && !file_path.ends_with('/') {
-                files.push(file_path.clone());
-            }
-        }
+        
+        // Use proper filesystem traversal instead of string prefix matching
+        let dir_path = std::path::Path::new(path);
+        fs_utils::collect_files_recursively(dir_path, &mut files)?;
+        
+        // Filter files to only include those that are being tracked
+        let tracked_files: Vec<String> = files.into_iter()
+            .filter(|file_path| file_infos.contains_key(file_path))
+            .collect();
         
         // Sort files for consistent hash results
-        files.sort();
+        let mut sorted_files = tracked_files;
+        sorted_files.sort();
 
+        println!("Processing directory: {} with {} tracked files", path, sorted_files.len());
+        
         let mut dir_hasher = sha3::Sha3_512::new();
-        for file_path in files {
+        for file_path in sorted_files {
+            println!("Calculating hash for: {}", file_path);
             let file_hash = retrieve_file_hash(&file_path, file_infos, hash_info).await?;
             dir_hasher.update(file_hash);
         }
@@ -133,6 +147,12 @@ pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo
 pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<Vec<u8>> {
     let file_info = file_infos.get(path)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not tracked"))?;
+
+    if file_info.state == crate::fs_ops::state::FileState::Deleted{
+        // Start a new task for cleanup
+        // Lazy deletion from file_infos and hash_info
+        return Err(io::Error::new(io::ErrorKind::Other, "File has been already deleted")); 
+    }
 
     if file_info.state != crate::fs_ops::state::FileState::Closed {
         return Err(io::Error::new(io::ErrorKind::Other, "File is yet to be closed"));

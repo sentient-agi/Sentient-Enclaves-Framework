@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use crate::hash::storage::{HashInfo, perform_file_hashing, remove_stale_tasks};
 use crate::fs_ops::state::{FileInfo, FileState, FileType};
 use crate::fs_ops::ignore::IgnoreList;
-use crate::fs_ops::path_utils::handle_path;
+use crate::fs_ops::fs_utils::handle_path;
 
 pub fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList) -> Result<()> {
     let paths_old: Vec<String> = event.paths.iter()
@@ -36,6 +36,9 @@ pub fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, h
     match event.kind {
         EventKind::Create(CreateKind::File) => {
             handle_file_creation(paths.clone(), &file_infos);
+        }
+        EventKind::Create(CreateKind::Folder) => {
+            handle_directory_creation(paths.clone(), &file_infos);
         }
         EventKind::Modify(ModifyKind::Data(DataChange::Any) ) => {
            handle_file_data_modification(paths.clone(), &file_infos); 
@@ -72,6 +75,20 @@ pub fn handle_file_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String,
     file_infos.insert(path.clone(), FileInfo {
             file_type: FileType::File,
             state: FileState::Created,
+            version: 0,
+    });
+}
+
+pub fn handle_directory_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
+    if paths.len() != 1 {
+        eprintln!("Create directory event has multiple paths: {:?}", paths);
+        return;
+    }
+    let path = paths[0].clone();
+    eprintln!("Directory created: {}", path);
+    file_infos.insert(path.clone(), FileInfo {
+            file_type: FileType::Directory,
+            state: FileState::Closed, // Directories don't have the same lifecycle as files
             version: 0,
     });
 }

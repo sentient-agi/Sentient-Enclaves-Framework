@@ -1,8 +1,7 @@
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileType {
     File,
-    // Directory,
+    Directory,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -10,6 +9,7 @@ pub enum FileState {
     Created,
     Modified,
     Closed,
+    Deleted
 }
 
 

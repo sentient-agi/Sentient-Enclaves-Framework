@@ -20,7 +20,7 @@ use fs_ops::state::FileInfo;
 use hash::storage::{HashInfo, retrieve_hash};
 use fs_ops::ignore::IgnoreList;
 use fs_ops::watcher::setup_watcher;
-use fs_ops::path_utils::handle_path;
+use fs_ops::fs_utils::handle_path;
 
 #[derive(Parser, Debug)]
 #[command(
