@@ -83,9 +83,9 @@ struct AppConfig {
 impl AppConfig {
     fn new_from_file(config_path: &str) -> Self {
         let raw_config_string = fs::read_to_string(config_path)
-            .expect(format!("Failed to read config file via provided path {:?}. Missing 'config.toml' file.", config_path).as_str());
+            .expect(format!("Failed to read config file via provided path. Missing '{}' file.", config_path).as_str());
         let config = toml::from_str::<Config>(raw_config_string.as_str())
-            .expect("Invalid TOML format. Failed to parse 'config.toml' file.");
+            .expect(format!("Invalid TOML format. Failed to parse '{}' file.", config_path).as_str());
         AppConfig {
             inner: Arc::new(RwLock::new(config))
         }
@@ -235,7 +235,8 @@ async fn main() -> io::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let config_path = "./.config/config.toml";
+    let default_config_path = format!("./.config/{}.config.toml", env!("CARGO_CRATE_NAME"));
+    let config_path = default_config_path.as_str();
     let app_config = AppConfig::new_from_file(config_path);
 
     let ports = Ports {

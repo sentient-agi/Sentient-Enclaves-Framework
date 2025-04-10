@@ -24,13 +24,13 @@ fn main() {
         exit(output.rc.unwrap_or_default());
     };
 
-    let default_config_path = "./.config/config.toml".to_string();
+    let default_config_path = format!("./.config/{}.config.toml", env!("CARGO_CRATE_NAME"));
     let config_path = args
         .get_one("config")
         .unwrap_or(&default_config_path);
 
-    let raw_config_string = std::fs::read_to_string(config_path).expect("Missing `config.toml` file.");
-    let app_config: AppConfig = toml::from_str(raw_config_string.as_str()).expect("Failed to parse `config.toml` file.");
+    let raw_config_string = std::fs::read_to_string(config_path).expect(format!("Missing '{}' configuration file.", config_path).as_str());
+    let app_config: AppConfig = toml::from_str(raw_config_string.as_str()).expect(format!("Failed to parse '{}' configuration file.", config_path).as_str());
 
     match args.subcommand() {
         Some(("listen", args)) => {
