@@ -60,11 +60,15 @@ It is heavily relying on Linux networking stack and custom reproducible Linux ke
 
 The reverse and forward proxying schemes are supported for p2p proxying, transparent port to VSock forwarding (many-to-many listeners scheme, with requiring according number of port forwaring proxies to listeners), and fully transparent proxying (full-cone NAT and port porwarding, with many-to-many listeners scheme, and requiring only one proxy instance for each side, host and enclave), to provide networking stack access for enclave apps (in case of forward proxy) and provide confidential services hosted in enclave (in case of reverse proxy).
 
-## Web server for remote attestation inside the enclave (WIP)
+## Web server and web protocol for remote attestation of enclave's run-time
 
-Web server for remote attestation inside the enclave supports proofs generation and proofs verification, for content (external additional data, like model heavyweight tensor layers and data sets) placed in enclave run-time (in ramdisk or CoW disk image), signing and verifying of attestation documents (using KMS service from inside the enclave).
+Web server for remote attestation of base EIF image PCR hashes (computed statically on EIF enclave's image build stage, via reproducible building process) against its run-time computed PCR hashes (provides guarantees that running enclave from EIF image wasn't modified anyhow), and for per-file attestation of enclave's run-time file system from inside the enclave.
 
-The attestation process guarantees that computation process on data, data producing or just data placing, was performed exactly inside the secure enclave's isolated environment, which prevent leakage of sensitive data and makes computational processes private and confident.
+Web API protocol for remote attestation of enclave's file system from inside the enclave supports per-file proofs generation and proofs verification, for file's content (external additional data, like model heavyweight tensor layers and data sets) placed in enclave run-time (in ramdisk or CoW disk image), signing and verifying of attestation documents right from inside the enclave (and using KMS service requests from inside the enclave).
+
+The attestation process provides integrity, granularity, and guarantees that computation process on data, data producing or just data placing, was performed exactly inside the secure enclave's isolated environment, which prevent leakage of sensitive data and makes computational processes private and confident.
+
+This way the attestation protocol and web API along with File System Monitor CoW layer covering all aspects of enclave's run-time activities and apps executed inside the enclave.
 
 ## Enclave's file system monitor (WIP)
 

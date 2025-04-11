@@ -21,3 +21,11 @@
 
 - **0.6.0** - Set of reference applications, built with framework - inference server (will include Dobby model),
         fine-tuning server (includes fine-tuning OML library), X agent (chat bot app).
+
+- **0.7.0** - web protocol for RA, with VRF proofs for attestation docs, mt-runtime, mass-production of attestation docs,
+        hot cache and cold DB (Sled) integration for storing attestation docs.
+        Providing per file attestation of enclave's file system upon web request to attest exact file or attest files in requested directory or
+        directories in enclave's file system.
+        Providing the control of files and file system integrity via providing per file hashing.
+        These file integrity hashes used to generate proofs (based on VRF, for not to rely on enclave or system entropy)
+        and per file attestation docs, that include file proofs, based on file integrity hashes.

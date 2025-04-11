@@ -27,34 +27,34 @@
 Welcome to the Sentient Enclaves Framework. The framework provides end-to-end infrastructure for building confidential AI applications using TEEs.
 
 
-# List of Contents 📚
+# List Of Contents 📚
 
 
-- [Detailed project reference](docs/md/REFERENCE_README.md)
+- [DETAILED PROJECT COMPONENTS EXPLANATION](docs/md/REFERENCE_README.md)
 
 
-- [Diagrams](docs/md/REFERENCE_README.md#visualization-of-sentient-enclaves-framework-infrastructure-components-and-its-interaction-with-diagrams)
+- [DIAGRAMS](docs/md/REFERENCE_README.md#visualization-of-sentient-enclaves-framework-infrastructure-components-and-its-interaction-with-diagrams)
 
 
-- [Getting started (quick start) guide](docs/md/BUILDING.md)
+- [GETTING STARTED (QUICK START) GUIDE](docs/md/BUILDING.md)
 
 
-- [Usage and advanced usage guide](docs/md/USAGE.md)
+- [USAGE AND ADVANCED USAGE GUIDE](docs/md/USAGE.md)
 
 
-- [Demonstrations](docs/md/REFERENCE_README.md#demonstrations)
+- [DEMONSTRATIONS](docs/md/REFERENCE_README.md#demonstrations)
 
 
-- [Reference applications](reference_apps/)
+- [REFERENCE APPLICATIONS](reference_apps/)
 
 
-- [Changelog](docs/md/CHANGELOG.md)
+- [CHANGELOG](docs/md/CHANGELOG.md)
 
 
-- [Roadmap](docs/md/ROADMAP.md)
+- [ROADMAP](docs/md/ROADMAP.md)
 
 
-- [License](LICENSE)
+- [LICENSE](LICENSE)
 
 
 # Overview 🔍
@@ -77,11 +77,13 @@ The framework enables the creation of confidential enclaves that are isolated fr
 # Framework Components 🏗️
 To allow for the creation of confidential AI applications set of infrastructure components are needed. The framework abstracts these components away from the developer, providing a simple interface for building confidential AI applications. Framework provides following components:
 
-| Component | Description | Functionality | Documentation                                                                                                                                    |
-|-----------|-------------|---------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| `pipeline` | Implementation of binary protocol over `vsock` for interacting with enclave | Controls enclave execution and enables bi-directional file transfers | [![Details](https://img.shields.io/badge/Pipeline-Details-green)](docs/md/REFERENCE_README.md#pipeline-slc-vsock-communication-protocol)         |
-| `rbuilds.sh` | Script utilising set of components for building reproducible enclave images | Enables byte-level reproducibility for enclave images and streamlines the build process | [![Details](https://img.shields.io/badge/Build_System-Details-green)](docs/md/REFERENCE_README.md#build-system-for-enclaves-reproducible-builds) |
-| `pf-proxy` | Transparent `vsock` proxies for internet-enabled applications | Provides full networking stack support, enabling outbound TCP connections using forward proxies and inbound TCP connections using reverse proxies for enclaves | [![Details](https://img.shields.io/badge/PF_Proxy-Details-green)](docs/md/REFERENCE_README.md#transparent-vsock-proxies)                         |
+| Component    | Description                                                                 | Functionality                                                                                                                                                                                                                                                                                                                                                                                      | Documentation                                                                                                                                                            |
+|--------------|-----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `pipeline`   | Implementation of binary protocol over `vsock` for interacting with enclave | Controls enclave execution and enables bi-directional file transfers                                                                                                                                                                                                                                                                                                                               | [![Documentation](https://img.shields.io/badge/Pipeline-Docs-blue)](docs/md/REFERENCE_README.md#pipeline-slc-vsock-communication-protocol)                               |
+| `rbuilds.sh` | Script utilising set of components for building reproducible enclave images | Enables byte-level reproducibility for enclave images and streamlines the build process                                                                                                                                                                                                                                                                                                            | [![Documentation](https://img.shields.io/badge/Build_System-Docs-blue)](docs/md/REFERENCE_README.md#build-system-for-enclaves-reproducible-builds)                       |
+| `pf-proxy`   | Transparent `vsock` proxies for internet-enabled applications               | Provides full networking stack support, enabling outbound TCP connections using forward proxies and inbound TCP connections using reverse proxies for enclaves                                                                                                                                                                                                                                     | [![Documentation](https://img.shields.io/badge/PF_Proxy-Docs-blue)](docs/md/REFERENCE_README.md#transparent-vsock-proxies)                                               |
+| `ra-web-srv` | Web server and web protocol for remote attestation of enclave's run-time    | Web server and web API protocol for remote attestation of base EIF image PCR hashes (computed statically on EIF enclave's image build stage, via reproducible building process) against its run-time computed PCR hashes (provides guarantees that running enclave from EIF image wasn't modified anyhow), and for per-file attestation of enclave's run-time file system from inside the enclave. | [![Documentation](https://img.shields.io/badge/PF_Proxy-Docs-blue)](docs/md/REFERENCE_README.md#web-server-and-web-protocol-for-remote-attestation-of-enclaves-run-time) |
+
 
 ### Project Diagram:
 
@@ -132,7 +134,7 @@ sentient-enclaves-framework/
 │   ├── fingerprinting_server : A model fingerprinting server that fingerprints models based on OML fingerprinting library
 │   ├── inference_server : An inference server that uses a local model inference.
 │   ├── X_Agent : A reference agent that interacting with X users.
-├── web-ra: Web Server for remote attestation of enclaves (WIP)
+├── ra-web-srv : Web Server for remote attestation of enclaves (WIP)
 └── docs : Detailed documentation for the framework and its components  
 
 ```
