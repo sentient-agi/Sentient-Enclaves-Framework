@@ -137,7 +137,7 @@ pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, Fil
 
 // Lazy cleanup of removed/renamed files
 
-async fn hash_cleanup(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: Arc<HashInfo>) {
+pub async fn hash_cleanup(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: Arc<HashInfo>) {
     let mut hash_results = hash_info.hash_results.lock().await;
     hash_results.remove(path);
 

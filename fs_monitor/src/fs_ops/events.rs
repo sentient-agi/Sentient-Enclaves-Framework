@@ -1,8 +1,8 @@
 use notify::{Event, Result, EventKind};
-use notify::event::{ModifyKind, DataChange, CreateKind, AccessKind, AccessMode, RenameMode};
+use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
 use std::sync::Arc;
 use dashmap::DashMap;
-use crate::hash::storage::{HashInfo, perform_file_hashing};
+use crate::hash::storage::{HashInfo, perform_file_hashing, hash_cleanup};
 use crate::fs_ops::state::{FileInfo, FileState, FileType};
 use crate::fs_ops::ignore::IgnoreList;
 use crate::fs_ops::fs_utils::handle_path;
@@ -43,6 +43,9 @@ pub fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, h
         EventKind::Modify(ModifyKind::Data(DataChange::Any) ) => {
            handle_file_data_modification(paths.clone(), &file_infos); 
         }
+        EventKind::Remove(RemoveKind::File) => {
+            handle_file_deletion(paths.clone(), &file_infos, &hash_info);
+        }
         // Need to handle Rename, Delete, etc.
         EventKind::Modify(ModifyKind::Name(rename_mode)) => {
             match rename_mode {
@@ -59,13 +62,14 @@ pub fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, h
             handle_file_save_on_write(paths.clone(), &file_infos, &hash_info);
         }
         _ => {
+            // eprintln!("Unhandled event kind: {:?} for paths: {:?} ",event.kind, paths);
         }
     }
 
     Ok(())
 }
 
-pub fn handle_file_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
+fn handle_file_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
     if paths.len() != 1 {
         eprintln!("Create event has multiple paths: {:?}", paths);
         return;
@@ -79,7 +83,7 @@ pub fn handle_file_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String,
     });
 }
 
-pub fn handle_directory_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
+fn handle_directory_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
     if paths.len() != 1 {
         eprintln!("Create directory event has multiple paths: {:?}", paths);
         return;
@@ -93,7 +97,7 @@ pub fn handle_directory_creation(paths: Vec<String>, file_infos: &Arc<DashMap<St
     });
 }
 
-pub fn handle_file_data_modification(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
+fn handle_file_data_modification(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
     if paths.len() != 1 {
         eprintln!("Modify event has multiple paths: {:?}", paths);
         return;
@@ -108,7 +112,7 @@ pub fn handle_file_data_modification(paths: Vec<String>, file_infos: &Arc<DashMa
     }
 }
 
-pub fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) {
+fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) {
     if paths.len() != 1 {
         eprintln!("Save on write event has multiple paths: {:?}", paths);
         return;
@@ -133,7 +137,7 @@ pub fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<St
     }
 }
 
-pub fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList) {
+fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList) {
     if paths.len() != 2 {
         eprintln!("Rename event should have 2 paths: {:?}", paths);
         return;
@@ -142,7 +146,11 @@ pub fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, F
     let to_path = paths[1].clone();
     if ignore_list.is_ignored(&to_path) {
         // This means the already monitored file is being renamed to something that is ignored
-        // We can ignore this event right now but ideally this should remove the entry from the file_infos
+        let hash_info_clone = Arc::clone(hash_info);
+        let file_infos_clone = Arc::clone(file_infos);
+        tokio::spawn( async move {
+            hash_cleanup(&from_path, &file_infos_clone, hash_info_clone).await;
+        });
         eprintln!("Ignoring rename event for path: {}", to_path);
         return;
     }
@@ -218,3 +226,15 @@ pub fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, F
         }
     }
 } 
+
+
+fn handle_file_deletion(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+    let path = paths[0].clone();
+    eprintln!("Handling delete event for path: {}", path);
+    let hash_info_clone = Arc::clone(hash_info);
+        let file_infos_clone = Arc::clone(file_infos);
+        tokio::spawn( async move {
+            hash_cleanup(&path, &file_infos_clone, hash_info_clone).await;
+        });
+        return;
+}
