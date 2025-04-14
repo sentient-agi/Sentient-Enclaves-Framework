@@ -381,6 +381,7 @@ async fn main() -> io::Result<()> {
 
     let app = Router::new()
         .route("/generate", post(generate_handler))
+        .route("/readiness/", get(readiness))
         .route("/ready/", get(ready_handler))
         .route("/hashes/", get(hashes))
         .route("/hash/", get(hash_handler))
@@ -627,24 +628,83 @@ async fn hello(
 
 async fn ready_handler(
     Query(query_params): Query<HashMap<String, String>>,
-    State(state): State<Arc<ServerState>>,
+    State(server_state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
     let file_path = query_params.get("path").unwrap().to_owned();
     info!("File path: {:?}", file_path);
 
-    let results = state.results.lock().await;
+    let results = server_state.results.lock().await;
     if results.contains_key(&file_path) {
         (StatusCode::OK, "Ready".to_string())
     } else {
-        let tasks = state.tasks.lock().await;
+        let tasks = server_state.tasks.lock().await;
         if tasks.contains_key(&file_path) {
             (StatusCode::PROCESSING, "Processing".to_string())
         } else {
             (StatusCode::NOT_FOUND, "Not found".to_string())
         }
     }
+}
+
+async fn readiness(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+    info!("{query_params:?}");
+
+    let path = query_params.get("path").unwrap().to_owned();
+    info!("Path: {:?}", path);
+
+    let results = server_state.results.lock().await;
+    let mut ready_statuses = Vec::<String>::with_capacity(1000);
+    for (file_path, hash) in results.iter() {
+        if file_path.contains(path.as_str()) {
+            let status = json!({
+                "path": file_path,
+                "hash": hex::encode(hash),
+                "status": "Ready",
+            }).to_string();
+            debug!("{status:?}");
+            ready_statuses.push(status);
+        }
+    };
+    if ready_statuses.is_empty() {
+        let status = json!({
+            "path": path,
+            "status": "Not found",
+        }).to_string();
+        debug!("{status:?}");
+        ready_statuses.push(status);
+    };
+    let ready_output = ready_statuses.join("\n");
+    info!("{ready_output:?}");
+
+    let tasks = server_state.tasks.lock().await;
+    let mut task_statuses = Vec::<String>::with_capacity(1000);
+    for (file_path, _) in tasks.iter() {
+        if file_path.contains(path.as_str()) {
+            let status = json!({
+                "path": file_path,
+                "status": "Processing",
+            }).to_string();
+            debug!("{status:?}");
+            task_statuses.push(status);
+        }
+    };
+    if task_statuses.is_empty() {
+        let status = json!({
+            "path": path,
+            "status": "Not found",
+        }).to_string();
+        debug!("{status:?}");
+        task_statuses.push(status);
+    };
+    let tasks_output = task_statuses.join("\n");
+    info!("{tasks_output:?}");
+
+    (StatusCode::OK, format!("{:?}\n{:?}\n", ready_output, tasks_output))
 }
 
 async fn hash_handler(
@@ -892,7 +952,7 @@ async fn pubkeys(
             "pubkey4proofs": skey4proofs_pubkey_hex_string,
             "pubkey4docs": skey4docs_pubkey_hex_string,
         }).to_string()),
-        "string" => (StatusCode::OK, format!(
+        "string" | "text" => (StatusCode::OK, format!(
             "pubkey4proofs:\n{}\n\npubkey4docs:\n{}\n\n",
             skey4proofs_pubkey_string, skey4docs_pubkey_string
         )),
@@ -1056,7 +1116,7 @@ fn att_doc_fmt(
 
         _ => format!("Attestation document ('bin_hex' string):{:?}\n\n\
             Set the 'view' format string parameter for attestation document:\n\
-            'view=bin_hex|json_hex|json_str|json_debug|debug|debug_pretty_print'",
+            'view=(bin_hex | json_hex | json_str | json_debug | debug | debug_pretty_print)'",
             hex::encode(att_doc)
         ),
     };
