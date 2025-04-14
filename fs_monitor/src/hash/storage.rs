@@ -60,46 +60,6 @@ pub async fn perform_file_hashing(path: String, hash_info: Arc<HashInfo>) {
     });
 }
 
-pub async fn remove_stale_tasks(path: String, hash_info: Arc<HashInfo>) -> io::Result<()> {
-    // Get the lock on ongoing_tasks
-    let handle_opt = {
-        let mut tasks = hash_info.ongoing_tasks.lock().await;
-        tasks.remove(&path)
-    };
-    
-    // Handle the task if it exists
-    if let Some(handle) = handle_opt {
-        // Abort the task to prevent it from continuing to run
-        handle.abort();
-        
-        // Wait for the task to complete abort to ensure resources are freed
-        match handle.await {
-            Ok(_) => {
-                // Task completed before we could abort it
-                eprintln!("Task for {} completed before abort", path);
-            },
-            Err(e) if e.is_cancelled() => {
-                // Task was successfully cancelled
-                eprintln!("Successfully aborted hashing task for: {}", path);
-            },
-            Err(e) => {
-                // Task panicked or had another error
-                eprintln!("Error while aborting task for {}: {}", path, e);
-                return Err(io::Error::new(io::ErrorKind::Other, 
-                    format!("Failed to abort task properly: {}", e)));
-            }
-        }
-    }
-    
-    // Also clean up any partial results in the hash_results map
-    // This prevents stale data from being accessed later
-    {
-        let mut results = hash_info.hash_results.lock().await;
-        results.remove(&path);
-    }
-    
-    Ok(())
-}
 
 pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<String> {
     let metadata = std::fs::metadata(path).map_err(|e| {
@@ -149,8 +109,11 @@ pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, Fil
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not tracked"))?;
 
     if file_info.state == crate::fs_ops::state::FileState::Deleted{
+        let path_clone = path.clone();
         // Start a new task for cleanup
         // Lazy deletion from file_infos and hash_info
+        // tokio::spawn( async move {
+        // });
         return Err(io::Error::new(io::ErrorKind::Other, "File has been already deleted")); 
     }
 
@@ -171,3 +134,13 @@ pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, Fil
         .cloned()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No hash available"))
 } 
+
+// Lazy cleanup of removed/renamed files
+
+async fn hash_cleanup(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: Arc<HashInfo>) {
+    let mut hash_results = hash_info.hash_results.lock().await;
+    hash_results.remove(path);
+
+    // Remove information about the file
+    file_infos.remove(path);
+}

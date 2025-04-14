@@ -2,7 +2,7 @@ use notify::{Event, Result, EventKind};
 use notify::event::{ModifyKind, DataChange, CreateKind, AccessKind, AccessMode, RenameMode};
 use std::sync::Arc;
 use dashmap::DashMap;
-use crate::hash::storage::{HashInfo, perform_file_hashing, remove_stale_tasks};
+use crate::hash::storage::{HashInfo, perform_file_hashing};
 use crate::fs_ops::state::{FileInfo, FileState, FileType};
 use crate::fs_ops::ignore::IgnoreList;
 use crate::fs_ops::fs_utils::handle_path;
@@ -116,11 +116,19 @@ pub fn handle_file_save_on_write(paths: Vec<String>, file_infos: &Arc<DashMap<St
     let path = paths[0].clone();
     if let Some(mut file_info) = file_infos.get_mut(&path) {
         if file_info.file_type == FileType::File && file_info.state == FileState::Modified {
-            eprintln!("File closed after write: {}", path);
-            file_info.version += 1;
-            eprintln!("File {} is ready for hashing.", path);
-            file_info.state = FileState::Closed;
-            tokio::spawn(perform_file_hashing(path.clone(), Arc::clone(hash_info)));
+            // Calculate hash first and then update the state and versions
+            let path_clone = path.clone();
+            let file_infos_clone = Arc::clone(file_infos);
+            let hash_info_clone = Arc::clone(hash_info);
+            tokio::spawn(async move {
+                perform_file_hashing(path_clone.clone(), hash_info_clone).await;
+                eprintln!("File closed after write: {}", path_clone);
+                if let Some(mut file_info) = file_infos_clone.get_mut(&path_clone) {
+                    file_info.version += 1;
+                    eprintln!("File {} is ready for hashing.", path_clone);
+                    file_info.state = FileState::Closed;
+                }
+            });
         }
     }
 }
@@ -138,24 +146,28 @@ pub fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, F
         eprintln!("Ignoring rename event for path: {}", to_path);
         return;
     }
+
     else if ignore_list.is_ignored(&from_path) {
         // This marks that an ignored file is being renamed to something that should be monitored.
-        // This won't usually trigger create or modify events for smaller files.
-        // We need to create a new entry in file_infos for the new path if it doesn't exist
-        // and then add the hash of the file to the new path
         eprintln!("Handling rename event for paths: {} -> {}", from_path, to_path);
         if !file_infos.contains_key(&to_path) {
-            file_infos.insert(to_path.clone(), FileInfo {
-                file_type: FileType::File,
-                // File can only be renamed when it's closed
-                state: FileState::Closed,
-                version: 1,
-            });
-            tokio::spawn(perform_file_hashing(to_path.clone(), Arc::clone(hash_info)));
+            let path_clone = to_path.clone();
+            let file_infos_clone = Arc::clone(file_infos);
+            let hash_info_clone = Arc::clone(hash_info);
+            tokio::spawn(async move {
+                perform_file_hashing(path_clone, hash_info_clone).await;
+                file_infos_clone.insert(to_path.clone(), FileInfo {
+                    file_type: FileType::File,
+                    // File can only be renamed when it's closed
+                    state: FileState::Closed,
+                    version: 1,
+                });
+            }); 
         }
 
         return;
     }
+
     else {
         // This is a normal rename event where the file is being renamed to some other name.
         eprintln!("File renamed from {} to {}", from_path, to_path);
