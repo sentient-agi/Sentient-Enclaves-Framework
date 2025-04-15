@@ -42,6 +42,9 @@ Welcome to the Sentient Enclaves Framework. The framework provides end-to-end in
 - [USAGE AND ADVANCED USAGE GUIDE](docs/md/USAGE.md)
 
 
+- [ATTESTATION WEB API PROTOCOL SPECIFICATION](docs/md/ATTESTATION_WEB_API.md)
+
+
 - [DEMONSTRATIONS](docs/md/REFERENCE_README.md#demonstrations)
 
 
