@@ -1,0 +1,89 @@
+use fs_monitor::fs_ops::{watcher::setup_watcher, IgnoreList, state::{ FileInfo, FileState}, fs_utils::handle_path};
+use fs_monitor::hash::{storage::{HashInfo, retrieve_hash}, hasher::{hash_file, bytes_to_hex}};
+use std::fs::File;
+use std::io::Write;
+use std::time::{Duration, Instant};
+
+
+use std::path::Path;
+use std::sync::Arc;
+use dashmap::DashMap;
+
+async fn wait_for_file_state(
+    file_infos: &Arc<DashMap<String, FileInfo>>,
+    path: &str,
+    expected_state: FileState,
+    timeout_ms: u64
+) -> bool {
+    let start = Instant::now();
+    let timeout = Duration::from_millis(timeout_ms);
+    
+    while start.elapsed() < timeout {
+        if let Some(info) = file_infos.get(path) {
+            eprintln!("Found file state: {:?} (expecting {:?})", info.state, expected_state);
+            if info.state == expected_state {
+                return true;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+} 
+
+#[tokio::test]
+async fn file_modification_simple() -> notify::Result<()>{
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    // Create a temp file
+    let file_path = "foo.txt";
+    let mut file = File::create(file_path)?;
+    let file_path = handle_path(&file_path);
+    eprintln!("Path: {}", file_path);
+    assert!(wait_for_file_state(&file_infos, &file_path, FileState::Created, 1000).await);
+
+    // Write random data to the file
+    let _ = file.write_all(b"SOME DATA");
+    let _ = file.flush();
+
+    file.write_all(b" MORE DATA").unwrap();
+    let _ = file.flush();
+    assert!(wait_for_file_state(&file_infos, &file_path, FileState::Modified, 1000).await);
+
+
+    // Close the file
+    file.flush().unwrap();
+    file.sync_all().unwrap(); 
+    drop(file);
+    
+    assert!(wait_for_file_state(&file_infos, &file_path, FileState::Closed, 1000).await);
+
+    
+    // Calculate hash
+    let calculated_hash = bytes_to_hex(&hash_file(&file_path).unwrap());
+    // Check hashes match
+    let retrieved_hash = retrieve_hash(&file_path, &file_infos, &hash_infos).await.unwrap();
+    eprintln!("Calculated Hash: {}, Retrieved Hash: {}", calculated_hash, retrieved_hash);
+    assert_eq!(calculated_hash, retrieved_hash);
+    
+    // Cleanup
+    eprintln!("Attempting to delete file: {}", file_path);
+    std::fs::remove_file(file_path).ok();
+
+    eprintln!("=== Test complete, forcing exit ===");
+    std::process::exit(0);
+}
