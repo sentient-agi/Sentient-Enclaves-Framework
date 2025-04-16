@@ -3,7 +3,7 @@ use fs_monitor::hash::{storage::{HashInfo, retrieve_hash}, hasher::{hash_file, b
 use std::fs::File;
 use std::io::Write;
 use std::time::{Duration, Instant};
-
+use uuid::Uuid;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -67,8 +67,8 @@ async fn file_modification_simple() -> notify::Result<()>{
     ).await?;
 
     // Create a temp file
-    let file_path = "foo.txt";
-    let mut file = File::create(file_path)?;
+    let file_path = format!("test_{}.txt", Uuid::new_v4());
+    let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
     assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 1000).await);
@@ -100,7 +100,7 @@ async fn file_modification_simple() -> notify::Result<()>{
     std::fs::remove_file(file_path).ok();
 
     eprintln!("=== Test complete, forcing exit ===");
-    std::process::exit(0);
+    Ok(())
 }
 
 #[tokio::test]
@@ -122,8 +122,8 @@ async fn file_deletion_simple() -> notify::Result<()> {
         ignore_list
     ).await?;
 
-    let file_path = "foo.txt";
-    let mut file = File::create(file_path)?;
+    let file_path = format!("test_{}.txt", Uuid::new_v4());
+    let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
     assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 1000).await);
@@ -145,7 +145,6 @@ async fn file_deletion_simple() -> notify::Result<()> {
     assert!(wait_for_file_state(&file_infos, &file_path, None, 1000).await);
 
     eprintln!("=== Test complete, forcing exit ===");
-    std::process::exit(0);
-
+    Ok(())
 
 }
