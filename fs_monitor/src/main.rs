@@ -1,15 +1,7 @@
-use notify::{recommended_watcher, Event, RecursiveMode, Result, Watcher, EventKind};
-use notify::event::{ModifyKind, DataChange, CreateKind, AccessKind, AccessMode, RenameMode};
-use tokio::sync::Mutex;
+
 use std::path::Path;
-use std::fs;
 use std::io::Write;
-use sha3::{Digest, Sha3_512};
-use std::{
-    collections::HashMap,
-    io::{self, Read},
-    sync::Arc,
-};
+use std::sync::Arc;
 use dashmap::DashMap;
 use clap::Parser;
 
@@ -54,7 +46,7 @@ async fn main() -> notify::Result<()> {
     ignore_list.populate_ignore_list(ignore_path);
     
     // Setup file watcher
-    setup_watcher(
+    let _watcher = setup_watcher(
         watch_path, 
         Arc::clone(&file_infos), 
         Arc::clone(&hash_infos),

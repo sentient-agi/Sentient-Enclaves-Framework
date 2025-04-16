@@ -1,5 +1,6 @@
 use notify::{recommended_watcher, Event, RecursiveMode, Result, Watcher};
 use std::path::Path;
+use notify::RecommendedWatcher;
 use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::mpsc;
@@ -13,7 +14,7 @@ pub async fn setup_watcher(
     file_infos: Arc<DashMap<String, FileInfo>>,
     hash_infos: Arc<HashInfo>,
     ignore_list: IgnoreList
-) -> Result<()> {
+) -> Result<RecommendedWatcher> {
     let (tx, mut rx) = mpsc::unbounded_channel::<Result<Event>>();
     
     // Initialize the watcher
@@ -38,8 +39,6 @@ pub async fn setup_watcher(
     }
     });
 
-    // Keep the watcher alive by never dropping it
-    std::mem::forget(watcher);
-    
-    Ok(())
+    // Instead of forgetting the watcher, return it
+    Ok(watcher)
 } 
