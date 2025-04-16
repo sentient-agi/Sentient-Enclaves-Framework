@@ -1,4 +1,4 @@
-nsm_fd = "3"
+nsm_fd = "nsm"
 vrf_cipher_suite = "SECP256R1_SHA256_TAI"
 
 [ports]

@@ -123,13 +123,13 @@ impl AppConfig {
         let nsm_fd = if let Some(fd) = self.inner.read().clone().nsm_fd {
             match fd.as_str() {
                 // file descriptor returned by NSM device initialization function
-                "nsm" | "nsm_dev" => nsm_init(),
+                "" | "nsm" | "nsm_dev" => nsm_init(),
                 // testing file descriptor, for usage with NSM device emulator
                 "debug" => 3,
                 // particular file descriptor, for usage with NSM device emulator
                 nsm_fd => nsm_fd.parse::<i32>().unwrap(),
             }
-        } else { 3 }; // testing file descriptor, for usage with NSM device emulator
+        } else { nsm_init() }; // testing file descriptor, for usage with NSM device emulator
         nsm_fd
     }
 
