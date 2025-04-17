@@ -45,10 +45,13 @@ Welcome to the Sentient Enclaves Framework. The framework provides end-to-end in
 - [ATTESTATION WEB API PROTOCOL SPECIFICATION](docs/md/ATTESTATION_WEB_API.md)
 
 
+- [OPENSSL STATIC BUILD GUIDE](docs/md/OPENSSL_BUILD.md)
+
+
 - [DEMONSTRATIONS](docs/md/REFERENCE_README.md#demonstrations)
 
 
-- [REFERENCE APPLICATIONS](reference_apps/)
+- [REFERENCE APPLICATIONS BUILT WITH FRAMEWORK](reference_apps/)
 
 
 - [CHANGELOG](docs/md/CHANGELOG.md)
