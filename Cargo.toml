@@ -8,6 +8,13 @@ exclude = [
     "cryptography",
     "reference_apps",
 ]
+
 # edition = "2021"
 resolver = "2"
 overflow-checks = true
+
+[profile.release]
+strip = true
+lto = true
+panic = "abort"
+codegen-units = 1
