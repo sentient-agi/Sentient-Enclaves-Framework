@@ -69,9 +69,6 @@ RUN yum install -y jq wget openssh git rsync
 RUN yum install -y lynx w3m
 RUN yum install -y awscli
 
-# ARG FS=0
-# ENV FS=${FS}
-
 # ENV RUST_LOG="pipeline=debug"
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"

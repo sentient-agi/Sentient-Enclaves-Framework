@@ -29,9 +29,6 @@ RUN dnf install -y jq wget openssh git rsync
 RUN dnf install -y lynx w3m
 RUN dnf install -y awscli
 
-# ARG FS=0
-# ENV FS=${FS}
-
 # CMD whoami; uname -a; date; pwd;
 # CMD sleep infinity
 CMD tail -f /dev/null

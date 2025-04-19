@@ -33,9 +33,6 @@ RUN dnf install -y lynx w3m
 RUN dnf install -y awscli
 RUN dnf install -y aws-nitro-enclaves-cli aws-nitro-enclaves-cli-devel
 
-# ARG FS=0
-# ENV FS=${FS}
-
 # CMD whoami; uname -a; date; pwd;
 # CMD sleep infinity
 CMD tail -f /dev/null

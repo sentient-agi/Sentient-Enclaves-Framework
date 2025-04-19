@@ -70,9 +70,6 @@ RUN dnf install -y jq wget openssh git rsync
 RUN dnf install -y lynx w3m
 RUN dnf install -y awscli
 
-# ARG FS=0
-# ENV FS=${FS}
-
 # ENV RUST_LOG="pipeline=debug"
 ENV RUST_LOG="debug"
 ENV RUST_BACKTRACE="full"
