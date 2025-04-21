@@ -96,11 +96,13 @@ killall -v -9 tpp2vs; wait
 
 # route incoming packets on ports 9000:10000 to the transparent port to VSock traffic forwarding proxy listening on port 10001
 
+# transparent port to vsock cid
 ./tpp2vs --ip-addr 127.0.0.1:10001 --vsock 127 >> ./.logs/tpp2vs.allprotos.output 2>&1 & disown
 # ./tpp2vs --ip-addr 127.0.0.1:10001 --vsock 127 2>&1 | tee -a ./.logs/tpp2vs.allprotos.output & disown
 
 # route incoming packets on ports 10000:11000 to the transparent ip:port to VSock traffic forwarding proxy listening on port 11001
 
+# ip:port to vsock:cid in transparent mode
 ./ip2vs-tp --ip-addr 127.0.0.1:11001 --vsock-addr 127:11001 >> ./.logs/ip2vs-tp.allprotos.output 2>&1 & disown
 # ./ip2vs-tp --ip-addr 127.0.0.1:11001 --vsock-addr 127:11001 2>&1 | tee -a ./.logs/ip2vs-tp.allprotos.output & disown
 

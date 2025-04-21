@@ -15,6 +15,9 @@ echo -e "Executing Pipeline";
 cd /apps/;
 ./pipeline listen --port 53000 >> /apps/.logs/pipeline.log 2>&1 & disown;
 
+echo -e "Executing RA Web Server";
+./ra-web-srv;
+
 echo -e "Executing PF-TP-Proxy";
 ./pf-tp-guest.sh 2>&1 & disown;
 

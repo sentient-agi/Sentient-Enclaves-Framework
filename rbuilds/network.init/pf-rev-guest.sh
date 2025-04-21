@@ -53,8 +53,10 @@ killall -v -9 vs2ip-tp; wait
 ./vs2ip --vsock-addr 127:8080 --ip-addr 127.0.0.1:8080 >> ./.logs/vs2ip.http.output 2>&1 & disown
 # ./vs2ip --vsock-addr 127:8080 --ip-addr 127.0.0.1:8080 2>&1 | tee -a ./.logs/vs2ip.http.output & disown
 
-# route incoming packets on VSock ports 9000:10000 to the VSock to ip:port traffic forwarding proxy
+# route incoming packets received on VSock ports range 9000:10000 to the traffic forwarding proxy (VSock:port to ip:port)
 # listening on various VSock ports and addressing traffic to the local listening service/services on various TCP ports
+# TLDR: listening exact vsock cid:port for various different incoming ports mapped from host port range to cid:ports
+# and route traffic to exact service port, while service port is set exactly and manually
 
 ./vs2ip --vsock-addr 127:10001 --ip-addr 127.0.0.1:8443 >> ./.logs/vs2ip.allprotos.output 2>&1 & disown
 # ./vs2ip --vsock-addr 127:10001 --ip-addr 127.0.0.1:8443 2>&1 | tee -a ./.logs/vs2ip.allprotos.output & disown
@@ -71,8 +73,10 @@ killall -v -9 vs2ip-tp; wait
 ./vs2ip --vsock-addr 127:9000 --ip-addr 127.0.0.1:8443 >> ./.logs/vs2ip.allprotos.output 2>&1 & disown
 # ./vs2ip --vsock-addr 127:9000 --ip-addr 127.0.0.1:8443 2>&1 | tee -a ./.logs/vs2ip.allprotos.output & disown
 
-# route incoming packets on VSock ports 10000:11000 to the transparent VSock to ip:port traffic forwarding proxy
+# route incoming packets received on VSock ports range 10000:11000 to the transparent traffic forwarding proxy (VSock to ip:port)
 # listening on VSock port 11001 and addressing traffic to the local listening services on various TCP ports
+# TLDR: listening exact vsock cid:port and route traffic to various different requested service ports from range,
+# while service ports are adressed automatically, in port transparent mode
 
 ./vs2ip-tp --vsock-addr 127:11001 >> ./.logs/vs2ip-tp.allprotos.output 2>&1 & disown
 # ./vs2ip-tp --vsock-addr 127:11001 2>&1 | tee -a ./.logs/vs2ip-tp.allprotos.output & disown

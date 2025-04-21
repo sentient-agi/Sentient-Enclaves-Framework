@@ -15,6 +15,9 @@ echo -e "Executing Pipeline";
 cd /apps/;
 ./pipeline listen --port 53000 >> /apps/.logs/pipeline.log 2>&1 & disown;
 
+echo -e "Executing RA Web Server";
+./ra-web-srv;
+
 # ifconfig -a;
 
 echo -e "Init.sh executed";

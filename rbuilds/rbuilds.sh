@@ -446,13 +446,20 @@ docker_apps_rs_build() {
     docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/vsock-to-ip ./secure-enclaves-framework/ ;
     docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/vsock-to-ip-transparent ./secure-enclaves-framework/ ;
     docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/transparent-port-to-vsock ./secure-enclaves-framework/ ;
+    docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/ra-web-srv ./secure-enclaves-framework/ ;
     # docker stop apps_rs_build ;
     docker kill apps_rs_build ;
 
     mkdir -vp ./secure-enclaves-framework/.config/ ./network.init/.config/ ./network.init/pf-proxy/ ;
+    mkdir -vp ./secure-enclaves-framework/certs/ ./network.init/certs/ ;
 
-    cp -vr ../pipeline/.config/config.toml ./secure-enclaves-framework/.config/ ;
-    cp -vr ../pipeline/.config/config.toml ./network.init/.config/ ;
+    cp -vr ../pipeline/.config/pipeline.config.toml ./secure-enclaves-framework/.config/ ;
+    cp -vr ../pipeline/.config/pipeline.config.toml ./network.init/.config/ ;
+
+    cp -vr ../ra-web-srv/.config/ra_web_srv.config.toml ./secure-enclaves-framework/.config/ ;
+    cp -vr ../ra-web-srv/.config/ra_web_srv.config.toml ./network.init/.config/ ;
+    cp -vrf ./ra-web-srv/certs/ -T ./secure-enclaves-framework/certs/ ;
+    cp -vrf ./ra-web-srv/certs/ -T ./network.init/certs/ ;
 
     cp -vr ../.bin/pipeline-dir ./secure-enclaves-framework/ ;
     cp -vr ../.bin/shell.sh ./secure-enclaves-framework/ ;
@@ -465,6 +472,7 @@ docker_apps_rs_build() {
     cp -vr ./secure-enclaves-framework/transparent-port-to-vsock ./network.init/pf-proxy/tpp2vs ;
     cp -vr ./secure-enclaves-framework/vsock-to-ip ./network.init/pf-proxy/vs2ip ;
     cp -vr ./secure-enclaves-framework/vsock-to-ip-transparent ./network.init/pf-proxy/vs2ip-tp ;
+    cp -vr ./secure-enclaves-framework/ra-web-srv ./network.init/ ;
 }
 
 # Building Init system for enclave:
@@ -560,10 +568,10 @@ docker_container_apps_image_build() {
     fi
     container_name="${image_name}_toolkit";
 
-    DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f $dockerfile -t "$image_name" ./ ;
+    DOCKER_BUILDKIT=1 docker build --no-cache -f $dockerfile -t "$image_name" ./ ;
     docker create --name $container_name $image_name:latest ;
 
-    DOCKER_BUILDKIT=1 docker build --no-cache --build-arg FS=0 -f ./eif-builder-al2023.dockerfile -t "eif-builder-al2023" ./ ;
+    DOCKER_BUILDKIT=1 docker build --no-cache -f ./eif-builder-al2023.dockerfile -t "eif-builder-al2023" ./ ;
     # docker create --name eif_build_toolkit eif-builder-al2023:latest ;
 }
 
@@ -588,9 +596,13 @@ init_and_rootfs_base_images_build() {
 
     mkdir -vp ./rootfs_base/rootfs/apps/
     mkdir -vp ./rootfs_base/rootfs/apps/.config/
+    mkdir -vp ./rootfs_base/rootfs/apps/certs/
     mkdir -vp ./rootfs_base/rootfs/apps/.logs/
     cp -vrf ./secure-enclaves-framework/pipeline ./rootfs_base/rootfs/apps/
-    cp -vrf ./secure-enclaves-framework/.config/config.toml ./rootfs_base/rootfs/apps/.config/
+    cp -vrf ./secure-enclaves-framework/ra-web-srv ./rootfs_base/rootfs/apps/
+    cp -vrf ./secure-enclaves-framework/.config/pipeline.config.toml ./rootfs_base/rootfs/apps/.config/
+    cp -vrf ./secure-enclaves-framework/.config/ra_web_srv.config.toml ./rootfs_base/rootfs/apps/.config/
+    cp -vrf ./secure-enclaves-framework/certs/ -T ./rootfs_base/rootfs/apps/certs/ ;
 
     if [[ ${network} -ne 0 || ${reverse_network} -ne 0 || ${forward_network} -ne 0 ]]; then
         mkdir -vp ./rootfs_base/rootfs/apps/pf-proxy/
