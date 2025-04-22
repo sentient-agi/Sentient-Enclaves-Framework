@@ -172,62 +172,61 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
                 });
             }); 
         }
-
         return;
     }
 
     else {
         // This is a normal rename event where the file is being renamed to some other name.
         eprintln!("File renamed from {} to {}", from_path, to_path);
-        
-        // Remove any on-going hashing tasks for old file
-        
-        // Copy the file_info state for new file
-        if let Some(file_info) = file_infos.get(&from_path).map(|info| info.clone()) {
-            let from_path_clone = from_path.clone();
-            let to_path_clone = to_path.clone();
-            let file_infos_clone = Arc::clone(file_infos);
-            let hash_info_clone = Arc::clone(hash_info);
-            
-            tokio::spawn(async move {
-                // Calculate hash for the new file
-                match crate::hash::hasher::hash_file(&to_path_clone) {
-                    Ok(latest_hash) => {
-                        // Try to get the old hash for comparison
-                        match crate::hash::storage::retrieve_file_hash(&from_path_clone, &file_infos_clone, &hash_info_clone).await {
-                            Ok(old_hash) => {
-                                if latest_hash != old_hash {
-                                    eprintln!("Warning: Hash mismatch after rename from {} to {}", 
-                                             from_path_clone, to_path_clone);
-                                }
-                                
-                                // Update entry in the dashmap regardless
-                                if let Some((_, info)) = file_infos_clone.remove(&from_path_clone) {
-                                    file_infos_clone.insert(to_path_clone.clone(), info);
-                                    
-                                    // Transfer hash history if available
-                                    if let Ok(mut results) = hash_info_clone.hash_results.try_lock() {
-                                        if let Some(hashes) = results.remove(&from_path_clone) {
-                                            results.insert(to_path_clone, hashes);
-                                        }
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                eprintln!("Error retrieving hash for {}: {}", from_path_clone, e);
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        eprintln!("Error hashing file {}: {}", to_path_clone, e);
-                    }
-                }
-            });
-        }
+        handle_standard_rename(&from_path, &to_path, file_infos, hash_info);
     }
 } 
 
+fn handle_standard_rename(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+    // Remove the old file from file_infos
+    let old_info_opt = file_infos.remove(from_path);
+    if let Some((_, old_info)) = old_info_opt{
+        file_infos.insert(to_path.clone(), old_info);
 
+        let hash_info_clone = hash_info.clone();
+        let to_path_clone = to_path.clone();
+        let from_path_clone = from_path.clone();
+        tokio::spawn(async move {
+            // get old file's hash if available
+            if let Ok(mut results) = hash_info_clone.hash_results.try_lock() {
+                if let Some(old_hashes) = results.remove(&from_path_clone){
+                    // check most recent hashes match
+                    match crate::hash::hasher::hash_file(&to_path_clone){
+                        Ok(latest_hash_to) => {
+                            if latest_hash_to == *old_hashes.last().unwrap() {
+                                results.insert(to_path_clone, old_hashes);
+                            }
+                            else {
+                                eprintln!("Warning: Hash mismatch after rename from {} to {}. Removing old history", 
+                                from_path_clone, to_path_clone);
+                                results.insert(to_path_clone, vec![latest_hash_to]);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error calculating hash for {}: {}", from_path_clone, e);
+                        }
+                    }
+
+                } else {
+                    eprintln!("Error removing old hash for: {}", from_path_clone);
+
+                }
+            } else {
+
+            }
+        });
+    }
+    else{
+        eprintln!("Received standard rename event but original file absent in file info: {}", from_path);
+    }
+    
+
+}
 fn handle_file_deletion(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     let path = paths[0].clone();
     eprintln!("Handling delete event for path: {}", path);
