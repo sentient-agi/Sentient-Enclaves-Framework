@@ -186,3 +186,47 @@ async fn file_deletion_empty() -> notify::Result<()> {
 
 }
 
+#[tokio::test]
+async fn file_rename() -> notify::Result<()> {
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    let file_path = format!("test_{}.txt", Uuid::new_v4());
+    let mut file = File::create(file_path.clone())?;
+    let file_path = handle_path(&file_path);
+    eprintln!("Path: {}", file_path);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 1000).await);
+
+    // Perform dummy writes
+    let _ = file.write_all(b"SOME DATA");
+    let _ = file.flush();
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 1000).await);
+
+    // Close the file
+    file.flush().unwrap();
+    file.sync_all().unwrap(); 
+    drop(file);
+
+    eprintln!("Attempting to Rename file: {}", file_path);
+    let new_file_path = format!("test_{}.txt", Uuid::new_v4());
+    std::fs::rename(file_path.clone(), new_file_path.clone());
+    let new_file_path = handle_path(&new_file_path);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 1000).await);
+    assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Closed), 1000).await);
+    Ok(())
+
+}
