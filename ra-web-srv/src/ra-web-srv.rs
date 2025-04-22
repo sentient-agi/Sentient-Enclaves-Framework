@@ -29,7 +29,7 @@ use std::{
     io::{self, Read},
     fs::{self, DirEntry},
     path::{Path as StdPath, PathBuf},
-    net::{SocketAddr, IpAddr}, time::Duration,
+    net::{SocketAddr, IpAddr, Ipv4Addr}, time::Duration,
 };
 
 use tokio::sync::Mutex;
@@ -299,12 +299,12 @@ async fn main() -> io::Result<()> {
         },
         skey => {
             // Check if SK for proof generation has the correct length
-            let skey_byte_len = hex::decode(skey.clone()).unwrap().len();
+            let skey_byte_len = hex::decode(skey).unwrap().len();
             match skey_byte_len {
                 237 | 241 | 384 => (),
                 _ => panic!("[Error] SK length for VRF Proofs mismatch."),
             };
-            state.app_state.write().sk4proofs = hex::decode(skey.clone()).unwrap();
+            state.app_state.write().sk4proofs = hex::decode(skey).unwrap();
             let state = state.app_state.read().clone();
             let config = app_config.inner.read().clone();
             info!("App State & App Config:\n {:?}\n {:?}", state, config);
@@ -345,12 +345,12 @@ async fn main() -> io::Result<()> {
         },
         skey => {
             // Check if SK for attestation documents signing has the correct length
-            let skey_byte_len = hex::decode(skey.clone()).unwrap().len();
+            let skey_byte_len = hex::decode(skey).unwrap().len();
             match skey_byte_len {
                 384 => (),
                 _ => panic!("[Error] SK length for attestation documents signing mismatch."),
             };
-            state.app_state.write().sk4docs = hex::decode(skey.clone()).unwrap();
+            state.app_state.write().sk4docs = hex::decode(skey).unwrap();
             let state = state.app_state.read().clone();
             let config = app_config.inner.read().clone();
             info!("App State & App Config:\n {:?}\n {:?}", state, config);
@@ -400,9 +400,14 @@ async fn main() -> io::Result<()> {
 
     // run https server
     use std::str::FromStr;
-    let listening_address = core::net::SocketAddr::new(
+    let listening_address = SocketAddr::new(
         IpAddr::V4(
-            core::net::Ipv4Addr::from_str("127.0.0.1").unwrap()
+            Ipv4Addr::from_str("127.0.0.1").unwrap_or_else(
+                |e| {
+                    error!("{:?}", e);
+                    Ipv4Addr::new(0, 0, 0, 0)
+                }
+            )
         ),
         ports.https
     );
@@ -584,7 +589,7 @@ async fn echo(
     let fd = server_state.app_state.read().nsm_fd;
     info!("fd: {fd:?}");
 
-    let file_path = query_params.get("path").unwrap().to_owned();
+    let file_path = query_params.get("path").unwrap_or(&String::from("./")).to_owned();
     info!("File path: {:?}", file_path);
 
     let response = query_params.iter()
@@ -612,10 +617,10 @@ async fn hello(
     let fd = server_state.app_state.read().nsm_fd;
     info!("fd: {fd:?}");
 
-    let path = query_params.get("path").unwrap().to_owned();
+    let path = query_params.get("path").unwrap_or(&String::from("./")).to_owned();
     info!("Path: {:?}", path);
 
-    match query_params.get("view").unwrap().as_str() {
+    match query_params.get("view").unwrap_or(&String::from("hex")).as_str() {
         "bin" | "raw" => (),
         "hex" => (),
         "fmt" | "str" => (),
@@ -632,7 +637,13 @@ async fn ready_handler(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let file_path = query_params.get("path").unwrap().to_owned();
+    let file_path = match query_params.get("path") {
+        None => "".to_string(),
+        Some(file_path) => { file_path.to_owned() },
+    };
+    if file_path.is_empty() {
+        return (StatusCode::BAD_REQUEST, String::from("'Path' parameter is missing. Set the requested 'path' first.\n"))
+    };
     info!("File path: {:?}", file_path);
 
     let results = server_state.results.lock().await;
@@ -654,7 +665,13 @@ async fn readiness(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let path = query_params.get("path").unwrap().to_owned();
+    let path = match query_params.get("path") {
+        None => "".to_string(),
+        Some(path) => { path.to_owned() },
+    };
+    if path.is_empty() {
+        return (StatusCode::BAD_REQUEST, String::from("'Path' parameter is missing. Set the requested 'path' first.\n"))
+    };
     info!("Path: {:?}", path);
 
     let results = server_state.results.lock().await;
@@ -713,7 +730,13 @@ async fn hash_handler(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let file_path = query_params.get("path").unwrap().to_owned();
+    let file_path = match query_params.get("path") {
+        None => "".to_string(),
+        Some(file_path) => { file_path.to_owned() },
+    };
+    if file_path.is_empty() {
+        return (StatusCode::BAD_REQUEST, String::from("'Path' parameter is missing. Set the requested 'path' first.\n"))
+    };
     info!("File path: {:?}", file_path);
 
     let results = state.results.lock().await;
@@ -736,7 +759,13 @@ async fn proof_handler(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let file_path = query_params.get("path").unwrap().to_owned();
+    let file_path = match query_params.get("path") {
+        None => "".to_string(),
+        Some(file_path) => { file_path.to_owned() },
+    };
+    if file_path.is_empty() {
+        return (StatusCode::BAD_REQUEST, String::from("'Path' parameter is missing. Set the requested 'path' first.\n"))
+    };
     info!("File path: {:?}", file_path);
 
     let app_cache = state.app_cache.read().clone().att_data;
@@ -763,10 +792,16 @@ async fn doc_handler(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let file_path = query_params.get("path").unwrap().to_owned();
+    let file_path = match query_params.get("path") {
+        None => "".to_string(),
+        Some(file_path) => { file_path.to_owned() },
+    };
+    if file_path.is_empty() {
+        return (StatusCode::BAD_REQUEST, String::from("'Path' parameter is missing. Set the requested 'path' first.\n"))
+    };
     info!("File path: {:?}", file_path);
 
-    let view = query_params.get("view").unwrap().to_owned();
+    let view = query_params.get("view").unwrap_or(&String::from("json_str")).to_owned();
     info!("View: {:?}", view);
 
     let app_cache = state.app_cache.read().clone().att_data;
@@ -797,7 +832,13 @@ async fn hashes(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let path = query_params.get("path").unwrap().to_owned();
+    let path = match query_params.get("path") {
+        None => "".to_string(),
+        Some(path) => { path.to_owned() },
+    };
+    if path.is_empty() {
+        return (StatusCode::BAD_REQUEST, String::from("'Path' parameter is missing. Set the requested 'path' first.\n"))
+    };
     info!("Path: {:?}", path);
 
     let hashes = server_state.results.lock().await;
@@ -828,7 +869,13 @@ async fn proofs(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let path = query_params.get("path").unwrap().to_owned();
+    let path = match query_params.get("path") {
+        None => "".to_string(),
+        Some(path) => { path.to_owned() },
+    };
+    if path.is_empty() {
+        return (StatusCode::BAD_REQUEST, String::from("'Path' parameter is missing. Set the requested 'path' first.\n"))
+    };
     info!("Path: {:?}", path);
 
     let app_cache = server_state.app_cache.read();
@@ -860,10 +907,16 @@ async fn docs(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let path = query_params.get("path").unwrap().to_owned();
+    let path = match query_params.get("path") {
+        None => "".to_string(),
+        Some(path) => { path.to_owned() },
+    };
+    if path.is_empty() {
+        return (StatusCode::BAD_REQUEST, String::from("'Path' parameter is missing. Set the requested 'path' first.\n"))
+    };
     info!("Path: {:?}", path);
 
-    let view = query_params.get("view").unwrap().to_owned();
+    let view = query_params.get("view").unwrap_or(&String::from("json_str")).to_owned();
     info!("View: {:?}", view);
 
     let app_cache = server_state.app_cache.read();
@@ -897,10 +950,10 @@ async fn pubkeys(
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
-    let view = query_params.get("view").unwrap().to_owned();
+    let view = query_params.get("view").unwrap_or(&String::from("hex")).to_owned();
     info!("View: {:?}", view);
 
-    let fmt = query_params.get("fmt").unwrap().to_owned();
+    let fmt = query_params.get("fmt").unwrap_or(&String::from("pem")).to_owned();
     info!("Key Format: {:?}", fmt);
 
     let app_state = server_state.app_state.read().clone();
@@ -913,7 +966,7 @@ async fn pubkeys(
     let skey4proofs_pkey = PKey::private_key_from_pem(skey4proofs_bytes.as_slice()).unwrap();
     let skey4proofs_eckey = skey4proofs_pkey.ec_key().unwrap();
     let skey4proofs_bignum = skey4proofs_eckey.private_key().to_owned().unwrap();
-    let skey4proofs_vec = skey4proofs_bignum.to_vec();
+    let _skey4proofs_vec = skey4proofs_bignum.to_vec();
 
     let alg = openssl::ec::EcGroup::from_curve_name(cipher).unwrap();
     let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
@@ -1167,6 +1220,18 @@ fn generate_ec256_keypair() -> (PKey<Private>, PKey<Public>) {
     )
 }
 
+/// Randomly generate SECP384R1/P-384 key to use for validating signing internally
+fn generate_ec384_keypair() -> (PKey<Private>, PKey<Public>) {
+    let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP384R1).unwrap();
+    let ec_private = openssl::ec::EcKey::generate(&alg).unwrap();
+    let ec_public =
+        openssl::ec::EcKey::from_public_key(&alg, ec_private.public_key()).unwrap();
+    (
+        PKey::from_ec_key(ec_private).unwrap(),
+        PKey::from_ec_key(ec_public).unwrap(),
+    )
+}
+
 /// Randomly generate SECP521R1/P-512 key to use for validating signing internally
 fn generate_ec512_keypair() -> (PKey<Private>, PKey<Public>) {
     let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP521R1).unwrap();
@@ -1190,7 +1255,7 @@ fn generate_keypair(cipher_id: CipherID) -> (PKey<Private>, PKey<Public>) {
     )
 }
 
-fn vrf_proof(message: &[u8], secret_key: &[u8], cipher_suite: CipherSuite) -> Result<Vec<u8>, String> {
+fn vrf_proof(message: &[u8], secret_key: &[u8], cipher_suite: CipherSuite) -> Result<Vec<u8>, Error> {
     let mut vrf  = ECVRF::from_suite(cipher_suite).unwrap();
     let public_key = vrf.derive_public_key(&secret_key).unwrap();
     let proof = vrf.prove(&secret_key, &message).unwrap();
