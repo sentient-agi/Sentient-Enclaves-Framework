@@ -458,8 +458,8 @@ docker_apps_rs_build() {
 
     cp -vr ../ra-web-srv/.config/ra_web_srv.config.toml ./secure-enclaves-framework/.config/ ;
     cp -vr ../ra-web-srv/.config/ra_web_srv.config.toml ./network.init/.config/ ;
-    cp -vrf ./ra-web-srv/certs/ -T ./secure-enclaves-framework/certs/ ;
-    cp -vrf ./ra-web-srv/certs/ -T ./network.init/certs/ ;
+    cp -vrf ../ra-web-srv/certs/ -T ./secure-enclaves-framework/certs/ ;
+    cp -vrf ../ra-web-srv/certs/ -T ./network.init/certs/ ;
 
     cp -vr ../.bin/pipeline-dir ./secure-enclaves-framework/ ;
     cp -vr ../.bin/shell.sh ./secure-enclaves-framework/ ;
