@@ -17,20 +17,10 @@ pub fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, h
         let path = handle_path(&path);
         paths.push(path);
     }
-    if paths.is_empty() {
+
+    // Return early if there are no paths or if all paths should be ignored
+    if paths.is_empty() || paths.iter().all(|path| ignore_list.is_ignored(path)) {
         return Ok(());
-    }
-    if paths.len() == 1 {
-        let path = paths[0].clone();
-        if ignore_list.is_ignored(&path) {
-            return Ok(());
-        }
-    }
-    if paths.len() > 1 {
-        // If all paths in event are ignored, skip the event
-        if paths.iter().all(|path| ignore_list.is_ignored(path)) {
-            return Ok(());
-        }
     }
 
     match event.kind {
@@ -107,7 +97,6 @@ fn handle_file_data_modification(paths: Vec<String>, file_infos: &Arc<DashMap<St
     if let Some(mut file_info) = file_infos.get_mut(&path) {
         if file_info.file_type == FileType::File {
             file_info.state = FileState::Modified;
-            // No need to modify hash here as we keep versions of hashes
         }
     }
 }
@@ -223,10 +212,10 @@ fn handle_standard_rename(from_path: &String, to_path: &String, file_infos: &Arc
     }
     else{
         eprintln!("Received standard rename event but original file absent in file info: {}", from_path);
-    }
-    
+    }   
 
 }
+
 fn handle_file_deletion(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     let path = paths[0].clone();
     eprintln!("Handling delete event for path: {}", path);
