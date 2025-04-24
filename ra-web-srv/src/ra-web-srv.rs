@@ -1088,26 +1088,26 @@ fn att_doc_fmt(
 
     let header_protected_str = protected_header.into_inner().iter().map(
         |(key, val)|
-            format!("\"{:?}\": \"{:?}\"", hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
+            format!("{:?}: {:?}", hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
     )
     .collect::<Vec<String>>()
     .join(",");
 
     let header_unprotected_str = unprotected_header.into_inner().iter().map(
         |(key, val)|
-            format!("\"{:?}\": \"{:?}\"", hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
+            format!("{:?}: {:?}", hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
     )
     .collect::<Vec<String>>()
     .join(",");
 
     let cabundle_fmt = attestation_doc.cabundle.iter().map(
-        |item| format!("\"{:?}\"", hex::encode(item.clone().into_vec()))
+        |item| format!("{:?}", hex::encode(item.clone().into_vec()))
     )
     .collect::<Vec<String>>()
     .join(",");
 
     let pcrs_fmt = attestation_doc.pcrs.iter().map(
-        |(key, val)| format!("\"{:?}\": \"{:?}\"", key.to_string(), hex::encode(val.clone().into_vec()))
+        |(key, val)| format!("{:?}: {:?}", key.to_string(), hex::encode(val.clone().into_vec()))
     )
     .collect::<Vec<String>>()
     .join(",");
@@ -1142,29 +1142,29 @@ fn att_doc_fmt(
         }).to_string(),
 
         "json_debug" => json!({
-            "protected_header": format!("\"{:?}\"", protected_header),
-            "unprotected_header":  format!("\"{:?}\"", unprotected_header),
+            "protected_header": format!("{:?}", protected_header),
+            "unprotected_header":  format!("{:?}", unprotected_header),
             "payload": serde_json::to_string(&attestation_doc).unwrap_or("".to_string()),
-            "signature": format!("\"{:?}\"", attestation_doc_signature.clone()),
+            "signature": format!("{:?}", attestation_doc_signature.clone()),
         }).to_string(),
 
         "debug" => format!("{:?}", cose_doc),
 
         "debug_pretty_print" => json!({
-            "protected_header": format!("\"{:?}\"", protected_header),
-            "unprotected_header":  format!("\"{:?}\"", unprotected_header),
+            "protected_header": format!("{:?}", protected_header),
+            "unprotected_header":  format!("{:?}", unprotected_header),
             "payload": {
                 "module_id": attestation_doc.module_id,
                 "digest": format!("{}", LocalNsmDigest(attestation_doc.digest)),
                 "timestamp": attestation_doc.timestamp.to_string(),
-                "PCRs": format!("\"{:?}\"", attestation_doc.pcrs),
-                "certificate": format!("\"{:?}\"", attestation_doc.certificate),
-                "ca_bundle": format!("\"{:?}\"", attestation_doc.cabundle),
-                "public_key": format!("\"{:?}\"", attestation_doc.public_key),
-                "user_data": format!("\"{:?}\"", attestation_doc.user_data),
-                "nonce": format!("\"{:?}\"", attestation_doc.nonce),
+                "PCRs": format!("{:?}", attestation_doc.pcrs),
+                "certificate": format!("{:?}", attestation_doc.certificate),
+                "ca_bundle": format!("{:?}", attestation_doc.cabundle),
+                "public_key": format!("{:?}", attestation_doc.public_key),
+                "user_data": format!("{:?}", attestation_doc.user_data),
+                "nonce": format!("{:?}", attestation_doc.nonce),
             },
-            "signature": format!("\"{:?}\"", attestation_doc_signature),
+            "signature": format!("{:?}", attestation_doc_signature),
         }).to_string(),
 
         _ => format!("Attestation document ('bin_hex' string):{:?}\n\n\
