@@ -212,6 +212,13 @@ struct AttData {
     att_doc: Vec<u8>,
 }
 
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct AttUserData {
+    file_path: String,
+    sha3_hash: String,
+    vrf_proof: String,
+}
+
 #[derive(Default, Debug, Clone)]
 struct ServerState {
     tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<io::Result<Vec<u8>>>>>>,
@@ -526,9 +533,17 @@ fn visit_files_recursively<'a>(
                             let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey).unwrap();
                             let skey4proofs_pubkey_pem = skey4proofs_pkey_pubkey.public_key_to_pem().unwrap();
 
+                            let att_user_data = AttUserData {
+                                file_path: file_path_clone.clone(),
+                                sha3_hash: hex::encode(hash.clone()),
+                                vrf_proof: hex::encode(vrf_proof.clone()),
+                            };
+
+                            let att_user_data_json_bytes = serde_json::to_vec(&att_user_data).unwrap();
+
                             let att_doc = get_attestation_doc(
                                 fd,
-                                Some(ByteBuf::from(vrf_proof.clone())),
+                                Some(ByteBuf::from(att_user_data_json_bytes)),
                                 Some(ByteBuf::from(nonce.clone())),
                                 Some(ByteBuf::from(skey4proofs_pubkey_pem.clone())),
                             );
@@ -801,7 +816,7 @@ async fn doc_handler(
     };
     info!("File path: {:?}", file_path);
 
-    let view = query_params.get("view").unwrap_or(&String::from("json_str")).to_owned();
+    let view = query_params.get("view").unwrap_or(&String::from("json_hex")).to_owned();
     info!("View: {:?}", view);
 
     let app_cache = state.app_cache.read().clone().att_data;
@@ -916,7 +931,7 @@ async fn docs(
     };
     info!("Path: {:?}", path);
 
-    let view = query_params.get("view").unwrap_or(&String::from("json_str")).to_owned();
+    let view = query_params.get("view").unwrap_or(&String::from("json_hex")).to_owned();
     info!("View: {:?}", view);
 
     let app_cache = server_state.app_cache.read();
@@ -1086,6 +1101,10 @@ fn att_doc_fmt(
     let attestation_doc_signature = cose_doc.get_signature();
     info!("Attestation document signature: {:?}", hex::encode(attestation_doc_signature.clone()));
 
+    let att_doc_user_data_bytes = attestation_doc.clone().user_data.unwrap_or(ByteBuf::new()).into_vec();
+    let att_doc_user_data = serde_json::from_slice::<AttUserData>(att_doc_user_data_bytes.as_slice()).unwrap();
+    let att_doc_user_data_json_string = serde_json::to_string(&att_doc_user_data).unwrap();
+
     let header_protected_str = protected_header.into_inner().iter().map(
         |(key, val)|
             format!("{:?}: {:?}", hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
@@ -1128,7 +1147,7 @@ fn att_doc_fmt(
                     cabundle_fmt,
                 ],
                 "public_key": hex::encode(attestation_doc.public_key.unwrap_or(ByteBuf::new()).into_vec()),
-                "user_data": hex::encode(attestation_doc.user_data.unwrap_or(ByteBuf::new()).into_vec()),
+                "user_data": att_doc_user_data_json_string,
                 "nonce": hex::encode(attestation_doc.nonce.unwrap_or(ByteBuf::new()).into_vec()),
             },
             "signature": hex::encode(attestation_doc_signature.clone()),
@@ -1161,7 +1180,11 @@ fn att_doc_fmt(
                 "certificate": format!("{:?}", attestation_doc.certificate),
                 "ca_bundle": format!("{:?}", attestation_doc.cabundle),
                 "public_key": format!("{:?}", attestation_doc.public_key),
-                "user_data": format!("{:?}", attestation_doc.user_data),
+                "user_data": {
+                    "file_path": att_doc_user_data.file_path,
+                    "sha3_hash": att_doc_user_data.sha3_hash,
+                    "vrf_proof": att_doc_user_data.vrf_proof,
+                },
                 "nonce": format!("{:?}", attestation_doc.nonce),
             },
             "signature": format!("{:?}", attestation_doc_signature),
@@ -1257,7 +1280,7 @@ fn generate_keypair(cipher_id: CipherID) -> (PKey<Private>, PKey<Public>) {
 
 fn vrf_proof(message: &[u8], secret_key: &[u8], cipher_suite: CipherSuite) -> Result<Vec<u8>, Error> {
     let mut vrf  = ECVRF::from_suite(cipher_suite).unwrap();
-    let public_key = vrf.derive_public_key(&secret_key).unwrap();
+    let _public_key = vrf.derive_public_key(&secret_key).unwrap();
     let proof = vrf.prove(&secret_key, &message).unwrap();
     Ok(proof)
 }
