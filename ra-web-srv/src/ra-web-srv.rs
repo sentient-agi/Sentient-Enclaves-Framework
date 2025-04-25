@@ -219,6 +219,12 @@ struct AttUserData {
     vrf_proof: String,
 }
 
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct AttProofData {
+    file_path: String,
+    sha3_hash: String,
+}
+
 #[derive(Default, Debug, Clone)]
 struct ServerState {
     tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<io::Result<Vec<u8>>>>>>,
@@ -512,14 +518,19 @@ fn visit_files_recursively<'a>(
 
                             let app_state = app_state_clone.read().clone();
 
-                            let cipher_suite = app_state.vrf_cipher_suite;
-
                             let skey4proofs_bytes = app_state.sk4proofs;
                             let skey4proofs_pkey = PKey::private_key_from_pem(skey4proofs_bytes.as_slice()).unwrap();
                             let skey4proofs_eckey = skey4proofs_pkey.ec_key().unwrap();
                             let skey4proofs_bignum = skey4proofs_eckey.private_key().to_owned().unwrap();
                             let skey4proofs_vec = skey4proofs_bignum.to_vec();
-                            let vrf_proof = vrf_proof(skey4proofs_vec.as_slice(), hash.as_slice(), cipher_suite.clone()).unwrap();
+
+                            let att_proof_data = AttProofData{
+                                file_path: file_path_clone.clone(),
+                                sha3_hash: hex::encode(hash.clone()),
+                            };
+                            let att_proof_data_json_bytes = serde_json::to_vec(&att_proof_data).unwrap();
+                            let cipher_suite = app_state.vrf_cipher_suite;
+                            let vrf_proof = vrf_proof(att_proof_data_json_bytes.as_slice(), skey4proofs_vec.as_slice(), cipher_suite.clone()).unwrap();
 
                             // Docs gen logic
 
@@ -1001,7 +1012,7 @@ async fn pubkeys(
     let skey4docs_pkey = PKey::private_key_from_pem(skey4docs_bytes.as_slice()).unwrap();
     let skey4docs_eckey = skey4docs_pkey.ec_key().unwrap();
     let skey4docs_bignum = skey4docs_eckey.private_key().to_owned().unwrap();
-    let skey4docs_vec = skey4docs_bignum.to_vec();
+    let _skey4docs_vec = skey4docs_bignum.to_vec();
 
     let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP521R1).unwrap();
     let skey4docs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4docs_eckey.public_key()).unwrap();
