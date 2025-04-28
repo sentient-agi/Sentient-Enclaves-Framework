@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use tokio::sync::mpsc;
 use crate::hash::storage::HashInfo;
 use crate::fs_ops::state::FileInfo;
-// use crate::fs_ops::debounced_events_handler::handle_debounced_event;
+use crate::fs_ops::debounced_events_handler::handle_debounced_event;
 use crate::fs_ops::ignore::IgnoreList;
 use notify_debouncer_full::Debouncer;
 
@@ -32,8 +32,8 @@ pub async fn setup_debounced_watcher(
             match res {
                 Ok(debounced_events) => {
                     debounced_events.iter().for_each( |debounced_event| {
-                        println!("Debounced Event: {:?}", debounced_event);
-                        // handle_debounced_event(debounced_event.clone(), &file_infos, &hash_infos, &ignore_list);
+                        // println!("Debounced Event: {:?}", debounced_event);
+                        handle_debounced_event(debounced_event.clone(), &file_infos, &hash_infos, &ignore_list);
                     }                      
                 )},
                 Err(errors) => errors.iter().for_each(|error| println!("{error:?}")),
