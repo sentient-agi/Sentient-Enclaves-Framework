@@ -150,11 +150,14 @@ impl AppConfig {
 }
 
 trait CipherMapper {
-    fn convert(&self) -> CipherID;
+    fn to_nid(&self) -> CipherID;
+    fn to_string(&self) -> String;
+    fn from_string(suite_string: &str) -> Result<CipherSuite, String>;
 }
 
 impl CipherMapper for CipherSuite {
-    fn convert(&self) -> CipherID {
+    /// Convert CipherSuite to openssl::nid::Nid
+    fn to_nid(&self) -> CipherID {
         match *self {
             CipherSuite::SECP256K1_SHA256_TAI => CipherID::SECP256K1,
             CipherSuite::P256_SHA256_TAI => CipherID::X9_62_PRIME256V1,
@@ -189,6 +192,84 @@ impl CipherMapper for CipherSuite {
             CipherSuite::BRAINPOOL_P512R1_SHA512_TAI => CipherID::BRAINPOOL_P512R1,
         }
     }
+
+    /// Convert CipherSuite type to corresponding string
+    fn to_string(&self) -> String {
+        let suite_string = match self {
+            CipherSuite::SECP256K1_SHA256_TAI => "SECP256K1_SHA256_TAI",
+            CipherSuite::P256_SHA256_TAI => "P256_SHA256_TAI",
+            CipherSuite::K163_SHA256_TAI => "K163_SHA256_TAI",
+
+            CipherSuite::SECP256R1_SHA256_TAI => "SECP256R1_SHA256_TAI",
+            CipherSuite::SECP384R1_SHA384_TAI => "SECP384R1_SHA384_TAI",
+            CipherSuite::SECP521R1_SHA512_TAI => "SECP521R1_SHA512_TAI",
+
+            CipherSuite::ECDSA_SECP256R1_SHA256_TAI => "ECDSA_SECP256R1_SHA256_TAI",
+            CipherSuite::ECDSA_SECP384R1_SHA384_TAI => "ECDSA_SECP384R1_SHA384_TAI",
+            CipherSuite::ECDSA_SECP521R1_SHA512_TAI => "ECDSA_SECP521R1_SHA512_TAI",
+
+            CipherSuite::SECT163K1_SHA256_TAI => "SECT163K1_SHA256_TAI",
+            CipherSuite::SECT163R1_SHA256_TAI => "SECT163R1_SHA256_TAI",
+            CipherSuite::SECT163R2_SHA256_TAI => "SECT163R2_SHA256_TAI",
+            CipherSuite::SECT193R1_SHA256_TAI => "SECT193R1_SHA256_TAI",
+            CipherSuite::SECT193R2_SHA256_TAI => "SECT193R2_SHA256_TAI",
+            CipherSuite::SECT233K1_SHA256_TAI => "SECT233K1_SHA256_TAI",
+            CipherSuite::SECT233R1_SHA256_TAI => "SECT233R1_SHA256_TAI",
+            CipherSuite::SECT239K1_SHA256_TAI => "SECT239K1_SHA256_TAI",
+            CipherSuite::SECT283K1_SHA384_TAI => "SECT283K1_SHA384_TAI",
+            CipherSuite::SECT283R1_SHA384_TAI => "SECT283R1_SHA384_TAI",
+            CipherSuite::SECT409K1_SHA384_TAI => "SECT409K1_SHA384_TAI",
+            CipherSuite::SECT409R1_SHA384_TAI => "SECT409R1_SHA384_TAI",
+            CipherSuite::SECT571K1_SHA512_TAI => "SECT571K1_SHA512_TAI",
+            CipherSuite::SECT571R1_SHA512_TAI => "SECT571R1_SHA512_TAI",
+
+            CipherSuite::BRAINPOOL_P256R1_SHA256_TAI => "BRAINPOOL_P256R1_SHA256_TAI",
+            CipherSuite::BRAINPOOL_P320R1_SHA256_TAI => "BRAINPOOL_P320R1_SHA256_TAI",
+            CipherSuite::BRAINPOOL_P384R1_SHA384_TAI => "BRAINPOOL_P384R1_SHA384_TAI",
+            CipherSuite::BRAINPOOL_P512R1_SHA512_TAI => "BRAINPOOL_P512R1_SHA512_TAI",
+        };
+        suite_string.to_string()
+    }
+
+    /// Convert string with cipher suite to the corresponding CipherSuite type
+    fn from_string(suite_string: &str) -> Result<CipherSuite, String> {
+        let cipher_suite = match suite_string {
+            "SECP256K1_SHA256_TAI" => CipherSuite::SECP256K1_SHA256_TAI,
+            "P256_SHA256_TAI" => CipherSuite::P256_SHA256_TAI,
+            "K163_SHA256_TAI" => CipherSuite::K163_SHA256_TAI,
+
+            "SECP256R1_SHA256_TAI" => CipherSuite::SECP256R1_SHA256_TAI,
+            "SECP384R1_SHA384_TAI" => CipherSuite::SECP384R1_SHA384_TAI,
+            "SECP521R1_SHA512_TAI" => CipherSuite::SECP521R1_SHA512_TAI,
+
+            "ECDSA_SECP256R1_SHA256_TAI" => CipherSuite::ECDSA_SECP256R1_SHA256_TAI,
+            "ECDSA_SECP384R1_SHA384_TAI" => CipherSuite::ECDSA_SECP384R1_SHA384_TAI,
+            "ECDSA_SECP521R1_SHA512_TAI" => CipherSuite::ECDSA_SECP521R1_SHA512_TAI,
+
+            "SECT163K1_SHA256_TAI" => CipherSuite::SECT163K1_SHA256_TAI,
+            "SECT163R1_SHA256_TAI" => CipherSuite::SECT163R1_SHA256_TAI,
+            "SECT163R2_SHA256_TAI" => CipherSuite::SECT163R2_SHA256_TAI,
+            "SECT193R1_SHA256_TAI" => CipherSuite::SECT193R1_SHA256_TAI,
+            "SECT193R2_SHA256_TAI" => CipherSuite::SECT193R2_SHA256_TAI,
+            "SECT233K1_SHA256_TAI" => CipherSuite::SECT233K1_SHA256_TAI,
+            "SECT233R1_SHA256_TAI" => CipherSuite::SECT233R1_SHA256_TAI,
+            "SECT239K1_SHA256_TAI" => CipherSuite::SECT239K1_SHA256_TAI,
+            "SECT283K1_SHA384_TAI" => CipherSuite::SECT283K1_SHA384_TAI,
+            "SECT283R1_SHA384_TAI" => CipherSuite::SECT283R1_SHA384_TAI,
+            "SECT409K1_SHA384_TAI" => CipherSuite::SECT409K1_SHA384_TAI,
+            "SECT409R1_SHA384_TAI" => CipherSuite::SECT409R1_SHA384_TAI,
+            "SECT571K1_SHA512_TAI" => CipherSuite::SECT571K1_SHA512_TAI,
+            "SECT571R1_SHA512_TAI" => CipherSuite::SECT571R1_SHA512_TAI,
+
+            "BRAINPOOL_P256R1_SHA256_TAI" => CipherSuite::BRAINPOOL_P256R1_SHA256_TAI,
+            "BRAINPOOL_P320R1_SHA256_TAI" => CipherSuite::BRAINPOOL_P320R1_SHA256_TAI,
+            "BRAINPOOL_P384R1_SHA384_TAI" => CipherSuite::BRAINPOOL_P384R1_SHA384_TAI,
+            "BRAINPOOL_P512R1_SHA512_TAI" => CipherSuite::BRAINPOOL_P512R1_SHA512_TAI,
+
+            _ => return Err("Wrong cipher suite string used.".to_string()),
+        };
+        Ok(cipher_suite)
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -209,6 +290,7 @@ struct AttData {
     file_path: String,
     sha3_hash: String,
     vrf_proof: String,
+    vrf_cipher_suite: CipherSuite,
     att_doc: Vec<u8>,
 }
 
@@ -217,6 +299,7 @@ struct AttUserData {
     file_path: String,
     sha3_hash: String,
     vrf_proof: String,
+    vrf_cipher_suite: CipherSuite,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -287,7 +370,7 @@ async fn main() -> io::Result<()> {
 
     match skey4proofs.as_str() {
         "" => {
-            let cipher = app_config.get_vrf_cipher_suite().convert();
+            let cipher = app_config.get_vrf_cipher_suite().to_nid();
             let (skey, _pkey) = generate_keypair(cipher);
             // let (skey, _pkey) = generate_ec256_keypair();
             let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
@@ -333,7 +416,7 @@ async fn main() -> io::Result<()> {
 
     match skey4docs.as_str() {
         "" => {
-            // let cipher = app_config.get_vrf_cipher_suite().convert();
+            // let cipher = app_config.get_vrf_cipher_suite().to_nid();
             // let (skey, _pkey) = generate_keypair(cipher);
             let (skey, _pkey) = generate_ec512_keypair();
             let skey_bytes = skey.private_key_to_pem_pkcs8().unwrap();
@@ -538,7 +621,7 @@ fn visit_files_recursively<'a>(
 
                             let fd = app_state.nsm_fd;
                             let nonce = get_randomness_sequence(fd.clone(), 512);
-                            let cipher_id = cipher_suite.convert();
+                            let cipher_id = cipher_suite.to_nid();
                             let alg = openssl::ec::EcGroup::from_curve_name(cipher_id).unwrap();
                             let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
                             let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey).unwrap();
@@ -548,6 +631,7 @@ fn visit_files_recursively<'a>(
                                 file_path: file_path_clone.clone(),
                                 sha3_hash: hex::encode(hash.clone()),
                                 vrf_proof: hex::encode(vrf_proof.clone()),
+                                vrf_cipher_suite: cipher_suite.clone(),
                             };
 
                             let att_user_data_json_bytes = serde_json::to_vec(&att_user_data).unwrap();
@@ -563,6 +647,7 @@ fn visit_files_recursively<'a>(
                                 file_path: file_path_clone.clone(),
                                 sha3_hash: hex::encode(hash.clone()),
                                 vrf_proof: hex::encode(vrf_proof.clone()),
+                                vrf_cipher_suite: cipher_suite.clone(),
                                 att_doc: att_doc.clone(),
                             });
                         }
@@ -984,7 +1069,7 @@ async fn pubkeys(
 
     let app_state = server_state.app_state.read().clone();
 
-    let cipher = app_state.vrf_cipher_suite.convert();
+    let cipher = app_state.vrf_cipher_suite.to_nid();
 
     // SKey & PKey for proofs
 
@@ -1112,9 +1197,11 @@ fn att_doc_fmt(
     let attestation_doc_signature = cose_doc.get_signature();
     info!("Attestation document signature: {:?}", hex::encode(attestation_doc_signature.clone()));
 
+    let attestation_doc_json_string = serde_json::to_string_pretty(&attestation_doc).unwrap_or("".to_string());
+
     let att_doc_user_data_bytes = attestation_doc.clone().user_data.unwrap_or(ByteBuf::new()).into_vec();
     let att_doc_user_data = serde_json::from_slice::<AttUserData>(att_doc_user_data_bytes.as_slice()).unwrap();
-    let att_doc_user_data_json_string = serde_json::to_string(&att_doc_user_data).unwrap();
+    let att_doc_user_data_json_string = serde_json::to_string_pretty(&att_doc_user_data).unwrap_or("".to_string());
 
     let header_protected_str = protected_header.into_inner().iter().map(
         |(key, val)|
@@ -1167,14 +1254,14 @@ fn att_doc_fmt(
         "json_str" => json!({
             "protected_header": format!("{{ {:?} }}", header_protected_str),
             "unprotected_header":  format!("{{ {:?} }}", header_unprotected_str),
-            "payload": serde_json::to_string(&attestation_doc).unwrap_or("".to_string()),
+            "payload": attestation_doc_json_string,
             "signature": hex::encode(attestation_doc_signature.clone()),
         }).to_string(),
 
         "json_debug" => json!({
             "protected_header": format!("{:?}", protected_header),
             "unprotected_header":  format!("{:?}", unprotected_header),
-            "payload": serde_json::to_string(&attestation_doc).unwrap_or("".to_string()),
+            "payload": attestation_doc_json_string,
             "signature": format!("{:?}", attestation_doc_signature.clone()),
         }).to_string(),
 
@@ -1195,6 +1282,7 @@ fn att_doc_fmt(
                     "file_path": att_doc_user_data.file_path,
                     "sha3_hash": att_doc_user_data.sha3_hash,
                     "vrf_proof": att_doc_user_data.vrf_proof,
+                    "vrf": att_doc_user_data.vrf_cipher_suite.to_string(),
                 },
                 "nonce": format!("{:?}", attestation_doc.nonce),
             },

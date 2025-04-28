@@ -291,8 +291,8 @@ dependencies = [
 
 [[package]]
 name = "axum"
-version = "0.8.3"
-source = "git+https://github.com/tokio-rs/axum.git?branch=main#53631b28731c33e6cb2ce12d71d1dfd1f21ccd42"
+version = "0.8.4"
+source = "git+https://github.com/tokio-rs/axum.git?branch=main#cd1453f084ef1085643fee4b9937ba0618d0c627"
 dependencies = [
  "axum-core",
  "bytes",
@@ -325,7 +325,7 @@ dependencies = [
 [[package]]
 name = "axum-core"
 version = "0.5.2"
-source = "git+https://github.com/tokio-rs/axum.git?branch=main#53631b28731c33e6cb2ce12d71d1dfd1f21ccd42"
+source = "git+https://github.com/tokio-rs/axum.git?branch=main#cd1453f084ef1085643fee4b9937ba0618d0c627"
 dependencies = [
  "bytes",
  "futures-core",
@@ -344,7 +344,7 @@ dependencies = [
 [[package]]
 name = "axum-extra"
 version = "0.10.1"
-source = "git+https://github.com/tokio-rs/axum.git?branch=main#53631b28731c33e6cb2ce12d71d1dfd1f21ccd42"
+source = "git+https://github.com/tokio-rs/axum.git?branch=main#cd1453f084ef1085643fee4b9937ba0618d0c627"
 dependencies = [
  "axum",
  "axum-core",
@@ -1015,9 +1015,9 @@ checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 
 [[package]]
 name = "hashbrown"
-version = "0.15.2"
+version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
+checksum = "84b26c544d002229e640969970a2e74021aadf6e2f96372b9c58eff97de08eb3"
 
 [[package]]
 name = "heck"
@@ -1191,7 +1191,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "serde",
 ]
 
@@ -1568,9 +1568,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.107"
+version = "0.9.108"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8288979acd84749c744a9014b4382d42b8f7b2592847b5afb2ed29e5d16ede07"
+checksum = "e145e1651e858e820e4860f7b9c5e169bc1d8ce1c86043be79fa7b7634821847"
 dependencies = [
  "cc",
  "libc",
@@ -2487,7 +2487,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vrf"
 version = "0.3.0"
-source = "git+https://github.com/andrcmdr/vrf-rs.git?branch=main#904acfae5da8917d6b26969d19baacec80f24c69"
+source = "git+https://github.com/andrcmdr/vrf-rs.git?branch=main#6d679c72520b4ad788237e024c7ba8899725e3e5"
 dependencies = [
  "hmac-sha256",
  "openssl",
@@ -2788,9 +2788,9 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb8234a863ea0e8cd7284fcdd4f145233eb00fee02bbdd9861aec44e6477bc5"
+checksum = "9e27d6ad3dac991091e4d35de9ba2d2d00647c5d0fc26c5496dee55984ae111b"
 dependencies = [
  "memchr",
 ]
