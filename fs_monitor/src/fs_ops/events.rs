@@ -36,7 +36,9 @@ pub fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, h
         EventKind::Remove(RemoveKind::File) => {
             handle_file_deletion(paths.clone(), &file_infos, &hash_info);
         }
-        // Need to handle Rename, Delete, etc.
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
+            handle_file_save_on_write(paths.clone(), &file_infos, &hash_info);
+        }
         EventKind::Modify(ModifyKind::Name(rename_mode)) => {
             match rename_mode {
                 RenameMode::Both => {
@@ -46,10 +48,6 @@ pub fn handle_event(event: Event, file_infos: &Arc<DashMap<String, FileInfo>>, h
                     // eprintln!("Unhandled rename mode: {:?} for paths: {:?}", rename_mode, paths);
                 }
             }
-        },
-        // Handling end of file write
-        EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
-            handle_file_save_on_write(paths.clone(), &file_infos, &hash_info);
         }
         _ => {
             // eprintln!("Unhandled event kind: {:?} for paths: {:?} ",event.kind, paths);
@@ -174,46 +172,31 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
 fn handle_standard_rename(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     // Remove the old file from file_infos
     let old_info_opt = file_infos.remove(from_path);
-    if let Some((_, old_info)) = old_info_opt{
-        file_infos.insert(to_path.clone(), old_info);
+    if let Some((_, old_info)) = old_info_opt {
+        if old_info.state == FileState::Closed{
+            let new_info = FileInfo {
+                file_type : old_info.file_type,
+                version : 1,
+                state : FileState::Closed
+            };
 
-        let hash_info_clone = hash_info.clone();
-        let to_path_clone = to_path.clone();
-        let from_path_clone = from_path.clone();
-        tokio::spawn(async move {
-            // get old file's hash if available
-            if let Ok(mut results) = hash_info_clone.hash_results.try_lock() {
-                if let Some(old_hashes) = results.remove(&from_path_clone){
-                    // check most recent hashes match
-                    match crate::hash::hasher::hash_file(&to_path_clone){
-                        Ok(latest_hash_to) => {
-                            if latest_hash_to == *old_hashes.last().unwrap() {
-                                results.insert(to_path_clone, old_hashes);
-                            }
-                            else {
-                                eprintln!("Warning: Hash mismatch after rename from {} to {}. Removing old history", 
-                                from_path_clone, to_path_clone);
-                                results.insert(to_path_clone, vec![latest_hash_to]);
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Error calculating hash for {}: {}", from_path_clone, e);
-                        }
-                    }
-
-                } else {
-                    eprintln!("Error removing old hash for: {}", from_path_clone);
-
-                }
-            } else {
-
-            }
-        });
+            file_infos.insert(to_path.clone(), new_info);
+            let hash_info_clone = hash_info.clone();
+            let to_path_clone = to_path.clone();
+            tokio::spawn(async move {
+                perform_file_hashing(to_path_clone, hash_info_clone).await;
+            });
+        } else {
+            let new_info = FileInfo {
+                file_type : old_info.file_type,
+                version : 0,
+                state : old_info.state
+            };
+            file_infos.insert(to_path.clone(), new_info);
+        }
+    } else {
+        eprintln!("Missing information for original file {}", from_path);
     }
-    else{
-        eprintln!("Received standard rename event but original file absent in file info: {}", from_path);
-    }   
-
 }
 
 fn handle_file_deletion(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){

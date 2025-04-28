@@ -30,7 +30,8 @@ pub async fn setup_watcher(
         while let Some(res) = rx.recv().await {
             match res {
                 Ok(event) => {
-                handle_event(event, &file_infos, &hash_infos, &ignore_list).unwrap_or_else(|e| {
+                    println!("Event: {:?} for {:?}", event.kind, event.paths);
+                    handle_event(event, &file_infos, &hash_infos, &ignore_list).unwrap_or_else(|e| {
                     eprintln!("Error handling event: {}", e);
                 });
             }
