@@ -1,4 +1,4 @@
-FROM nixos/nix:2.21.4 as build
+FROM nixos/nix:latest AS build
 ARG TARGET=all
 ENV TARGET=${TARGET}
 
@@ -6,7 +6,7 @@ RUN mkdir -vp /build/
 ADD ./ /build/
 WORKDIR /build/
 
-RUN nix-build -A ${TARGET}
+RUN nix-build --show-trace -A ${TARGET}
 
 FROM scratch AS artifacts
 COPY --from=build /build/result/* /init_blobs/

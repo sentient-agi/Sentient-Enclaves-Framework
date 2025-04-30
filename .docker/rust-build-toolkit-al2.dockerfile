@@ -6,7 +6,7 @@ ENV SHELL="/usr/bin/env bash"
 RUN yum upgrade -y
 RUN amazon-linux-extras enable epel
 RUN yum clean -y metadata && yum install -y epel-release
-RUN yum install -y git gcc pkgconfig openssl openssl-devel openssl-libs
+RUN yum install -y git gcc pkgconfig openssl openssl-devel openssl-libs perl perl-FindBin
 RUN yum install -y time which hostname
 
 ENV RUST_LOG="debug"

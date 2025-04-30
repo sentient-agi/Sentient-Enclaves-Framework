@@ -7,6 +7,7 @@ RUN yum upgrade -y
 RUN amazon-linux-extras enable epel
 RUN yum clean -y metadata && yum install -y epel-release
 RUN yum install -y git gcc pkgconfig openssl openssl-devel openssl-libs
+RUN yum install -y time which hostname
 
 RUN mkdir -p /eif_builder/
 WORKDIR /eif_builder
