@@ -923,6 +923,7 @@ async fn doc_handler(
                 "path": att_data.file_path,
                 "hash": att_data.sha3_hash,
                 "proof": att_data.vrf_proof,
+                // todo: add CipherSuite or leave only att_doc_fmt
                 "att_doc": att_doc_fmt,
             }).to_string())
         },
@@ -1232,29 +1233,29 @@ fn att_doc_fmt(
     let output =  match view {
         "bin_hex" => hex::encode(att_doc),
 
-        "json_hex" => format!("{{\n\
-            \"protected_header\": {{\n\
-                {:#?}\n\
-            }},\n\
-            \"unprotected_header\": {{\n\
-                {:#?}\n\
-            }},\n\
-            \"payload\": {{\n\
-                \"module_id\": {:#?},\n\
-                \"digest\": {},\n\
-                \"timestamp\": {:#?},\n\
-                \"PCRs\": {{\n\
-                    {:#?}\n\
-                }},\n\
-                \"certificate\": {:#?},\n\
-                \"ca_bundle\": [\n\
-                    {:#?}\n\
-                ],\n\
-                \"public_key\": {:#?},\n\
-                \"user_data\": {:#?},\n\
-                \"nonce\": {:#?},\n\
-            }},\n\
-            \"signature\": {:#?},\n\
+        "json_hex" => format!("{{\n
+            \"protected_header\": {{\n
+                {:#?}\n
+            }},\n
+            \"unprotected_header\": {{\n
+                {:#?}\n
+            }},\n
+            \"payload\": {{\n
+                \"module_id\": {:#?},\n
+                \"digest\": {},\n
+                \"timestamp\": {:#?},\n
+                \"PCRs\": {{\n
+                    {:#?}\n
+                }},\n
+                \"certificate\": {:#?},\n
+                \"ca_bundle\": [\n
+                    {:#?}\n
+                ],\n
+                \"public_key\": {:#?},\n
+                \"user_data\": {:#?},\n
+                \"nonce\": {:#?},\n
+            }},\n
+            \"signature\": {:#?},\n
         }}\n",
             header_protected_str,
             header_unprotected_str,
@@ -1270,11 +1271,11 @@ fn att_doc_fmt(
             hex::encode(attestation_doc_signature.clone()),
         ),
 
-        "json_str" => format!("{{\n\
-            \"protected_header\": {{ {:#?} }}\n\
-            \"unprotected_header\": {{ {:#?} }}\n\
-            \"payload\": {:#?}\n\
-            \"signature\": {:#?}\n\
+        "json_str" => format!("{{\n
+            \"protected_header\": {{ {:#?} }}\n
+            \"unprotected_header\": {{ {:#?} }}\n
+            \"payload\": {:#?}\n
+            \"signature\": {:#?}\n
         }}\n",
             header_protected_str,
             header_unprotected_str,
@@ -1282,11 +1283,11 @@ fn att_doc_fmt(
             hex::encode(attestation_doc_signature.clone()),
         ),
 
-        "json_debug" => format!("{{\n\
-            \"protected_header\": {:#?}\n\
-            \"unprotected_header\": {:#?}\n\
-            \"payload\": {:#?}\n\
-            \"signature\": {:#?}\n\
+        "json_debug" => format!("{{\n
+            \"protected_header\": {:#?}\n
+            \"unprotected_header\": {:#?}\n
+            \"payload\": {:#?}\n
+            \"signature\": {:#?}\n
         }}\n",
             protected_header,
             unprotected_header,
@@ -1296,34 +1297,34 @@ fn att_doc_fmt(
 
         "debug" => format!("{:#?}", cose_doc),
 
-        "debug_pretty_print" => format!("{{\n\
-            \"protected_header\": {{\n\
-                {:#?}\n\
-            }},\n\
-            \"unprotected_header\": {{\n\
-                {:#?}\n\
-            }},\n\
-            \"payload\": {{\n\
-                \"module_id\": {:#?},\n\
-                \"digest\": {},\n\
-                \"timestamp\": {:#?},\n\
-                \"PCRs\": {{\n\
-                    {:#?}\n\
-                }},\n\
-                \"certificate\": {:#?},\n\
-                \"ca_bundle\": [\n\
-                    {:#?}\n\
-                ],\n\
-                \"public_key\": {:#?},\n\
-                \"user_data\": {{\n\
-                    \"file_path\": {:#?},\n\
-                    \"sha3_hash\": {:#?},\n\
-                    \"vrf_proof\": {:#?},\n\
-                    \"vrf_cipher_suite\": {:#?},\n\
-                }},\n\
-                \"nonce\": {:#?},\n\
-            }},\n\
-            \"signature\": {:#?},\n\
+        "debug_pretty_print" => format!("{{\n
+            \"protected_header\": {{\n
+                {:#?}\n
+            }},\n
+            \"unprotected_header\": {{\n
+                {:#?}\n
+            }},\n
+            \"payload\": {{\n
+                \"module_id\": {:#?},\n
+                \"digest\": {},\n
+                \"timestamp\": {:#?},\n
+                \"PCRs\": {{\n
+                    {:#?}\n
+                }},\n
+                \"certificate\": {:#?},\n
+                \"ca_bundle\": [\n
+                    {:#?}\n
+                ],\n
+                \"public_key\": {:#?},\n
+                \"user_data\": {{\n
+                    \"file_path\": {:#?},\n
+                    \"sha3_hash\": {:#?},\n
+                    \"vrf_proof\": {:#?},\n
+                    \"vrf_cipher_suite\": {:#?},\n
+                }},\n
+                \"nonce\": {:#?},\n
+            }},\n
+            \"signature\": {:#?},\n
         }}\n",
             protected_header,
             unprotected_header,
@@ -1343,10 +1344,10 @@ fn att_doc_fmt(
         ),
 
         _ => format!("
-            Attestation document ('bin_hex' string):\n\
+            Attestation document ('bin_hex' string):\n
             {:#?}\n\n
             Set the 'view' format string parameter for attestation document:\n
-            'view=(bin_hex | json_hex | json_str | json_debug | debug | debug_pretty_print)'\n\
+            'view=(bin_hex | json_hex | json_str | json_debug | debug | debug_pretty_print)'\n
         ",
             hex::encode(att_doc)
         ),

@@ -7,8 +7,11 @@ shopt -s extquote
 
 set -f
 
-# Kernel full version, either substituted from CLI as second parameter to 'rbuild.sh' shell build script, or default version will be substituted
-declare kversion_full='6.12.0'  # Linux kernel full version, including major.minor.patch, from Semantic Versioning notation
+# Kernel full version, either substituted from CLI as '--kernel' parameter to 'rbuild.sh' shell build script, or default version will be substituted
+# Linux kernel full version, including major.minor.patch, from Semantic Versioning notation
+declare kversion_full='6.14.5'
+# declare kversion_full='6.13.12'
+# declare kversion_full='6.12.26'
 # Validation of kernel full version, using PCRE pattern matching
 declare kversion="$(echo -E "${kversion_full}" | grep -iP '^(0|[1-9][0-9]*)(\.)(0|[1-9][0-9]*)(\.([1-9][0-9]*|0))?$')"
 # Validation of kernel version, using PCRE pattern matching, for downloading kernel archive
