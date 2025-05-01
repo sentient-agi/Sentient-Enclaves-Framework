@@ -78,8 +78,8 @@ The framework enables the creation of confidential enclaves that are isolated fr
 - Generate reproducible builds and verifiable build hashes for enclave image and applications 🔐
 - Access internet services inside isolated enclave using forward proxies 🔌
 - Deploy internet-facing applications inside enclave using reverse proxies 🌐
-- Verify enclave app integrity via run-time PCR hash attestation 🛡️
-- Verify enclave file system integrity via VRF-based per-file proofs 📄🔒
+- Verify enclave application integrity at runtime using PCR-based attestation 🛡️
+- Ensure the integrity of external data through hash and VRF proof verification 📄🔒
 
 
 # Framework Components 🏗️
@@ -126,6 +126,46 @@ reference_apps/
 ```
 
 To run any of the reference applications, the steps outlined in the respective `TEE_rbuilds_setup.md` should be followed.
+
+# Enclave Attestation 🛡️
+
+Ensuring the integrity and authenticity of the code and data running within a confidential computing environment is crucial. The Sentient Enclaves Framework provides built-in mechanisms to verify the state of your application running inside the Nitro Enclave.
+
+This involves two primary aspects facilitated by the `ra-web-srv` component:
+
+1.  **Verifying External Data Integrity:** Confirming that any configuration or input files loaded by the enclave application have not been tampered with. The `ra-web-srv` component, running inside the enclave, can generate cryptographic hashes and Verifiable Random Function (VRF) proofs for specified files.
+
+    > [!IMPORTANT]
+    > The RA server runs inside the enclave and is accessible via `curl` only if reverse proxy is enabled. Make sure to enable reverse proxy by using `--network` flag while building the enclave. Otherwise, use `pipeline` utility to interact with the RA server.
+
+    ### Generate proofs for a file:
+    ```bash
+    curl -s -i -k -X POST -H 'Content-Type: application/json' -d '{ \"path\": \"/path/to/file\" }' https://127.0.0.1:8443/generate
+    ```
+    ### Retrieve the generated proof:
+    ```bash
+    curl -s -i -k -X GET https://127.0.0.1:8443/proof/?path=/path/to/file
+    ```
+    You would then compare the received hash with a locally computed hash of your expected file content to verify integrity.
+
+2.  **Validating the Application's Base Image:** Verifying that the exact expected Enclave Image File (`.eif`) is running. This is done by comparing the runtime Platform Configuration Register (PCR) values of the running enclave (obtained via the `ra-web-srv`) with the PCR values of the `.eif` file from which the enclave was launched (obtained using `nitro-cli`).
+
+    ### Retrieve the enclave's attestation document containing runtime PCRs:
+    > [!NOTE]
+    > Make sure that the path is the same as the path to the file used to generate the proof.
+    ```bash
+    curl -s -i -k -X GET https://127.0.0.1:8443/doc/?path=/path/to/file/&view=json_hex
+    ```
+    ### Obtain the reference PCRs from the original EIF file:
+    ```bash
+    nitro-cli describe-eif --eif-path /path/to/your/app.eif
+    ```
+    Matching the relevant PCR (`PCR0`, `PCR1`, `PCR2`) values confirms the integrity of the base image running in the enclave.
+
+> [!IMPORTANT]
+> For reliable attestation results, ensure the enclave is running in `non-debug` mode.
+
+For complete, detailed instructions on how to perform these attestation steps for [X_Agent](./reference_apps/X_Agent/), please refer to the [X Agent Enclave Attestation](./reference_apps/X_Agent/TEE_rbuilds_setup.md#verifying-x_agent-integrity-within-the-enclave-️).
 
 
 # Directory Structure 📁
