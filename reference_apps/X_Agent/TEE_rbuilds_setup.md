@@ -48,29 +48,32 @@ Example:
 > Either [`networking.sh`](../../rbuilds/network.init/networking.sh) can be used for accessing enclave's shell interface for issuing commands or [`pipeline`](../../rbuilds/network.init/pipeline) utility to send commands inside enclave. Both ways are demonstrated. While in `non-debug` mode, `pipeline` is the recommended way to send commands inside enclave.
 
 
-## Attesting the X Agent 🛡️
-> [!WARNING]
-> For the Agent to be attested, it must be running in `non-debug` mode.
+## Verifying X_Agent Integrity within the Enclave 🛡️
+> [!IMPORTANT]
+> For the Agent to be attestable, it must be running in `non-debug` mode. 🔒
 
-### Attesting the external data
-When running applications inside enclave, it's possible to pass external data to the enclave. For verifying the integrity of the data, the data should be attested. `ra-web-srv` provides capabilities to attest the data using hash validation and VRF proof generation. Here we are attesting the `.env` file.
-The RA server would be automatically started when the enclave is initialized. To request the attestation for the data, following steps should be followed:
+### Confirming External Data Integrity 📄
+Applications inside enclaves might need external configuration or inputs (like a `.env` file). To ensure this external information hasn't been tampered with, it requires verification. The `ra-web-srv` service facilitates this using hash validation and Verifiable Random Function (VRF) proof generation.
 
-#### Generate the hash and VRF proofs for the data using the `/generate` endpoint.
-The command below will generate the hash and VRF proofs for all the data in the `X_Agent` directory.
+The RA server starts automatically upon enclave initialization. Follow these steps to verify the `.env` file:
+
+#### 1. Generate Hash & VRF Proofs 🔑
+Use the `/generate` endpoint. This command processes the specified file `(./X_Agent/.env)`:
 
 ```bash
+# Instructs the enclave's RA server to generate proofs for the .env file
 ./pipeline run --port 53000 --cid 127 --command "curl -s -i -k -X POST -H 'Content-Type: application/json' -d '{ \"path\": \"./X_Agent/.env\" }' https://127.0.0.1:8443/generate"
 ```
 
-#### Request the attestation for the data using the `/proof` endpoint.
+#### 2. Retrieve the Attestation Proof 📜
 > [!NOTE]
 > Check that the `proof` is generated before requesting the attestation using `/ready` endpoint.
 
+Fetch the generated proof using the `/proof` endpoint:
 ```bash
 ./pipeline run --port 53000 --cid 127 --command "curl -s -i -k -X GET https://127.0.0.1:8443/proof/?path=./X_Agent/.env"
 ```
-We get the following data in response:
+Expect a response similar to this:
 ```json
 {
     "hash":"bc091981667d727d44807e0fc052e4667e517e12b16e083b1db6ea78b9e9341611ec599f56ffa77c5d48bdca7ad137833ddb0263dd6039b150a610db7919da1d",
@@ -79,57 +82,59 @@ We get the following data in response:
 }
 ```
 
-#### Verifying the hash
-The hash generator in the server uses SHA-512 to generate the hash of the data. We can verify the file integrity by comparing the hash in the response with the hash of the file on the host.
+#### 3. Validate the Hash ✅
+The server uses SHA-512 for hashing. Compare the hash from the response with a locally computed hash of the original file:
 
 ```bash
 sha3sum -a 512 ~/reference_apps/X_Agent/.env
 ``` 
 
-This returns the following output:
+Local command output:
 ```bash
 bc091981667d727d44807e0fc052e4667e517e12b16e083b1db6ea78b9e9341611ec599f56ffa77c5d48bdca7ad137833ddb0263dd6039b150a610db7919da1d  *./X_Agent/.env
 ```
 
-We can see that the hash in the response matches the hash in the output proving the file integrity. 
+As the hashes match, the file's integrity is confirmed. 🎉
+
 > [!NOTE]
-> VRF proof verification will be done by verifying the VRF proof using the `verify` endpoint. For more details, please refer to the [ATTESTATION API SPECIFICATION](../../docs/md/ATTESTATION_WEB_API.md) documentation.
+> VRF proof verification will be done by verifying the VRF proof using the `verify` endpoint. For more details, consult to the [ATTESTATION API SPECIFICATION](../../docs/md/ATTESTATION_WEB_API.md) documentation.
 
 
-### Attesting the Application's base image
+### Validating the Application's Base Image 📦
 Attestation of application's base image on nitro enclaves is done by matching the `PCR` values of the running enclave with the `PCR` values for the base `eif` file. `PCR0`, `PCR1`, `PCR2` are the `PCR`'s of interest for [attestation](https://docs.aws.amazon.com/enclaves/latest/user/set-up-attestation.html).
 
-#### Request the attestation for the base image 
-To request the attestation for the base image, `/doc` endpoint is used. 
+#### 1. Request the Enclave's Attestation Document 📄
+Use the `/doc` endpoint to get the running enclave's measurements, including PCRs:
+
 
 ```bash
 ./pipeline run --port 53000 --cid 127 --command "curl -s -i -k -X GET https://127.0.0.1:8443/doc/?path=./X_Agent/x_agent.eif&view=json_hex"
 ```
 
-This returns the following data in response:
+The response contains PCR values (truncated example):
+
 ```json
 {
-    // Other fields...
+    // ... other fields ...
     "PCRs":{
         "0":"bc0acfdeaa10d267ede8681f50b3b800336a3b585d016d4a3990d0baa8dfe9545498ef9ded1af24136f2929f1602554a",
         "1":"bd78456d3ac7bce218c532a1882cff7f7e76e28c8d898eed888cfbb44ee97bd3f27c7fbae6d52bce4205595779f40c59",
         "2":"6a32eb123d5bd397a2289cbc0b89d8c4d701a5e915d4f3b8ad75d746c6b72989ad18d5d56990e4a20355926ab87701c1",
-        "3":"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-        "4":"13aea116f07fd29b71bbfb05f8374bf3c3c2149d941d105909ab20178230d46d240022e36e0ed8a0d619c4c4a554423a",
-        // Other PCR values...
+        // ... other PCRs ...
     }
-    // Other fields...
+    // ... other fields ...
 }
 ```
-> [!NOTE]
-> The response above is a truncated version of the actual response. It is formatted for better readability. Actual response is a JSON object with all the fields and `\` as separators.
+> [!IMPORTANT]
+> The response above is a truncated version of the actual response. It is manually formatted for better readability. Actual response is a JSON object with all the fields and `\` as separators.
 
-#### Verifying the PCR values
-The PCR values are verified by comparing the `PCR` values in the response with the `PCR` values for the base `eif` file. To obtain the `PCR` values for the base `eif` file, the following command is used:
+#### 2. Compare PCR Values 🔍
+Verify the PCRs from the attestation document against the known-good measurements of original Enclave Image File `.eif`. Obtain the reference PCRs using `nitro-cli`:
 ```bash
+# Describes the original EIF file to get its expected PCR measurements
 nitro-cli describe-eif --eif-path ../eif/init_c_eif/app-builder-secure-enclaves-framework.eif
 ```
-We get the following output:
+Expected output from `nitro-cli`:
 ```json
 {
   "EifVersion": 4,
@@ -139,10 +144,10 @@ We get the following output:
     "PCR1": "bd78456d3ac7bce218c532a1882cff7f7e76e28c8d898eed888cfbb44ee97bd3f27c7fbae6d52bce4205595779f40c59",
     "PCR2": "6a32eb123d5bd397a2289cbc0b89d8c4d701a5e915d4f3b8ad75d746c6b72989ad18d5d56990e4a20355926ab87701c1"
   },
-  // Other fields...
+  // ... other fields ...
 }
 ```
-We can see that the `PCR` values in the response match the `PCR` values in the output. This proves that the base image is intact and has not been tampered with.
+Matching `PCR0`, `PCR1`, and `PCR2` values confirm that the base image running in the enclave is unmodified and trustworthy. 🎉
 
 
 ## Running the X Agent 🚀
