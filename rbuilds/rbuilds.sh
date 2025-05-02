@@ -1403,6 +1403,25 @@ if [[ ${args["--debug"]} -eq 1 || ${args["--verbose"]} -eq 1 || ${args["-v"]} -e
     printf "  '%s'\n" "${posargs[@]}"
 fi
 
+# Use of positional parameters
+for key in "${!posargs[@]}"; do
+    if [[ ${args["--debug"]} -eq 1 || ${args["--verbose"]} -eq 1 || ${args["-v"]} -eq 1 ]]; then
+        echo -e "\nPosArg:\n$key = ${posargs[$key]}\n"
+    fi
+
+    case "${posargs[$key]}" in
+        *.dockerfile) # Build EIF image from Docker container extracted rootfs, created from Docker image, formed by dockerfile scenario
+            dockerfile=$(echo -E "${posargs[$key]}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+            if [[ -z ${dockerfile} ]]; then
+                dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
+            fi
+            ;;
+        *)
+            echo -e "Positional argument/parameter ${posargs[$key]} isn't supported\n"
+            ;;
+    esac
+done
+
 # Override default variables values, provide dockerfile, execute commands
 for key in "${args_appearance_ordered_array_index_mask[@]}"; do
     if [[ ${args["--debug"]} -eq 1 || ${args["--verbose"]} -eq 1 || ${args["-v"]} -eq 1 ]]; then
@@ -1535,25 +1554,6 @@ for key in "${args_appearance_ordered_array_index_mask[@]}"; do
             ;;
         *)
             echo -e "Argument/parameter/flag $key isn't supported\n"
-            ;;
-    esac
-done
-
-# Use of positional parameters
-for key in "${!posargs[@]}"; do
-    if [[ ${args["--debug"]} -eq 1 || ${args["--verbose"]} -eq 1 || ${args["-v"]} -eq 1 ]]; then
-        echo -e "\nPosArg:\n$key = ${posargs[$key]}\n"
-    fi
-
-    case "${posargs[$key]}" in
-        *.dockerfile) # Build EIF image from Docker container extracted rootfs, created from Docker image, formed by dockerfile scenario
-            dockerfile=$(echo -E "${posargs[$key]}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
-            if [[ -z ${dockerfile} ]]; then
-                dockerfile=$(echo -E "${dockerfile:-"./pipeline-al2023.dockerfile"}" | pcregrep --color -Mio -e "^(\.\/)?([^\s]*?\/)*([^\s]*?)(\.dockerfile)$");
-            fi
-            ;;
-        *)
-            echo -e "Positional argument/parameter ${posargs[$key]} isn't supported\n"
             ;;
     esac
 done
