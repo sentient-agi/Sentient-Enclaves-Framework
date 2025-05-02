@@ -141,8 +141,11 @@ Confirming that any configuration or input files loaded by the enclave applicati
 
   #### 1. Generate proofs for a file:
   ```bash
-  curl -s -i -k -X POST -H 'Content-Type: application/json' -d '{ \"path\": \"/path/to/file\" }' https://127.0.0.1:8443/generate
+  curl -s -i -k -X POST -H 'Content-Type: application/json' -d '{ "path": "/path/to/file" }' https://127.0.0.1:8443/generate
   ```
+  > [!NOTE]
+  > While using `pipeline` utility for requesting proofs, make sure to escape the `"` using `\"` in the `-d` parameter. This escaping might be required for some shells.
+
   #### 2. Retrieve the generated proof:
   ```bash
   curl -s -i -k -X GET https://127.0.0.1:8443/proof/?path=/path/to/file
@@ -162,11 +165,28 @@ Verifying that the exact expected Enclave Image File (`.eif`) is running. This i
   ```bash
   nitro-cli describe-eif --eif-path /path/to/your/app.eif
   ```
-  Matching the relevant PCR (`PCR0`, `PCR1`, `PCR2`) values confirms the integrity of the base image running in the enclave.
+  Amongst the returned data, the `PCR0`, `PCR1`, `PCR2` values contains following measurements:
+  
+**`PCR0`**:
+- `PCR0` contains a measurement of all the data influencing the runtime of code in an EIF
+- `PCR0` = `SHA384(KERNEL | Cmdline | Ramdisk(init) | Ramdisk(1:))`
+> [!IMPORTANT]
+> The `Ramdisk(1:)` is the path to the all of user application's data in the `.eif` file except the `init` process.
+
+**`PCR1`**:
+- `PCR1` contains a measurement of all the data influencing the bootstrap and kernel in an EIF.
+- `PCR1` = `SHA384(Kernel | Initramfs | Cmdline | Ramdisk(init))`
+
+**`PCR2`**:
+- `PCR2` contains a measurement of the user application in an EIF
+- `PCR2` = `SHA384(Ramdisk(1:))`
+  
+  
+
+  Matching these PCRs (`PCR0`, `PCR1`, `PCR2`) confirms the integrity of the base image running in the enclave.
 
 > [!IMPORTANT]
-> For reliable attestation results, ensure the enclave is running in `non-debug` mode.
-
+> To obtain valid and verifiable attestation results, ensure that your enclave is running in `non-debug` mode. In `debug` mode, Platform Configuration Register (PCR) values are not set and will appear as all zeros when queried. This prevents meaningful attestation. Only in `non-debug` mode are the PCR values computed from the Enclave Image Format (`.eif`) before boot and set correctly to reflect the enclave’s configuration and integrity.
 For complete, detailed instructions on how to perform these attestation steps for [X_Agent](./reference_apps/X_Agent/), please refer to the [X Agent Enclave Attestation Section](./reference_apps/X_Agent/TEE_rbuilds_setup.md#verifying-x_agent-integrity-within-the-enclave-️).
 
 
