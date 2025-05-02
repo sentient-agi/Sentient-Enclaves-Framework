@@ -170,7 +170,7 @@ Verifying that the exact expected Enclave Image File (`.eif`) is running. This i
 **`PCR0`**:
 - `PCR0` contains a measurement of all the data influencing the runtime of code in an EIF
 - `PCR0` = `SHA384(KERNEL | Cmdline | Ramdisk(init) | Ramdisk(1:))`
-> [!IMPORTANT]
+> [!NOTE]
 > The `Ramdisk(1:)` is the path to the all of user application's data in the `.eif` file except the `init` process.
 
 **`PCR1`**:
@@ -180,10 +180,8 @@ Verifying that the exact expected Enclave Image File (`.eif`) is running. This i
 **`PCR2`**:
 - `PCR2` contains a measurement of the user application in an EIF
 - `PCR2` = `SHA384(Ramdisk(1:))`
-  
-  
 
-  Matching these PCRs (`PCR0`, `PCR1`, `PCR2`) confirms the integrity of the base image running in the enclave.
+Matching these PCRs (`PCR0`, `PCR1`, `PCR2`) confirms the integrity of the base image running in the enclave.
 
 > [!IMPORTANT]
 > To obtain valid and verifiable attestation results, ensure that your enclave is running in `non-debug` mode. In `debug` mode, Platform Configuration Register (PCR) values are not set and will appear as all zeros when queried. This prevents meaningful attestation. Only in `non-debug` mode are the PCR values computed from the Enclave Image Format (`.eif`) before boot and set correctly to reflect the enclave’s configuration and integrity.
