@@ -67,7 +67,10 @@ Use the `/generate` endpoint. This command processes the specified file `(./X_Ag
 
 #### 2. Retrieve the Attestation Proof 📜
 > [!NOTE]
-> Check that the `proof` is generated before requesting the attestation using `/ready` endpoint.
+> Check that the `proof` is generated before requesting the attestation using `/ready` endpoint. This can be checked as follows:
+> ```bash
+> ./pipeline run --port 53000 --cid 127 --command "curl -s -i -k -X GET https://127.0.0.1:8443/ready/?path=./X_Agent/.env"
+> ```
 
 Fetch the generated proof using the `/proof` endpoint:
 ```bash
@@ -108,7 +111,7 @@ Use the `/doc` endpoint to get the running enclave's measurements, including PCR
 
 
 ```bash
-./pipeline run --port 53000 --cid 127 --command "curl -s -i -k -X GET https://127.0.0.1:8443/doc/?path=./X_Agent/x_agent.eif&view=json_hex"
+./pipeline run --port 53000 --cid 127 --command "curl -s -i -k -X GET https://127.0.0.1:8443/doc/?path=./X_Agent/.env&view=json_hex"
 ```
 
 The response contains PCR values (truncated example):
