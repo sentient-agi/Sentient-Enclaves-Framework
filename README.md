@@ -78,6 +78,8 @@ The framework enables the creation of confidential enclaves that are isolated fr
 - Generate reproducible builds and verifiable build hashes for enclave image and applications 🔐
 - Access internet services inside isolated enclave using forward proxies 🔌
 - Deploy internet-facing applications inside enclave using reverse proxies 🌐
+- Verify enclave application integrity at runtime using PCR-based attestation 🛡️
+- Ensure the integrity of external data through hash and VRF proof verification 📄🔒
 
 
 # Framework Components 🏗️
@@ -88,7 +90,7 @@ To allow for the creation of confidential AI applications set of infrastructure 
 | `pipeline`   | Implementation of binary protocol over `vsock` for interacting with enclave | Controls enclave execution and enables bi-directional file transfers                                                                                                                                                                                                                                                                                                                               | [![Documentation](https://img.shields.io/badge/Pipeline-Docs-blue)](docs/md/REFERENCE_README.md#pipeline-slc-vsock-communication-protocol)                               |
 | `rbuilds.sh` | Script utilising set of components for building reproducible enclave images | Enables byte-level reproducibility for enclave images and streamlines the build process                                                                                                                                                                                                                                                                                                            | [![Documentation](https://img.shields.io/badge/Build_System-Docs-blue)](docs/md/REFERENCE_README.md#build-system-for-enclaves-reproducible-builds)                       |
 | `pf-proxy`   | Transparent `vsock` proxies for internet-enabled applications               | Provides full networking stack support, enabling outbound TCP connections using forward proxies and inbound TCP connections using reverse proxies for enclaves                                                                                                                                                                                                                                     | [![Documentation](https://img.shields.io/badge/PF_Proxy-Docs-blue)](docs/md/REFERENCE_README.md#transparent-vsock-proxies)                                               |
-| `ra-web-srv` | Web server and web protocol for remote attestation of enclave's run-time    | Web server and web API protocol for remote attestation of base EIF image PCR hashes (computed statically on EIF enclave's image build stage, via reproducible building process) against its run-time computed PCR hashes (provides guarantees that running enclave from EIF image wasn't modified anyhow), and for per-file attestation of enclave's run-time file system from inside the enclave. | [![Documentation](https://img.shields.io/badge/PF_Proxy-Docs-blue)](docs/md/REFERENCE_README.md#web-server-and-web-protocol-for-remote-attestation-of-enclaves-run-time) |
+| `ra-web-srv` | Remote Attestation Web Server for verifying integrity of applications  | Enables remote attestation of EIF base image and enclave file system, verifying static and run-time integrity via PCR hash comparison and per-file proofs from within the enclave.                                                                                                                                                                                                                                     | [![Documentation](https://img.shields.io/badge/PF_Proxy-Docs-blue)](docs/md/REFERENCE_README.md#web-server-and-web-protocol-for-remote-attestation-of-enclaves-run-time) |
 
 
 ### Project Diagram:
@@ -124,6 +126,66 @@ reference_apps/
 ```
 
 To run any of the reference applications, the steps outlined in the respective `TEE_rbuilds_setup.md` should be followed.
+
+## Enclave Attestation 🛡️
+
+Ensuring the integrity and authenticity of the code and data running within a confidential computing environment is crucial. The Sentient Enclaves Framework provides built-in mechanisms to verify the state of your application running inside the Nitro Enclave.
+
+This involves two primary aspects facilitated by the `ra-web-srv` component:
+
+### Verifying External Data Integrity 
+Confirming that any configuration or input files loaded by the enclave application have not been tampered with. The `ra-web-srv` component, running inside the enclave, can generate cryptographic hashes and Verifiable Random Function (VRF) proofs for specified files.
+
+  > [!IMPORTANT]
+  > The RA server runs inside the enclave and is accessible via `curl` only if *reverse proxy* is enabled. Make sure to enable reverse proxy by using `--network` flag while building the enclave and `eif` file. Otherwise, use `pipeline` utility to interact with the RA server.
+
+  #### 1. Generate proofs for a file:
+  ```bash
+  curl -s -i -k -X POST -H 'Content-Type: application/json' -d '{ "path": "/path/to/file" }' https://127.0.0.1:8443/generate
+  ```
+  > [!NOTE]
+  > While using `pipeline` utility for requesting proofs, make sure to escape the `"` using `\"` in the `-d` parameter. This escaping might be required for some shells.
+
+  #### 2. Retrieve the generated proof:
+  ```bash
+  curl -s -i -k -X GET https://127.0.0.1:8443/proof/?path=/path/to/file
+  ```
+  You would then compare the received hash with a locally computed hash of your expected file content to verify integrity of enclave's external data.
+
+### Validating the Application's Base Image
+Verifying that the exact expected Enclave Image File (`.eif`) is running. This is done by comparing the runtime Platform Configuration Register (PCR) values of the running enclave (obtained via the `ra-web-srv`) with the PCR values of the `.eif` file from which the enclave was launched (obtained using `nitro-cli`).
+
+  #### 1. Retrieve the enclave's attestation document containing runtime PCRs:
+  > [!NOTE]
+  > Make sure that the path is the same as the path to the file used to generate the proof.
+  ```bash
+  curl -s -i -k -X GET https://127.0.0.1:8443/doc/?path=/path/to/file/&view=json_hex
+  ```
+  #### 2. Obtain the reference PCRs from the original EIF file:
+  ```bash
+  nitro-cli describe-eif --eif-path /path/to/your/app.eif
+  ```
+  Amongst the returned data, the `PCR0`, `PCR1`, `PCR2` values contains following measurements:
+  
+**`PCR0`**:
+- `PCR0` contains a measurement of all the data influencing the runtime of code in an EIF
+- `PCR0` = `SHA384(KERNEL | Cmdline | Ramdisk(init) | Ramdisk(1:))`
+> [!NOTE]
+> The `Ramdisk(1:)` is the path to the all of user application's data in the `.eif` file except the `init` process.
+
+**`PCR1`**:
+- `PCR1` contains a measurement of all the data influencing the bootstrap and kernel in an EIF.
+- `PCR1` = `SHA384(Kernel | Initramfs | Cmdline | Ramdisk(init))`
+
+**`PCR2`**:
+- `PCR2` contains a measurement of the user application in an EIF
+- `PCR2` = `SHA384(Ramdisk(1:))`
+
+Matching these PCRs (`PCR0`, `PCR1`, `PCR2`) confirms the integrity of the base image running in the enclave.
+
+> [!IMPORTANT]
+> To obtain valid and verifiable attestation results, ensure that your enclave is running in `non-debug` mode. In `debug` mode, Platform Configuration Register (PCR) values are not set and will appear as all zeros when queried. This prevents meaningful attestation. Only in `non-debug` mode are the PCR values computed from the Enclave Image Format (`.eif`) before boot and set correctly to reflect the enclave’s configuration and integrity.
+For complete, detailed instructions on how to perform these attestation steps for [X_Agent](./reference_apps/X_Agent/), please refer to the [X Agent Enclave Attestation Section](./reference_apps/X_Agent/TEE_rbuilds_setup.md#verifying-x_agent-integrity-within-the-enclave-️).
 
 
 # Directory Structure 📁
