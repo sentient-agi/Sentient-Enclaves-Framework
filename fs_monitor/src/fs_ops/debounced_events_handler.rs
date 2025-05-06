@@ -43,6 +43,7 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
             match kind {
                 RemoveKind::File => {
                     println!("Remove event for file: {:?}", paths);
+                    // handle_file_delete(paths.clone(), &file_infos, &hash_info);
                 },
                 RemoveKind::Folder => {
                     println!("Remove event for Folder: {:?}", paths);
@@ -75,7 +76,7 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
 }
 
 // File specific functions
-fn handle_file_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
+fn handle_file_create(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
     
     if paths.len() != 1 {
         eprintln!("Create event has multiple paths: {:?}", paths);
@@ -90,7 +91,7 @@ fn handle_file_creation(paths: Vec<String>, file_infos: &Arc<DashMap<String, Fil
     });
 }
 
-fn handle_file_modification(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
+fn handle_file_modify(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
     if paths.len() != 1 {
         eprintln!("Modify event has multiple paths: {:?}", paths);
         return;
@@ -103,7 +104,31 @@ fn handle_file_modification(paths: Vec<String>, file_infos: &Arc<DashMap<String,
     }
 }
 
-fn handle_file_renames(){
+fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList){
+    if paths.len() != 2 {
+        eprintln!("Rename event should have 2 paths: {:?}", paths);
+        return;
+    }
+
+    let from_path = paths[0].clone();
+    let to_path = paths[1].clone();
+
+    // Already matched if both paths are ignored
+
+    // Check if renamed into an ignored file
+    if ignore_list.is_ignored(&to_path) {
+        
+    }
+
+    // Check if renamed from an ignored file
+
+    else if ignore_list.is_ignored(&from_path) {
+        
+    }
+
+
+
+
 
 }
 
@@ -116,20 +141,37 @@ fn handle_file_save(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInf
     let path = paths[0].clone();
     
     if let Some(mut file_info) = file_infos.get_mut(&path) {
-        if file_info.file_type == FileType::File && file_info.state == FileState::Modified {
-            // Calculate hash first and then update the state and versions
-            let path_clone = path.clone();
-            let file_infos_clone = Arc::clone(file_infos);
-            let hash_info_clone = Arc::clone(hash_info);
-            tokio::spawn(async move {
-                perform_file_hashing(path_clone.clone(), hash_info_clone).await;
-                eprintln!("File closed after write: {}", path_clone);
-                if let Some(mut file_info) = file_infos_clone.get_mut(&path_clone) {
-                    file_info.version += 1;
-                    eprintln!("File {} is ready for hashing.", path_clone);
-                    file_info.state = FileState::Closed;
-                }
-            });
-        }
+        // Calculate hash first and then update the state and versions
+        let path_clone = path.clone();
+        let file_infos_clone = Arc::clone(file_infos);
+        let hash_info_clone = Arc::clone(hash_info);
+        eprintln!("File closed after write: {}", path_clone);
+        eprintln!("File {} is ready for hashing.", path_clone);
+
+        // Perform the update in the background thread to return immediately
+        tokio::spawn(async move {
+            perform_file_hashing(path_clone.clone(), hash_info_clone).await;
+            if let Some(mut file_info) = file_infos_clone.get_mut(&path_clone) {
+                file_info.version += 1;
+                file_info.state = FileState::Closed;
+            }
+        });
     }
+}
+
+fn handle_file_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+    let path = paths[0].clone();
+    eprintln!("Handling delete event for path: {}", path);
+    let hash_info_clone = Arc::clone(hash_info);
+    
+    // clean-up the file metadata
+    file_infos.remove(&path);
+    
+    // In the background thread, clean-up the hash
+    tokio::spawn( async move {
+        
+        // Clean-up the hash
+        let mut hash_results = hash_info_clone.hash_results.lock().await;
+        hash_results.remove(&path);
+    });
 }
