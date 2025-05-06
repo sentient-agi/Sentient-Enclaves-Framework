@@ -2,6 +2,7 @@ use notify_debouncer_full::notify::{Event, Result, EventKind};
 use notify_debouncer_full::notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
 use notify_debouncer_full::DebouncedEvent;
 use std::sync::{Arc, RwLock};
+use std::vec;
 use dashmap::DashMap;
 use crate::hash::storage::{HashInfo, perform_file_hashing, hash_cleanup};
 use crate::fs_ops::state::{FileInfo, FileState, FileType};
@@ -113,21 +114,77 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     let from_path = paths[0].clone();
     let to_path = paths[1].clone();
 
-    // Already matched if both paths are ignored
+    // Already  handled case of when both paths are ignored.
 
     // Check if renamed into an ignored file
     if ignore_list.is_ignored(&to_path) {
-        
+        eprintln!("File renamed from {} to ignored file: {}", from_path, to_path);
+        handle_file_rename_to_ignored(&from_path, &to_path, file_infos, hash_info)
     }
-
     // Check if renamed from an ignored file
-
     else if ignore_list.is_ignored(&from_path) {
-        
+        eprintln!("File renamed from ignored file: {} to  {}", from_path, to_path);
+        handle_file_rename_from_ignored(&from_path, &to_path, file_infos, hash_info)
     }
+    // Else this is a standard rename where both old and new paths are tracked
+    else{
+        eprintln!("File renamed from {} to {}", from_path, to_path);
+        handle_file_rename_both_tracked(&from_path, &to_path, file_infos, hash_info)
+    }
+}
 
+fn handle_file_rename_to_ignored(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+    // This simply needs to delete the file from being tracked.
+    let frm_path_str = vec![from_path.to_string()];
+    handle_file_delete(frm_path_str, file_infos, hash_info);
 
+}
 
+fn handle_file_rename_from_ignored(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+
+    // This creates a new entry for the file and performs hashing
+    let to_path_str = vec![to_path.to_string()];    
+    handle_file_create(to_path_str.clone(), file_infos);
+    handle_file_save(to_path_str, file_infos, hash_info);
+
+}
+
+fn handle_file_rename_both_tracked(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+    
+    // Transfer Old file's history
+    let file_info_opt = file_infos.remove(from_path);
+    if let Some((_, old_info)) = file_info_opt {
+        let to_path = to_path.to_string();
+        file_infos.insert(to_path.clone(), old_info);
+        // Transfer the hash history
+        let from_path = from_path.clone();
+        let hash_info_cloned = Arc::clone(hash_info);
+        let file_infos_cloned: Arc<DashMap<String, FileInfo>> = Arc::clone(file_infos);
+        tokio::spawn(async move{
+            {
+                let mut hash_results = hash_info_cloned.hash_results.lock().await;
+                let (hash_history_opt) = hash_results.remove(&from_path);
+                let hash_history = hash_history_opt.unwrap_or(vec![]);
+                hash_results.insert(to_path.clone(), hash_history);
+            }
+            
+            // Finally perform the hashing again
+            perform_file_hashing(to_path.clone(), hash_info_cloned).await;
+            if let Some(mut file_info) = file_infos_cloned.get_mut(&to_path) {
+                file_info.version += 1;
+                file_info.state = FileState::Closed;
+            }
+
+        });
+        
+
+    } else {
+        // New entry received before old entry is created. 
+        // Can this even happen with debouncer?
+        // For now handle it similar to when a new file is created
+        eprint!("Old file: {} renamed to: {}. But no entry found for :{}", from_path, to_path, from_path);
+        handle_file_rename_from_ignored(from_path, to_path, file_infos, hash_info, );
+    }
 
 
 }
@@ -142,16 +199,15 @@ fn handle_file_save(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInf
     
     if let Some(mut file_info) = file_infos.get_mut(&path) {
         // Calculate hash first and then update the state and versions
-        let path_clone = path.clone();
-        let file_infos_clone = Arc::clone(file_infos);
-        let hash_info_clone = Arc::clone(hash_info);
-        eprintln!("File closed after write: {}", path_clone);
-        eprintln!("File {} is ready for hashing.", path_clone);
+        let path_cloned = path.clone();
+        let file_infos_cloned: Arc<DashMap<String, FileInfo>> = Arc::clone(file_infos);
+        let hash_info_cloned = Arc::clone(hash_info);
+        eprintln!("File : {} closed after write and is ready for hashing", path_cloned);
 
         // Perform the update in the background thread to return immediately
         tokio::spawn(async move {
-            perform_file_hashing(path_clone.clone(), hash_info_clone).await;
-            if let Some(mut file_info) = file_infos_clone.get_mut(&path_clone) {
+            perform_file_hashing(path_cloned.clone(), hash_info_cloned).await;
+            if let Some(mut file_info) = file_infos_cloned.get_mut(&path_cloned) {
                 file_info.version += 1;
                 file_info.state = FileState::Closed;
             }
