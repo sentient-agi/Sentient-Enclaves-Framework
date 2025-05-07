@@ -32,40 +32,40 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
             match kind {
                 CreateKind::File => {
                     println!("Create event for file: {:?}", paths);
+                    handle_file_create(paths, file_infos);
                 },
                 CreateKind::Folder => {
                     println!("Create event for Folder: {:?}", paths);
                 },
                 _ => {}
             }
-            // handle_file_creation(paths.clone(), &file_infos);
         }
         EventKind::Remove(kind) => {
             match kind {
                 RemoveKind::File => {
                     println!("Remove event for file: {:?}", paths);
-                    // handle_file_delete(paths.clone(), &file_infos, &hash_info);
+                    handle_file_delete(paths.clone(), &file_infos, &hash_info);
                 },
                 RemoveKind::Folder => {
                     println!("Remove event for Folder: {:?}", paths);
                 },
                 _ => {}
             }
-            // handle_file_deletion(paths.clone(), &file_infos, &hash_info);
         }
         
         EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
             println!("File save event for file: {:?}",paths);
-            // handle_file_save_on_write(paths.clone(), &file_infos, &hash_info);
+            handle_file_save(paths, file_infos, hash_info);
         }
         
         EventKind::Modify(ModifyKind::Data(DataChange::Any) ) => {
             println!("Modify event for file: {:?}",paths);
-        //    handle_file_data_modification(paths.clone(), &file_infos); 
+           handle_file_modify(paths, file_infos); 
         }
         
         EventKind::Modify(ModifyKind::Name(rename_mode)) => {
             println!("Rename event for files: {:?}",paths);
+            handle_file_rename(paths, file_infos, hash_info, ignore_list);
         }
         
         _ => {
@@ -119,12 +119,12 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     // Check if renamed into an ignored file
     if ignore_list.is_ignored(&to_path) {
         eprintln!("File renamed from {} to ignored file: {}", from_path, to_path);
-        handle_file_rename_to_ignored(&from_path, &to_path, file_infos, hash_info)
+        handle_file_rename_to_ignored(&from_path, file_infos, hash_info)
     }
     // Check if renamed from an ignored file
     else if ignore_list.is_ignored(&from_path) {
         eprintln!("File renamed from ignored file: {} to  {}", from_path, to_path);
-        handle_file_rename_from_ignored(&from_path, &to_path, file_infos, hash_info)
+        handle_file_rename_from_ignored( &to_path, file_infos, hash_info)
     }
     // Else this is a standard rename where both old and new paths are tracked
     else{
@@ -133,14 +133,14 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     }
 }
 
-fn handle_file_rename_to_ignored(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+fn handle_file_rename_to_ignored(from_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     // This simply needs to delete the file from being tracked.
     let frm_path_str = vec![from_path.to_string()];
     handle_file_delete(frm_path_str, file_infos, hash_info);
 
 }
 
-fn handle_file_rename_from_ignored(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+fn handle_file_rename_from_ignored(to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
 
     // This creates a new entry for the file and performs hashing
     let to_path_str = vec![to_path.to_string()];    
@@ -183,7 +183,7 @@ fn handle_file_rename_both_tracked(from_path: &String, to_path: &String, file_in
         // Can this even happen with debouncer?
         // For now handle it similar to when a new file is created
         eprint!("Old file: {} renamed to: {}. But no entry found for :{}", from_path, to_path, from_path);
-        handle_file_rename_from_ignored(from_path, to_path, file_infos, hash_info);
+        handle_file_rename_from_ignored(to_path, file_infos, hash_info);
     }
 }
 
