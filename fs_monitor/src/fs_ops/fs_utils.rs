@@ -23,6 +23,7 @@ pub fn handle_path(path: &str) -> String {
         path.to_string()
     }    
 }
+
 // Helper function to collect all files in a directory recursively
 pub fn collect_files_recursively(dir_path: &std::path::Path, files: &mut Vec<String>) -> io::Result<()> {
     if !dir_path.is_dir() {

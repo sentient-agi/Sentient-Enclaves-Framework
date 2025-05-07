@@ -57,21 +57,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Interactive command loop
     loop {
         
-    //     println!("Enter path relative to current working directory to get hash of file");
-    //     print!(">>> ");
-    //     std::io::stdout().flush().unwrap();
+        println!("Enter path relative to current working directory to get hash of file");
+        print!(">>> ");
+        std::io::stdout().flush().unwrap();
 
-    //     let mut input = String::new();
-    //     std::io::stdin().read_line(&mut input).unwrap();
-    //     let path = input.trim();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+        let path = input.trim();
 
-    //     let path = handle_path(path);
-    //     println!("path: {}", path);
-    //     match retrieve_hash(&path, &file_infos, &hash_infos).await {
-    //          Ok(hash_string) => println!("Hash for {}: {}", path, hash_string),
-    //          Err(e) => eprintln!("Error retrieving hash for {}: {}", path, e),
-    //     }
-    //     println!("================================================");
+        let path = handle_path(path);
+        println!("path: {}", path);
+        match retrieve_hash(&path, &file_infos, &hash_infos).await {
+             Ok(hash_string) => println!("Hash for {}: {}", path, hash_string),
+             Err(e) => eprintln!("Error retrieving hash for {}: {}", path, e),
+        }
+        println!("================================================");
     }
 }
 

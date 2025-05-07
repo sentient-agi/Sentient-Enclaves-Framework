@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::format;
 use std::io;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -106,33 +107,32 @@ pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo
 
 pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<Vec<u8>> {
     let file_info = file_infos.get(path)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not tracked"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("File {} is not tracked", path)))?;
 
-    if file_info.state == crate::fs_ops::state::FileState::Deleted{
-        let path_clone = path.clone();
-        // Start a new task for cleanup
-        // Lazy deletion from file_infos and hash_info
-        // tokio::spawn( async move {
-        // });
-        return Err(io::Error::new(io::ErrorKind::Other, "File has been already deleted")); 
-    }
 
     if file_info.state != crate::fs_ops::state::FileState::Closed {
-        return Err(io::Error::new(io::ErrorKind::Other, "File is yet to be closed"));
+        return Err(io::Error::new(io::ErrorKind::Other, format!("File {} is yet to be closed", path)));
     }
 
+    // Check if hashing task is pending
+    let tasks = hash_info.ongoing_tasks.lock().await;
+    if tasks.contains_key(path) {
+        return Err(io::Error::new(io::ErrorKind::Other, format!("Hashing for {} is yet to complete", path)));
+    }
     let results_map = hash_info.hash_results.lock().await;
     let hash_vector = results_map.get(path)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No hashes recorded"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hashes recorded for {}", path)))?;
 
-    let version = file_info.version as usize;
-    if hash_vector.len() != version {
-        return Err(io::Error::new(io::ErrorKind::NotFound, "Latest hash is not available"));
-    }
+    // This version matching might be too restrictive here.
+    // Removed for now
+    // let version = file_info.version as usize;
+    // if hash_vector.len() != version {
+    //     return Err(io::Error::new(io::ErrorKind::NotFound, "Latest hash is not available"));
+    // }
 
     hash_vector.last()
         .cloned()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No hash available"))
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hash available for {}", path)))
 } 
 
 // Lazy cleanup of removed/renamed files
