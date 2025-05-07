@@ -1,4 +1,4 @@
-use fs_monitor::fs_ops::{watcher::setup_watcher, IgnoreList, state::{ FileInfo, FileState}, fs_utils::handle_path};
+use fs_monitor::fs_ops::{debounced_watcher::setup_debounced_watcher, watcher::setup_watcher, IgnoreList, state::{ FileInfo, FileState}, fs_utils::handle_path};
 use fs_monitor::hash::{storage::{HashInfo, retrieve_hash}, hasher::{hash_file, bytes_to_hex}};
 use std::fs::File;
 use std::io::Write;
@@ -52,7 +52,7 @@ async fn wait_for_file_state(
 } 
 
 #[tokio::test]
-async fn file_modification_simple() -> notify::Result<()>{
+async fn file_modification_simple() -> Result<(), Box<dyn std::error::Error>>{
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
@@ -63,7 +63,7 @@ async fn file_modification_simple() -> notify::Result<()>{
         hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
 
-    let _watcher = setup_watcher(
+    let _watcher = setup_debounced_watcher(
         watch_path, 
         Arc::clone(&file_infos), 
         Arc::clone(&hash_infos),
@@ -75,7 +75,8 @@ async fn file_modification_simple() -> notify::Result<()>{
     let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 1000).await);
+    // 
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
 
     // Write random data to the file
     let _ = file.write_all(b"SOME DATA");
@@ -83,14 +84,14 @@ async fn file_modification_simple() -> notify::Result<()>{
 
     file.write_all(b" MORE DATA").unwrap();
     let _ = file.flush();
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 2000).await);
 
     // Close the file
     file.flush().unwrap();
     file.sync_all().unwrap(); 
     drop(file);
     
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 2000).await);
     
     // Calculate hash
     let calculated_hash = bytes_to_hex(&hash_file(&file_path).unwrap());
@@ -108,7 +109,7 @@ async fn file_modification_simple() -> notify::Result<()>{
 }
 
 #[tokio::test]
-async fn file_deletion_simple() -> notify::Result<()> {
+async fn file_deletion_simple() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
@@ -119,7 +120,7 @@ async fn file_deletion_simple() -> notify::Result<()> {
         hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
 
-    let _watcher = setup_watcher(
+    let _watcher = setup_debounced_watcher(
         watch_path, 
         Arc::clone(&file_infos), 
         Arc::clone(&hash_infos),
@@ -130,23 +131,23 @@ async fn file_deletion_simple() -> notify::Result<()> {
     let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
 
     let _ = file.write_all(b"SOME DATA");
     let _ = file.flush();
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 2000).await);
 
     // Close the file
     file.flush().unwrap();
     file.sync_all().unwrap(); 
     drop(file);
 
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 2000).await);
 
     eprintln!("Attempting to delete file: {}", file_path);
     std::fs::remove_file(file_path.clone()).ok();
 
-    assert!(wait_for_file_state(&file_infos, &file_path, None, 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 2000).await);
 
     eprintln!("=== Test complete, forcing exit ===");
     Ok(())
@@ -155,7 +156,7 @@ async fn file_deletion_simple() -> notify::Result<()> {
 
 // Deleting an empty file
 #[tokio::test]
-async fn file_deletion_empty() -> notify::Result<()> {
+async fn file_deletion_empty() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
@@ -166,7 +167,7 @@ async fn file_deletion_empty() -> notify::Result<()> {
         hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
 
-    let _watcher = setup_watcher(
+    let _watcher = setup_debounced_watcher(
         watch_path, 
         Arc::clone(&file_infos), 
         Arc::clone(&hash_infos),
@@ -177,17 +178,17 @@ async fn file_deletion_empty() -> notify::Result<()> {
     let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
 
     eprintln!("Attempting to delete file: {}", file_path);
     std::fs::remove_file(file_path.clone()).ok();
-    assert!(wait_for_file_state(&file_infos, &file_path, None, 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 2000).await);
     Ok(())
 
 }
 
 #[tokio::test]
-async fn file_rename() -> notify::Result<()> {
+async fn file_rename() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
@@ -198,7 +199,7 @@ async fn file_rename() -> notify::Result<()> {
         hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
 
-    let _watcher = setup_watcher(
+    let _watcher = setup_debounced_watcher(
         watch_path, 
         Arc::clone(&file_infos), 
         Arc::clone(&hash_infos),
@@ -209,12 +210,12 @@ async fn file_rename() -> notify::Result<()> {
     let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
 
     // Perform dummy writes
     let _ = file.write_all(b"SOME DATA");
     let _ = file.flush();
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 2000).await);
 
     // Close the file
     file.flush().unwrap();
@@ -225,8 +226,8 @@ async fn file_rename() -> notify::Result<()> {
     let new_file_path = format!("test_{}.txt", Uuid::new_v4());
     std::fs::rename(file_path.clone(), new_file_path.clone());
     let new_file_path = handle_path(&new_file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, None, 1000).await);
-    assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Closed), 1000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 2000).await);
+    assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Closed), 2000).await);
     Ok(())
 
 }

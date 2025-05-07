@@ -19,7 +19,7 @@ pub async fn setup_debounced_watcher(
     let (tx, mut rx) = mpsc::unbounded_channel::<DebounceEventResult>();
     
     // Initialize a debouncer
-    let mut debouncer = new_debouncer(Duration::from_secs(2), None, move |res: DebounceEventResult| {
+    let mut debouncer = new_debouncer(Duration::from_secs(1), None, move |res: DebounceEventResult| {
         tx.send(res).expect("Failed to send debounced event");
     })?;
 
