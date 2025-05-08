@@ -1,10 +1,10 @@
-use notify_debouncer_full::notify::{Event, Result, EventKind};
+use notify_debouncer_full::notify::{ Result, EventKind};
 use notify_debouncer_full::notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
 use notify_debouncer_full::DebouncedEvent;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
 use std::vec;
 use dashmap::DashMap;
-use crate::hash::storage::{HashInfo, perform_file_hashing, hash_cleanup};
+use crate::hash::storage::{HashInfo, perform_file_hashing};
 use crate::fs_ops::state::{FileInfo, FileState, FileType};
 use crate::fs_ops::ignore::IgnoreList;
 use crate::fs_ops::fs_utils::handle_path;
@@ -64,8 +64,25 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
         }
         
         EventKind::Modify(ModifyKind::Name(rename_mode)) => {
-            println!("Rename event for files: {:?}",paths);
-            handle_file_rename(paths, file_infos, hash_info, ignore_list);
+            match rename_mode {
+                RenameMode::To => {
+                    println!("Rename event for files: {:?} of kind {:?}",paths, rename_mode);
+                    handle_file_rename_from_unwatched(paths, file_infos, hash_info);  
+                }
+                RenameMode::From => {
+                    println!("Rename event for files: {:?} of kind {:?}",paths, rename_mode);
+                    handle_file_rename_to_unwatched(paths, file_infos, hash_info);
+
+                }
+                RenameMode::Both => {
+                    println!("Rename event for files: {:?} of kind {:?}",paths, rename_mode);
+                    handle_file_rename(paths, file_infos, hash_info, ignore_list);
+                }
+                _ => {
+
+                }
+                
+            }
         }
         
         _ => {
@@ -116,15 +133,17 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
 
     // Already  handled case of when both paths are ignored.
 
-    // Check if renamed into an ignored file
+    // Check if renamed into an unwatched file
     if ignore_list.is_ignored(&to_path) {
         eprintln!("File renamed from {} to ignored file: {}", from_path, to_path);
-        handle_file_rename_to_ignored(&from_path, file_infos, hash_info)
+        let from_path = vec![from_path];
+        handle_file_rename_to_unwatched(from_path, file_infos, hash_info)
     }
-    // Check if renamed from an ignored file
+    // Check if renamed from an unwatched directory
     else if ignore_list.is_ignored(&from_path) {
         eprintln!("File renamed from ignored file: {} to  {}", from_path, to_path);
-        handle_file_rename_from_ignored( &to_path, file_infos, hash_info)
+        let to_path = vec![to_path];
+        handle_file_rename_from_unwatched( to_path, file_infos, hash_info)
     }
     // Else this is a standard rename where both old and new paths are tracked
     else{
@@ -133,19 +152,18 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     }
 }
 
-fn handle_file_rename_to_ignored(from_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+fn handle_file_rename_to_unwatched(from_path: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     // This simply needs to delete the file from being tracked.
-    let frm_path_str = vec![from_path.to_string()];
-    handle_file_delete(frm_path_str, file_infos, hash_info);
+    // let frm_path_str = vec![from_path.to_string()];
+    handle_file_delete(from_path, file_infos, hash_info);
 
 }
 
-fn handle_file_rename_from_ignored(to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
-
+fn handle_file_rename_from_unwatched(to_path: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     // This creates a new entry for the file and performs hashing
-    let to_path_str = vec![to_path.to_string()];    
-    handle_file_create(to_path_str.clone(), file_infos);
-    handle_file_save(to_path_str, file_infos, hash_info);
+    // let to_path_str = vec![to_path.to_string()];    
+    handle_file_create(to_path.clone(), file_infos);
+    handle_file_save(to_path, file_infos, hash_info);
 
 }
 
@@ -183,7 +201,8 @@ fn handle_file_rename_both_tracked(from_path: &String, to_path: &String, file_in
         // Can this even happen with debouncer?
         // For now handle it similar to when a new file is created
         eprint!("Old file: {} renamed to: {}. But no entry found for :{}", from_path, to_path, from_path);
-        handle_file_rename_from_ignored(to_path, file_infos, hash_info);
+        let to_path = vec![to_path.clone()];
+        handle_file_rename_from_unwatched(to_path, file_infos, hash_info);
     }
 }
 
