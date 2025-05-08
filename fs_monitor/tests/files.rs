@@ -36,17 +36,21 @@ async fn wait_for_file_state(
                 if Some(info.state.clone()) == expected_state {
                     return true;
                 }
+                // If we find the file but with a different state, log it but keep waiting
+                eprintln!("File exists but in different state. Current: {:?}, Expected: {:?}", info.state, expected_state);
             }
         }
+        eprintln!("Sleeping");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     
-    // Log timeout information
+    // Log timeout information with more details
     if expected_state.is_none() {
         eprintln!("Timed out waiting for file to be removed from map");
     } else {
-        eprintln!("Timed out waiting for file state: {:?}", expected_state);
+        eprintln!("Timed out waiting for state: {:?} for file: {:?}", expected_state, path);
     }
+    eprintln!("File infos struct: {:?}", file_infos);
     
     false
 } 
@@ -222,12 +226,91 @@ async fn file_rename() -> Result<(), Box<dyn std::error::Error>> {
     file.sync_all().unwrap(); 
     drop(file);
 
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let old_hash = retrieve_hash(&file_path, &file_infos, &hash_infos).await.unwrap();
     eprintln!("Attempting to Rename file: {}", file_path);
     let new_file_path = format!("test_{}.txt", Uuid::new_v4());
     std::fs::rename(file_path.clone(), new_file_path.clone());
     let new_file_path = handle_path(&new_file_path);
     assert!(wait_for_file_state(&file_infos, &file_path, None, 2000).await);
     assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Closed), 2000).await);
+    let new_hash = retrieve_hash(&new_file_path, &file_infos, &hash_infos).await.unwrap();
+
+    eprintln!("Old Hash: {}, New Hash: {}", old_hash, new_hash);
+    assert_eq!(old_hash, new_hash);
+
     Ok(())
 
+}
+
+async fn file_rename_from() -> Result<(), Box<dyn std::error::Error>> {
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_debounced_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_move_into_watched() -> Result<(), Box<dyn std::error::Error>> {
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_debounced_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    // Create a temporary directory outside the watched path
+    let temp_dir = std::env::temp_dir().join(format!("test_dir_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_dir)?;
+
+    // Create a file in the temporary directory
+    let file_name = format!("test_{}.txt", Uuid::new_v4());
+    let source_path = temp_dir.join(&file_name);
+    let mut file = File::create(&source_path)?;
+    file.write_all(b"TEST DATA")?;
+    file.flush()?;
+    drop(file);
+
+    // Move the file into the watched directory
+    let target_path = Path::new(".").join(&file_name);
+    std::fs::rename(&source_path, &target_path)?;
+    eprintln!("Old target path: {:?}", target_path);
+    let target_path = target_path.to_str().unwrap();
+    let target_path = handle_path(&target_path);
+    eprintln!("New target path: {:?}", target_path);
+
+    // Verify the file is detected and processed
+    assert!(wait_for_file_state(&file_infos, &target_path, Some(FileState::Closed), 3000).await);
+
+    // Clean up
+    std::fs::remove_file(target_path)?;
+    std::fs::remove_dir_all(temp_dir)?;
+
+    Ok(())
 }
