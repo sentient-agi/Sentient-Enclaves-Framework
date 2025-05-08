@@ -18,10 +18,13 @@ pub fn handle_path(path: &str) -> String {
         let path = relative_path.to_str().unwrap();
         // eprintln!("Relative path: {}", path);
         path.to_string()
-    }
-    else {
+    } else if path.starts_with("./"){
+            let path = path.strip_prefix("./").unwrap();
+            eprintln!("Striped Path: {:?}", path);
+            path.to_string()
+    } else {
         path.to_string()
-    }    
+    }
 }
 
 // Helper function to collect all files in a directory recursively
