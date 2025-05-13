@@ -759,13 +759,33 @@ async fn ready_handler(
 
     let results = server_state.results.lock().await;
     if results.contains_key(&file_path) {
-        (StatusCode::OK, "Ready".to_string())
+        (StatusCode::OK, format!(r#"{{
+            "file_path": {},
+            "sha3_hash": {},
+            "status": "Ready",
+        }}
+        "#,
+            file_path,
+            hex::encode(results.get(&file_path).unwrap()),
+        ))
     } else {
         let tasks = server_state.tasks.lock().await;
         if tasks.contains_key(&file_path) {
-            (StatusCode::PROCESSING, "Processing".to_string())
+            (StatusCode::PROCESSING, format!(r#"{{
+                "file_path": {},
+                "status": "Processing",
+            }}
+            "#,
+                file_path,
+            ))
         } else {
-            (StatusCode::NOT_FOUND, "Not found".to_string())
+            (StatusCode::NOT_FOUND, format!(r#"{{
+                "file_path": {},
+                "status": "Not found",
+            }}
+            "#,
+                file_path,
+            ))
         }
     }
 }
@@ -790,8 +810,8 @@ async fn readiness(
     for (file_path, hash) in results.iter() {
         if file_path.contains(path.as_str()) {
             let status = json!({
-                "path": file_path,
-                "hash": hex::encode(hash),
+                "file_path": file_path,
+                "sha3_hash": hex::encode(hash),
                 "status": "Ready",
             }).to_string();
             debug!("{status:?}");
@@ -814,7 +834,7 @@ async fn readiness(
     for (file_path, _) in tasks.iter() {
         if file_path.contains(path.as_str()) {
             let status = json!({
-                "path": file_path,
+                "file_path": file_path,
                 "status": "Processing",
             }).to_string();
             debug!("{status:?}");
@@ -852,7 +872,10 @@ async fn hash_handler(
 
     let results = state.results.lock().await;
     match results.get(&file_path) {
-        Some(hash) => (StatusCode::OK, hex::encode(hash)),
+        Some(hash) => (StatusCode::OK, json!({
+            "file_path": file_path,
+            "sha3_hash": hex::encode(hash),
+        }).to_string()),
         None => {
             let tasks = state.tasks.lock().await;
             if tasks.contains_key(&file_path) {
@@ -882,9 +905,10 @@ async fn proof_handler(
     let app_cache = state.app_cache.read().clone().att_data;
     match app_cache.get(&file_path) {
         Some(att_data) => (StatusCode::OK, json!({
-            "path": att_data.file_path,
-            "hash": att_data.sha3_hash,
-            "proof": att_data.vrf_proof,
+            "file_path": att_data.file_path,
+            "sha3_hash": att_data.sha3_hash,
+            "vrf_proof": att_data.vrf_proof,
+            "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
         }).to_string()),
         None => {
             let tasks = state.tasks.lock().await;
@@ -920,10 +944,10 @@ async fn doc_handler(
         Some(att_data) => {
             let att_doc_fmt = att_doc_fmt(att_data.att_doc.as_slice(), view.as_str());
             (StatusCode::OK, json!({
-                "path": att_data.file_path,
-                "hash": att_data.sha3_hash,
-                "proof": att_data.vrf_proof,
-                // todo: add CipherSuite or leave only att_doc_fmt
+                "file_path": att_data.file_path,
+                "sha3_hash": att_data.sha3_hash,
+                "vrf_proof": att_data.vrf_proof,
+                "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
                 "att_doc": att_doc_fmt,
             }).to_string())
         },
@@ -961,8 +985,8 @@ async fn hashes(
         ).map(
             |(path, hash)| {
                 let output = json!({
-                    "path": path,
-                    "hash": hex::encode(hash.as_slice()),
+                    "file_path": path,
+                    "sha3_hash": hex::encode(hash.as_slice()),
                 }).to_string();
                 info!("{output:?}");
                 output
@@ -998,9 +1022,10 @@ async fn proofs(
         ).map(
             |(path, att_data)| {
                 let output = json!({
-                    "path": path,
-                    "hash": att_data.sha3_hash,
-                    "proof": att_data.vrf_proof,
+                    "file_path": path,
+                    "sha3_hash": att_data.sha3_hash,
+                    "vrf_proof": att_data.vrf_proof,
+                    "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
                 }).to_string();
                 info!("{output:?}");
                 output
@@ -1040,9 +1065,10 @@ async fn docs(
             |(path, att_data)| {
                 let att_doc_fmt = att_doc_fmt(att_data.att_doc.as_slice(), view.as_str());
                 let output = json!({
-                    "path": path,
-                    "hash": att_data.sha3_hash,
-                    "proof": att_data.vrf_proof,
+                    "file_path": path,
+                    "sha3_hash": att_data.sha3_hash,
+                    "vrf_proof": att_data.vrf_proof,
+                    "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
                     "att_doc": att_doc_fmt,
                 }).to_string();
                 info!("{output:?}");
@@ -1084,13 +1110,33 @@ async fn pubkeys(
     let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
     let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey).unwrap();
     let skey4proofs_pubkey = match fmt.as_str() {
-        "pem" => skey4proofs_pkey_pubkey.public_key_to_pem().unwrap(),
-        "der" => skey4proofs_pkey_pubkey.public_key_to_der().unwrap(),
-        _ =>skey4proofs_pkey_pubkey.public_key_to_pem().unwrap(),
+        "pem" => skey4proofs_pkey_pubkey.public_key_to_pem().unwrap_or_else(
+            |e| {
+                error!("Error while converting PKey for proofs into PEM format: {:?}", e);
+                vec![]
+            }
+        ),
+        "der" => skey4proofs_pkey_pubkey.public_key_to_der().unwrap_or_else(
+            |e| {
+                error!("Error while converting PKey for proofs into DER format: {:?}", e);
+                vec![]
+            }
+        ),
+        _ => skey4proofs_pkey_pubkey.public_key_to_pem().unwrap_or_else(
+            |e| {
+                error!("Error while converting PKey for proofs into PEM format: {:?}", e);
+                vec![]
+            }
+        ),
     };
 
     let skey4proofs_pubkey_hex_string = hex::encode(skey4proofs_pubkey.clone());
-    let skey4proofs_pubkey_string = String::from_utf8(skey4proofs_pubkey.clone()).unwrap();
+    let skey4proofs_pubkey_string = String::from_utf8(skey4proofs_pubkey.clone()).unwrap_or_else(
+        |e| {
+            error!("Error while parsing PKey for proofs into string: {:?}", e);
+            "".to_string()
+        }
+    );
 
     // SKey & PKey for docs
 
@@ -1104,25 +1150,53 @@ async fn pubkeys(
     let skey4docs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4docs_eckey.public_key()).unwrap();
     let skey4docs_pkey_pubkey = PKey::from_ec_key(skey4docs_ec_pubkey).unwrap();
     let skey4docs_pubkey = match fmt.as_str() {
-        "pem" => skey4docs_pkey_pubkey.public_key_to_pem().unwrap(),
-        "der" => skey4docs_pkey_pubkey.public_key_to_pem().unwrap(),
-        _ => skey4docs_pkey_pubkey.public_key_to_pem().unwrap(),
+        "pem" => skey4docs_pkey_pubkey.public_key_to_pem().unwrap_or_else(
+            |e| {
+                error!("Error while converting PKey for docs into PEM format: {:?}", e);
+                vec![]
+            }
+        ),
+        "der" => skey4docs_pkey_pubkey.public_key_to_pem().unwrap_or_else(
+            |e| {
+                error!("Error while converting PKey for docs into DER format: {:?}", e);
+                vec![]
+            }
+        ),
+        _ => skey4docs_pkey_pubkey.public_key_to_pem().unwrap_or_else(
+            |e| {
+                error!("Error while converting PKey for docs into PEM format: {:?}", e);
+                vec![]
+            }
+        ),
     };
 
     let skey4docs_pubkey_hex_string = hex::encode(skey4docs_pubkey.clone());
-    let skey4docs_pubkey_string = String::from_utf8(skey4docs_pubkey.clone()).unwrap();
+    let skey4docs_pubkey_string = String::from_utf8(skey4docs_pubkey.clone()).unwrap_or_else(
+        |e| {
+            error!("Error while parsing PKey for docs into string: {:?}", e);
+            "".to_string()
+        }
+    );
 
     match view.as_str() {
         "hex" => (StatusCode::OK, json!({
             "pubkey4proofs": skey4proofs_pubkey_hex_string,
             "pubkey4docs": skey4docs_pubkey_hex_string,
         }).to_string()),
-        "string" | "text" => (StatusCode::OK, format!(
-            "pubkey4proofs:\n{}\n\npubkey4docs:\n{}\n\n",
-            skey4proofs_pubkey_string, skey4docs_pubkey_string
+        "string" | "text" => (StatusCode::OK, format!(r#"
+            "pubkey4proofs":
+                {}
+            "pubkey4docs":
+                {}
+            "#,
+            skey4proofs_pubkey_string, skey4docs_pubkey_string,
         )),
-        _ => (StatusCode::OK, format!(
-            "pubkey4proofs:\n{}\n\npubkey4docs:\n{}\n\n",
+        _ => (StatusCode::OK, format!(r#"
+            "pubkey4proofs":
+                {}
+            "pubkey4docs":
+                {}
+            "#,
             skey4proofs_pubkey_string, skey4docs_pubkey_string
         )),
     }
@@ -1176,7 +1250,7 @@ async fn rng_seq(
     let fd = app_state.read().nsm_fd;
     let length = query_params.get("length");
     let randomness_sequence = if let Some(length) = length {
-        let len = length.to_owned().parse::<u32>().unwrap_or_else(|_| 512u32);
+        let len = length.to_owned().parse::<usize>().unwrap_or_else(|_| 512);
         get_randomness_sequence(fd, len)
     } else { get_randomness_sequence(fd, 512) };
 
@@ -1499,29 +1573,34 @@ fn get_nsm_description(fd: i32) -> Result<NsmDescription, ()> {
     }
 }
 
-fn get_randomness_sequence(fd: i32, count_bytes: u32) -> Vec<u8> {
+fn get_randomness_sequence(fd: i32, count_bytes: usize) -> Vec<u8> {
     let mut prev_random: Vec<u8> = vec![];
     let mut random: Vec<u8> = vec![];
+    let mut random_bytes: Vec<u8> = vec![];
+    let random_gen_cycles = 128; // for reliable non-equal randomness sequences generation
 
-    for _ in 0..count_bytes {
-        random = match nsm_process_request(fd, Request::GetRandom) {
-            Response::GetRandom { random } => {
-                assert!(!random.is_empty());
-                assert!(prev_random != random);
-                prev_random = random.clone();
-                info!("Random bytes: {:?}", random.clone());
-                random
-            }
-            resp => {
-                error!(
-                    "GetRandom: expecting Response::GetRandom, but got {:?} instead",
-                    resp
-                );
-                vec![]
-            },
-        }
+    while random_bytes.len() < count_bytes {
+        for _ in 0..random_gen_cycles {
+            random = match nsm_process_request(fd, Request::GetRandom) {
+                Response::GetRandom { random } => {
+                    assert!(!random.is_empty());
+                    assert!(prev_random != random);
+                    prev_random = random.clone();
+                    info!("Random bytes: {:?}", random.clone());
+                    random
+                },
+                resp => {
+                    error!(
+                        "GetRandom: expecting Response::GetRandom, but got {:?} instead",
+                        resp
+                    );
+                    return vec![]
+                },
+            };
+        };
+        random_bytes.append(&mut random);
     };
-    random
+    random_bytes[..count_bytes].to_vec()
 }
 
 fn get_attestation_doc (
@@ -1542,7 +1621,7 @@ fn get_attestation_doc (
         Response::Attestation { document } => {
             assert_ne!(document.len(), 0, "[Error] COSE document is empty.");
             info!("COSE document length: {:?} bytes", document.len());
-            // println!("Attestation document: {:?}", document);
+            // info!("Attestation document: {:#?}", document);
             document
         }
         _ => {
