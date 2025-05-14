@@ -14,7 +14,7 @@ use axum_extra::extract::Host;
 use axum_server::tls_rustls::RustlsConfig;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{json, Value as JsonValue, to_string, to_string_pretty};
 use serde_cbor::Value as CborValue;
 use serde_cbor::Error as CborError;
 
@@ -759,32 +759,40 @@ async fn ready_handler(
 
     let results = server_state.results.lock().await;
     if results.contains_key(&file_path) {
-        (StatusCode::OK, format!(r#"{{
-            "file_path": {},
-            "sha3_hash": {},
+        let json_value = json!({
+            "file_path": file_path,
+            "sha3_hash": hex::encode(results.get(&file_path).unwrap_or(&vec![])),
             "status": "Ready",
-        }}
-        "#,
-            file_path,
-            hex::encode(results.get(&file_path).unwrap()),
+        });
+        (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(
+            |e| {
+                error!("Error formatting to JSON: {:?}", e);
+                format!("Error formatting to JSON: {:?}", e)
+            }
         ))
     } else {
         let tasks = server_state.tasks.lock().await;
         if tasks.contains_key(&file_path) {
-            (StatusCode::PROCESSING, format!(r#"{{
-                "file_path": {},
+            let json_value = json!({
+                "file_path": file_path,
                 "status": "Processing",
-            }}
-            "#,
-                file_path,
+            });
+            (StatusCode::PROCESSING, serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
             ))
         } else {
-            (StatusCode::NOT_FOUND, format!(r#"{{
-                "file_path": {},
+            let json_value = json!({
+                "file_path": file_path,
                 "status": "Not found",
-            }}
-            "#,
-                file_path,
+            });
+            (StatusCode::NOT_FOUND, serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
             ))
         }
     }
@@ -809,50 +817,81 @@ async fn readiness(
     let mut ready_statuses = Vec::<String>::with_capacity(1000);
     for (file_path, hash) in results.iter() {
         if file_path.contains(path.as_str()) {
-            let status = json!({
+            let json_value = json!({
                 "file_path": file_path,
                 "sha3_hash": hex::encode(hash),
                 "status": "Ready",
-            }).to_string();
-            debug!("{status:?}");
+            });
+            let status = serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            );
+            debug!("{status:#?}");
             ready_statuses.push(status);
         }
     };
     if ready_statuses.is_empty() {
-        let status = json!({
+        let json_value = json!({
             "path": path,
             "status": "Not found",
-        }).to_string();
-        debug!("{status:?}");
+        });
+        let status = serde_json::to_string_pretty(&json_value).unwrap_or_else(
+            |e| {
+                error!("Error formatting to JSON: {:?}", e);
+                format!("Error formatting to JSON: {:?}", e)
+            }
+        );
+        debug!("{status:#?}");
         ready_statuses.push(status);
     };
     let ready_output = ready_statuses.join("\n");
-    info!("{ready_output:?}");
+    info!("{ready_output:#?}");
 
     let tasks = server_state.tasks.lock().await;
     let mut task_statuses = Vec::<String>::with_capacity(1000);
     for (file_path, _) in tasks.iter() {
         if file_path.contains(path.as_str()) {
-            let status = json!({
+            let json_value = json!({
                 "file_path": file_path,
                 "status": "Processing",
-            }).to_string();
-            debug!("{status:?}");
+            });
+            let status = serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            );
+            debug!("{status:#?}");
             task_statuses.push(status);
         }
     };
     if task_statuses.is_empty() {
-        let status = json!({
+        let json_value = json!({
             "path": path,
             "status": "Not found",
-        }).to_string();
-        debug!("{status:?}");
+        });
+        let status = serde_json::to_string_pretty(&json_value).unwrap_or_else(
+            |e| {
+                error!("Error formatting to JSON: {:?}", e);
+                format!("Error formatting to JSON: {:?}", e)
+            }
+        );
+        debug!("{status:#?}");
         task_statuses.push(status);
     };
     let tasks_output = task_statuses.join("\n");
-    info!("{tasks_output:?}");
+    info!("{tasks_output:#?}");
 
-    (StatusCode::OK, format!("{:?}\n{:?}\n", ready_output, tasks_output))
+    (StatusCode::OK, format!(r#"{{
+        Ready: {},
+        Tasks: {},
+    }}
+    "#,
+        ready_output,
+        tasks_output,
+    ))
 }
 
 async fn hash_handler(
@@ -872,10 +911,18 @@ async fn hash_handler(
 
     let results = state.results.lock().await;
     match results.get(&file_path) {
-        Some(hash) => (StatusCode::OK, json!({
-            "file_path": file_path,
-            "sha3_hash": hex::encode(hash),
-        }).to_string()),
+        Some(hash) => {
+            let json_value = json!({
+                "file_path": file_path,
+                "sha3_hash": hex::encode(hash),
+            });
+            (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            ))
+        },
         None => {
             let tasks = state.tasks.lock().await;
             if tasks.contains_key(&file_path) {
@@ -904,12 +951,20 @@ async fn proof_handler(
 
     let app_cache = state.app_cache.read().clone().att_data;
     match app_cache.get(&file_path) {
-        Some(att_data) => (StatusCode::OK, json!({
-            "file_path": att_data.file_path,
-            "sha3_hash": att_data.sha3_hash,
-            "vrf_proof": att_data.vrf_proof,
-            "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
-        }).to_string()),
+        Some(att_data) => {
+            let json_value = json!({
+                "file_path": att_data.file_path,
+                "sha3_hash": att_data.sha3_hash,
+                "vrf_proof": att_data.vrf_proof,
+                "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
+            });
+            (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            ))
+        },
         None => {
             let tasks = state.tasks.lock().await;
             if tasks.contains_key(&file_path) {
@@ -943,13 +998,19 @@ async fn doc_handler(
     match app_cache.get(&file_path) {
         Some(att_data) => {
             let att_doc_fmt = att_doc_fmt(att_data.att_doc.as_slice(), view.as_str());
-            (StatusCode::OK, json!({
-                "file_path": att_data.file_path,
-                "sha3_hash": att_data.sha3_hash,
-                "vrf_proof": att_data.vrf_proof,
-                "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
-                "att_doc": att_doc_fmt,
-            }).to_string())
+            let json_value = json!({
+                    "file_path": att_data.file_path,
+                    "sha3_hash": att_data.sha3_hash,
+                    "vrf_proof": att_data.vrf_proof,
+                    "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
+                    "att_doc": att_doc_fmt,
+                });
+            (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            ))
         },
         None => {
             let tasks = state.tasks.lock().await;
@@ -984,19 +1045,25 @@ async fn hashes(
                 key.contains(path.as_str())
         ).map(
             |(path, hash)| {
-                let output = json!({
+                let json_value = json!({
                     "file_path": path,
                     "sha3_hash": hex::encode(hash.as_slice()),
-                }).to_string();
-                info!("{output:?}");
+                });
+                let output = serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                    |e| {
+                        error!("Error formatting to JSON: {:?}", e);
+                        format!("Error formatting to JSON: {:?}", e)
+                    }
+                );
+                info!("{output:#?}");
                 output
             }
         )
         .collect::<Vec<String>>()
         .join("\n");
-    info!("{response:?}");
+    info!("{response:#?}");
 
-    (StatusCode::OK, format!("{:?}\n", response))
+    (StatusCode::OK, format!(r#"{}"#, response))
 }
 
 async fn proofs(
@@ -1021,21 +1088,27 @@ async fn proofs(
                 key.contains(path.as_str())
         ).map(
             |(path, att_data)| {
-                let output = json!({
+                let json_value = json!({
                     "file_path": path,
                     "sha3_hash": att_data.sha3_hash,
                     "vrf_proof": att_data.vrf_proof,
                     "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
                 }).to_string();
-                info!("{output:?}");
+                let output = serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                    |e| {
+                        error!("Error formatting to JSON: {:?}", e);
+                        format!("Error formatting to JSON: {:?}", e)
+                    }
+                );
+                info!("{output:#?}");
                 output
             }
         )
         .collect::<Vec<String>>()
         .join("\n");
-    info!("{response:?}");
+    info!("{response:#?}");
 
-    (StatusCode::OK, format!("{:?}\n", response))
+    (StatusCode::OK, format!(r#"{}"#, response))
 }
 
 async fn docs(
@@ -1064,22 +1137,28 @@ async fn docs(
         ).map(
             |(path, att_data)| {
                 let att_doc_fmt = att_doc_fmt(att_data.att_doc.as_slice(), view.as_str());
-                let output = json!({
+                let json_value = json!({
                     "file_path": path,
                     "sha3_hash": att_data.sha3_hash,
                     "vrf_proof": att_data.vrf_proof,
                     "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
                     "att_doc": att_doc_fmt,
-                }).to_string();
-                info!("{output:?}");
+                });
+                let output = serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                    |e| {
+                        error!("Error formatting to JSON: {:?}", e);
+                        format!("Error formatting to JSON: {:?}", e)
+                    }
+                );
+                info!("{output:#?}");
                 output
             }
         )
         .collect::<Vec<String>>()
         .join("\n");
-    info!("{response:?}");
+    info!("{response:#?}");
 
-    (StatusCode::OK, format!("{:?}\n", response))
+    (StatusCode::OK, format!(r#"{}"#, response))
 }
 
 async fn pubkeys(
@@ -1179,26 +1258,37 @@ async fn pubkeys(
     );
 
     match view.as_str() {
-        "hex" => (StatusCode::OK, json!({
-            "pubkey4proofs": skey4proofs_pubkey_hex_string,
-            "pubkey4docs": skey4docs_pubkey_hex_string,
-        }).to_string()),
-        "string" | "text" => (StatusCode::OK, format!(r#"
-            "pubkey4proofs":
-                {}
-            "pubkey4docs":
-                {}
+        "hex" | "json" => {
+            let json_value = json!({
+                "pubkey4proofs": skey4proofs_pubkey_hex_string,
+                "pubkey4docs": skey4docs_pubkey_hex_string,
+            });
+            (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            ))
+        },
+        "string" | "text" => (StatusCode::OK, format!(r#"{{
+            "pubkey4proofs": {},
+            "pubkey4docs": {},
+            }}
             "#,
             skey4proofs_pubkey_string, skey4docs_pubkey_string,
         )),
-        _ => (StatusCode::OK, format!(r#"
-            "pubkey4proofs":
-                {}
-            "pubkey4docs":
-                {}
-            "#,
-            skey4proofs_pubkey_string, skey4docs_pubkey_string
-        )),
+        _ => {
+            let json_value = json!({
+                "pubkey4proofs": skey4proofs_pubkey_hex_string,
+                "pubkey4docs": skey4docs_pubkey_hex_string,
+            });
+            (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            ))
+        },
     }
 }
 
@@ -1220,7 +1310,7 @@ async fn nsm_desc(
     );
 
     info!(
-        "NSM description: [major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {}].",
+        "NSM description: [ major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {} ]\n",
         description.version_major,
         description.version_minor,
         description.version_patch,
@@ -1231,7 +1321,7 @@ async fn nsm_desc(
     );
 
     (StatusCode::OK, format!(
-        "NSM description: [major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {}].\n",
+        "NSM description: [ major: {}, minor: {}, patch: {}, module_id: {}, max_pcrs: {}, locked_pcrs: {:?}, digest: {} ]\n",
         description.version_major,
         description.version_minor,
         description.version_patch,
@@ -1254,7 +1344,7 @@ async fn rng_seq(
         get_randomness_sequence(fd, len)
     } else { get_randomness_sequence(fd, 512) };
 
-    (StatusCode::OK, format!("{:?}\n", hex::encode(randomness_sequence)))
+    (StatusCode::OK, format!(r#"{}"#, hex::encode(randomness_sequence)))
 }
 
 fn att_doc_fmt(
@@ -1280,126 +1370,134 @@ fn att_doc_fmt(
 
     let header_protected_str = protected_header.into_inner().iter().map(
         |(key, val)|
-            format!("{:#?}: {:#?}", hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
+            format!(r#"{}: {}"#, hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
     )
     .collect::<Vec<String>>()
     .join(",\n");
 
     let header_unprotected_str = unprotected_header.into_inner().iter().map(
         |(key, val)|
-            format!("{:#?}: {:#?}", hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
-    )
-    .collect::<Vec<String>>()
-    .join(",\n");
-
-    let cabundle_fmt = attestation_doc.cabundle.iter().map(
-        |item| format!("{:#?}", hex::encode(item.clone().into_vec()))
+            format!(r#"{}: {}"#, hex::encode(serde_cbor::to_vec(key).unwrap()), hex::encode(serde_cbor::to_vec(val).unwrap()))
     )
     .collect::<Vec<String>>()
     .join(",\n");
 
     let pcrs_fmt = attestation_doc.pcrs.iter().map(
-        |(key, val)| format!("{:#?}: {:#?}", key.to_string(), hex::encode(val.clone().into_vec()))
+        |(key, val)| format!(r#"{}: {}"#, key.to_string(), hex::encode(val.clone().into_vec()))
+    )
+    .collect::<Vec<String>>()
+    .join(",\n");
+
+    let cabundle_fmt = attestation_doc.cabundle.iter().map(
+        |item| format!(r#"{}"#, hex::encode(item.clone().into_vec()))
     )
     .collect::<Vec<String>>()
     .join(",\n");
 
     let output =  match view {
-        "bin_hex" => hex::encode(att_doc),
+        "bin" | "hex" | "bin_hex" => hex::encode(att_doc),
 
-        "json_hex" => format!("{{\n
-            \"protected_header\": {{\n
-                {:#?}\n
-            }},\n
-            \"unprotected_header\": {{\n
-                {:#?}\n
-            }},\n
-            \"payload\": {{\n
-                \"module_id\": {:#?},\n
-                \"digest\": {},\n
-                \"timestamp\": {:#?},\n
-                \"PCRs\": {{\n
-                    {:#?}\n
-                }},\n
-                \"certificate\": {:#?},\n
-                \"ca_bundle\": [\n
-                    {:#?}\n
-                ],\n
-                \"public_key\": {:#?},\n
-                \"user_data\": {:#?},\n
-                \"nonce\": {:#?},\n
-            }},\n
-            \"signature\": {:#?},\n
-        }}\n",
-            header_protected_str,
-            header_unprotected_str,
-            attestation_doc.module_id,
-            LocalNsmDigest(attestation_doc.digest),
-            attestation_doc.timestamp.to_string(),
-            pcrs_fmt,
-            hex::encode(attestation_doc.certificate.into_vec()),
-            cabundle_fmt,
-            hex::encode(attestation_doc.public_key.unwrap_or(ByteBuf::new()).into_vec()),
-            att_doc_user_data_json_string,
-            hex::encode(attestation_doc.nonce.unwrap_or(ByteBuf::new()).into_vec()),
-            hex::encode(attestation_doc_signature.clone()),
-        ),
+        "json_hex" => {
+            let json_value = json!({
+                "protected_header": format!(r#"{{
+                    {}
+                }}"#, header_protected_str),
+                "unprotected_header": format!(r#"{{
+                    {}
+                }}"#, header_unprotected_str),
+                "payload": {
+                    "module_id": attestation_doc.module_id,
+                    "digest": LocalNsmDigest(attestation_doc.digest).to_string(),
+                    "timestamp": attestation_doc.timestamp.to_string(),
+                    "PCRs": format!(r#"{{
+                        {}
+                    }}"#, pcrs_fmt),
+                    "certificate": hex::encode(attestation_doc.certificate.into_vec()),
+                    "ca_bundle": [
+                        cabundle_fmt
+                    ],
+                    "public_key": hex::encode(attestation_doc.public_key.unwrap_or(ByteBuf::new()).into_vec()),
+                    "user_data": att_doc_user_data_json_string,
+                    "nonce": hex::encode(attestation_doc.nonce.unwrap_or(ByteBuf::new()).into_vec()),
+                },
+                "signature": hex::encode(attestation_doc_signature.clone()),
+            });
+            serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            )
+        },
 
-        "json_str" => format!("{{\n
-            \"protected_header\": {{ {:#?} }}\n
-            \"unprotected_header\": {{ {:#?} }}\n
-            \"payload\": {:#?}\n
-            \"signature\": {:#?}\n
-        }}\n",
-            header_protected_str,
-            header_unprotected_str,
-            attestation_doc_json_string,
-            hex::encode(attestation_doc_signature.clone()),
-        ),
+        "json_str" => {
+            let json_value = json!({
+                "protected_header": format!(r#"{{
+                    {}
+                }}"#, header_protected_str),
+                "unprotected_header": format!(r#"{{
+                    {}
+                }}"#, header_unprotected_str),
+                "payload": attestation_doc_json_string,
+                "signature": hex::encode(attestation_doc_signature.clone()),
+            });
+            serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            )
+        },
 
-        "json_debug" => format!("{{\n
-            \"protected_header\": {:#?}\n
-            \"unprotected_header\": {:#?}\n
-            \"payload\": {:#?}\n
-            \"signature\": {:#?}\n
-        }}\n",
+        "json_debug" => format!(r#"{{
+            "protected_header": {{
+                {:#?}
+            }},
+            "unprotected_header": {{
+                {:#?}
+            }},
+            "payload": {},
+            "signature": {:#?},
+        }}
+        "#,
             protected_header,
             unprotected_header,
             attestation_doc_json_string,
             attestation_doc_signature.clone(),
         ),
 
-        "debug" => format!("{:#?}", cose_doc),
+        "debug" => format!(r#"{:#?}"#, cose_doc),
 
-        "debug_pretty_print" => format!("{{\n
-            \"protected_header\": {{\n
-                {:#?}\n
-            }},\n
-            \"unprotected_header\": {{\n
-                {:#?}\n
-            }},\n
-            \"payload\": {{\n
-                \"module_id\": {:#?},\n
-                \"digest\": {},\n
-                \"timestamp\": {:#?},\n
-                \"PCRs\": {{\n
-                    {:#?}\n
-                }},\n
-                \"certificate\": {:#?},\n
-                \"ca_bundle\": [\n
-                    {:#?}\n
-                ],\n
-                \"public_key\": {:#?},\n
-                \"user_data\": {{\n
-                    \"file_path\": {:#?},\n
-                    \"sha3_hash\": {:#?},\n
-                    \"vrf_proof\": {:#?},\n
-                    \"vrf_cipher_suite\": {:#?},\n
-                }},\n
-                \"nonce\": {:#?},\n
-            }},\n
-            \"signature\": {:#?},\n
-        }}\n",
+        "debug_pretty_print" => format!(r#"{{
+            "protected_header": {{
+                {:#?}
+            }},
+            "unprotected_header": {{
+                {:#?}
+            }},
+            "payload": {{
+                "module_id": {:#?},
+                "digest": {},
+                "timestamp": {:#?},
+                "PCRs": {{
+                    {:#?}
+                }},
+                "certificate": {:#?},
+                "ca_bundle\": [
+                    {:#?}
+                ],
+                "public_key": {:#?},
+                "user_data": {{
+                    "file_path": {:#?},
+                    "sha3_hash": {:#?},
+                    "vrf_proof": {:#?},
+                    "vrf_cipher_suite": {:#?},
+                }},
+                "nonce": {:#?},
+            }},
+            "signature": {:#?},
+        }}
+        "#,
             protected_header,
             unprotected_header,
             attestation_doc.module_id,
@@ -1417,12 +1515,13 @@ fn att_doc_fmt(
             attestation_doc_signature,
         ),
 
-        _ => format!("
-            Attestation document ('bin_hex' string):\n
-            {:#?}\n\n
-            Set the 'view' format string parameter for attestation document:\n
-            'view=(bin_hex | json_hex | json_str | json_debug | debug | debug_pretty_print)'\n
-        ",
+        _ => format!(r#"
+            Attestation document ('bin_hex' string):
+            {:#?}
+
+            Set the 'view' format string parameter for attestation document:
+            'view=(bin_hex | json_hex | json_str | json_debug | debug | debug_pretty_print)'
+        "#,
             hex::encode(att_doc)
         ),
     };
