@@ -35,6 +35,8 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
                     handle_file_create(paths, file_infos);
                 },
                 CreateKind::Folder => {
+                    // With a flat structure we need not worry about folders.
+                    // This event can simply be ignored.
                     println!("Create event for Folder: {:?}", paths);
                 },
                 _ => {}
@@ -47,6 +49,7 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
                     handle_file_delete(paths.clone(), &file_infos, &hash_info);
                 },
                 RemoveKind::Folder => {
+                    handle_directory_delete(paths.clone(), &file_infos, &hash_info);
                     println!("Remove event for Folder: {:?}", paths);
                 },
                 _ => {}
@@ -247,4 +250,38 @@ fn handle_file_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
         let mut hash_results = hash_info_clone.hash_results.lock().await;
         hash_results.remove(&path);
     });
+}
+
+fn collect_files_in_directory(dir_path: String, file_infos: &Arc<DashMap<String, FileInfo>>) -> Vec<String> {
+    let mut collected_files: Vec<String> = vec![];
+    let _ = file_infos.iter().map(|ref_multi| {
+        let path = ref_multi.key().to_string();
+        if path.starts_with(&dir_path) {
+            collected_files.push(path);
+        }
+    });
+    collected_files
+
+}
+
+fn handle_directory_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+    let directory_path = paths[0].clone();
+
+    let collected_files = collect_files_in_directory(directory_path, file_infos);
+    
+    // First remove the maintained state synchronously
+    for file_path in collected_files.iter(){
+       file_infos.remove(file_path);
+    }
+
+    let hash_info_clone = Arc::clone(hash_info);
+    // In async way remove the hash results
+    tokio::spawn( async move {
+        let mut hash_results = hash_info_clone.hash_results.lock().await;
+        for file_path in collected_files.iter() {
+            // Clean-up the hash
+            hash_results.remove(file_path);
+        }
+    });
+
 }
