@@ -1395,7 +1395,38 @@ fn att_doc_fmt(
     .join(",\n");
 
     let output =  match view {
-        "bin" | "hex" | "bin_hex" => hex::encode(att_doc),
+        "bin" | "hex" | "bin_hex" | "cose_doc" | "cose_doc_bin" | "cose_doc_hex" | "cose_doc_bin_hex" =>
+            hex::encode(att_doc),
+
+        "att_doc" | "att_doc_bin" | "att_doc_hex" | "att_doc_bin_hex" =>
+            hex::encode(attestation_doc_bytes.clone()),
+
+        "att_doc_user_data" | "att_doc_user_data_json" | "att_doc_user_data_json_hex" => {
+            let json_value = json!({
+                "public_key": hex::encode(attestation_doc.public_key.unwrap_or(ByteBuf::new()).into_vec()),
+                "user_data": hex::encode(att_doc_user_data_bytes.clone()),
+            });
+            serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            )
+        },
+
+        "pcr" | "pcrs" => {
+            let json_value = json!({
+                "PCRs": format!(r#"{{
+                    {}
+                }}"#, pcrs_fmt)
+            });
+            serde_json::to_string_pretty(&json_value).unwrap_or_else(
+                |e| {
+                    error!("Error formatting to JSON: {:?}", e);
+                    format!("Error formatting to JSON: {:?}", e)
+                }
+            )
+        },
 
         "json_hex" => {
             let json_value = json!({
