@@ -64,7 +64,7 @@ POST /verify_doc/?json{ doc: byte_hex_string }
 POST /verify_doc_sign/?json{ doc: byte_hex_string }
 
 // Endpoint to verify base image static (build time) PCR hashes against Nitro Enclave's runtime PCR computed parameters.
-// PCR hashes of EIF static FS image (computed on build time) will be retrieved from received json_string or from received attestation doc and compared against Nitro Enclave's runtime PCR hashes retrieved from standalone attestation document, received from enclave's NSM devide upon and during this web request.
+// PCR hashes of EIF static FS image (computed on build time) will be retrieved from received json_string or from received attestation doc and compared against Nitro Enclave's runtime PCR hashes retrieved from standalone attestation document, received from enclave's NSM device upon and during this web request.
 POST /verify_base_image/?json{ PCRs: json_string || doc: byte_hex_string }
 POST /verify_pcrs/?json{ PCRs: json_string || doc: byte_hex_string }
 
