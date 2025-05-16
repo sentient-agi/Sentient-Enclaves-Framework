@@ -321,6 +321,33 @@ struct GenerateRequest {
     path: String,
 }
 
+#[derive(Default, Debug, Clone, Deserialize)]
+struct VerifyHashRequest {
+    file_path: String,
+    sha3_hash: String,
+}
+
+#[derive(Default, Debug, Clone, Deserialize)]
+struct VerifyProofRequest {
+    user_data: String,
+    public_key: String,
+}
+
+#[derive(Default, Debug, Clone, Deserialize)]
+struct VerifyDocRequest {
+    cose_doc_bytes: String,
+}
+
+#[derive(Default, Debug, Clone, Deserialize)]
+struct VerifyCertValidRequest {
+    att_doc_bytes: String,
+}
+
+#[derive(Default, Debug, Clone, Deserialize)]
+struct VerifyCertCABundleRequest {
+    att_doc_bytes: String,
+}
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
     tracing_subscriber::registry()
@@ -486,8 +513,11 @@ async fn main() -> io::Result<()> {
         .route("/docs/", get(docs))
         .route("/doc/", get(doc_handler))
         .route("/pubkeys/", get(pubkeys))
-//        .route("/verify_proof/", get(verify_proof))
-//        .route("/verify_doc/", get(verify_doc))
+        .route("/verify_hash/", post(verify_hash))
+        .route("/verify_proof/", post(verify_proof))
+        .route("/verify_doc/", post(verify_doc))
+        .route("/verify_cert_valid/", post(verify_cert_valid))
+        .route("/verify_cert_bundle/", post(verify_cert_bundle))
         .route("/echo/", get(echo))
         .route("/hello/", get(hello))
         .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&state.app_state)))
@@ -1589,6 +1619,45 @@ impl std::fmt::Display for LocalNsmDigest {
         };
         write!(f, "{}", name)
     }
+}
+
+async fn verify_hash(
+    State(state): State<Arc<ServerState>>,
+    Json(payload): Json<VerifyHashRequest>,
+) -> impl IntoResponse {
+    todo!()
+}
+
+async fn verify_proof(
+    State(state): State<Arc<ServerState>>,
+    Json(payload): Json<VerifyProofRequest>,
+) -> impl IntoResponse {
+    todo!()
+//    let user_data = payload.user_data.clone();
+//    let public_key = payload.public_key.clone();
+//    (StatusCode::BAD_REQUEST, format!("{:?}\n", message.to_string()))
+//    (StatusCode::OK, format!("{:?}\n", message.to_string()))
+}
+
+async fn verify_doc(
+    State(state): State<Arc<ServerState>>,
+    Json(payload): Json<VerifyDocRequest>,
+) -> impl IntoResponse {
+    todo!()
+}
+
+async fn verify_cert_valid(
+    State(state): State<Arc<ServerState>>,
+    Json(payload): Json<VerifyCertValidRequest>,
+) -> impl IntoResponse {
+    todo!()
+}
+
+async fn verify_cert_bundle(
+    State(state): State<Arc<ServerState>>,
+    Json(payload): Json<VerifyCertCABundleRequest>,
+) -> impl IntoResponse {
+    todo!()
 }
 
 /// Randomly generate PRIME256V1/P-256 key to use for validating signing internally
