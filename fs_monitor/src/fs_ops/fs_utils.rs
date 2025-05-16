@@ -54,3 +54,33 @@ pub fn collect_files_recursively(dir_path: &std::path::Path, files: &mut Vec<Str
     
     Ok(())
 }
+
+// Helper function to walk a directory recursively and collect all file paths
+pub fn walk_directory(dir_path: &str) -> io::Result<Vec<String>> {
+    let mut files = Vec::new();
+    let path = std::path::Path::new(dir_path);
+    
+    if !path.is_dir() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, 
+                                 format!("{} is not a directory", dir_path)));
+    }
+    
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let path = entry.path();
+        
+        if path.is_dir() {
+            // Recursively process subdirectories
+            let subdir_path = path.to_string_lossy().to_string();
+            let mut subdir_files = walk_directory(&subdir_path)?;
+            files.append(&mut subdir_files);
+        } else if path.is_file() {
+            // Add file to list
+            if let Some(path_str) = path.to_str() {
+                files.push(handle_path(path_str));
+            }
+        }
+    }
+    
+    Ok(files)
+}

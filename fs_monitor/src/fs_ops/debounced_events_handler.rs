@@ -7,7 +7,8 @@ use dashmap::DashMap;
 use crate::hash::storage::{HashInfo, perform_file_hashing};
 use crate::fs_ops::state::{FileInfo, FileState, FileType};
 use crate::fs_ops::ignore::IgnoreList;
-use crate::fs_ops::fs_utils::{handle_path, is_directory};
+use crate::fs_ops::fs_utils::{handle_path, is_directory, walk_directory};
+use std::io;
 
 
 pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList) -> Result<()> {
@@ -227,11 +228,41 @@ fn handle_file_rename_from_unwatched(to_path: Vec<String>, file_infos: &Arc<Dash
 
 }
 
-fn handle_directory_rename_from_unwatched(to_path: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
-    // This needs to recursively start hashing the directory.
-    // This is a to do!!
-    return;
+
+fn handle_directory_rename_from_unwatched(to_path: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) {
+    if to_path.is_empty() {
+        return;
+    }
+
+    let dir_path = to_path[0].clone();
+    let file_infos_clone = Arc::clone(file_infos);
+    let hash_info_clone = Arc::clone(hash_info);
+    
+    // Process directory in background to avoid blocking
+    tokio::spawn(async move {
+        // Recursively walk the filesystem to find all files
+        match walk_directory(&dir_path) {
+            Ok(files) => {
+                for file_path in &files {
+                    // Add each file to tracking with state Closed
+                    file_infos_clone.insert(file_path.clone(), FileInfo {
+                        file_type: FileType::File,
+                        state: FileState::Closed,
+                        version: 0,
+                    });
+                    
+                    // Start hashing task for each file
+                    perform_file_hashing(file_path.to_string(), Arc::clone(&hash_info_clone)).await;
+                }
+                eprintln!("Processed directory {}: added {} files to tracking", dir_path, files.len());
+            },
+            Err(e) => {
+                eprintln!("Error collecting files from {}: {}", dir_path, e);
+            }
+        }
+    });
 }
+
 
 fn handle_file_rename_both_tracked(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     // Transfer Old file's history
@@ -376,3 +407,4 @@ fn handle_directory_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, 
     });
 
 }
+
