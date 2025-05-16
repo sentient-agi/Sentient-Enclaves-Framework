@@ -9,6 +9,7 @@ use crate::fs_ops::state::FileInfo;
 use crate::fs_ops::fs_utils;
 use dashmap::DashMap;
 use sha3::Digest;
+use fs_utils::is_directory;
 
 #[derive(Debug, Clone)]
 pub struct HashInfo {
@@ -63,17 +64,7 @@ pub async fn perform_file_hashing(path: String, hash_info: Arc<HashInfo>) {
 
 
 pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<String> {
-    let metadata = std::fs::metadata(path).map_err(|e| {
-        io::Error::new(e.kind(), format!("Failed to get metadata for '{}': {}", path, e))
-    })?;
-
-    // First verify the directory exists in our tracking system
-    if metadata.is_dir() && !file_infos.contains_key(path) {
-        return Err(io::Error::new(io::ErrorKind::NotFound, 
-            format!("Directory '{}' is not being tracked", path)));
-    }
-
-    if metadata.is_dir() {
+    if is_directory(path) {
         let mut files = Vec::new();
         
         // Use proper filesystem traversal instead of string prefix matching
