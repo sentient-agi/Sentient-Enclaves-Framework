@@ -304,3 +304,145 @@ async fn directory_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error
     
     Ok(())
 }
+
+#[tokio::test]
+async fn directory_rename_to_ignored() -> Result<(), Box<dyn std::error::Error>> {
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_debounced_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    // Create directory in watched location
+    let (root_dir, file_paths) = create_test_directory_hierarchy(Path::new("."))?;
+    
+    // Wait for all files to be detected
+    for file_path in &file_paths {
+        let normalized_path = handle_path(file_path);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, Some(FileState::Closed), 4000).await);
+    }
+    
+    // Rename directory to an ignored path (using tmp_* pattern from fs_ignore)
+    let new_dir_name = format!("tmp_{}", Uuid::new_v4());
+    let new_dir_path = Path::new(&new_dir_name);
+    std::fs::rename(&root_dir, new_dir_path)?;
+    
+    // Verify files are no longer tracked (should be removed because path is now ignored)
+    for file_path in &file_paths {
+        let normalized_path = handle_path(file_path);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, None, 4000).await);
+    }
+    
+    // Clean up
+    std::fs::remove_dir_all(new_dir_path)?;
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn directory_rename_from_ignored() -> Result<(), Box<dyn std::error::Error>> {
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_debounced_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    // Create a directory with an ignored name pattern
+    let ignored_dir_name = format!("tmp_{}", Uuid::new_v4());
+    let ignored_dir_path = Path::new(&ignored_dir_name);
+    std::fs::create_dir_all(ignored_dir_path)?;
+    
+    // Create the directory hierarchy inside the ignored directory
+    let (_, file_paths) = create_test_directory_hierarchy(ignored_dir_path)?;
+    
+    // Verify files in ignored directory are not tracked
+    for file_path in &file_paths {
+        let normalized_path = handle_path(file_path);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, None, 4000).await);
+    }
+    
+    // Rename the directory to non-ignored name
+    let new_dir_name = format!("watched_dir_{}", Uuid::new_v4());
+    let new_dir_path = Path::new(&new_dir_name);
+    std::fs::rename(ignored_dir_path, new_dir_path)?;
+    
+    // Verify files are now tracked after moving to non-ignored directory
+    for file_path in &file_paths {
+        let new_path = file_path.replace(&ignored_dir_name, &new_dir_name);
+        let normalized_new_path = handle_path(&new_path);
+        
+        assert!(wait_for_file_state(&file_infos, &normalized_new_path, Some(FileState::Closed), 4000).await);
+    }
+    
+    // Clean up
+    std::fs::remove_dir_all(new_dir_path)?;
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn directory_rename_to_dotcache() -> Result<(), Box<dyn std::error::Error>> {
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_debounced_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    // Create directory in watched location
+    let (root_dir, file_paths) = create_test_directory_hierarchy(Path::new("."))?;
+    
+    // Wait for all files to be detected
+    for file_path in &file_paths {
+        let normalized_path = handle_path(file_path);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, Some(FileState::Closed), 4000).await);
+    }
+    
+    let cache_dir = ".cache";
+    std::fs::create_dir_all(cache_dir)?; // Ensure .cache exists
+    let new_dir_path = Path::new(cache_dir).join(format!("cache_content_{}", Uuid::new_v4()));
+    std::fs::rename(&root_dir, &new_dir_path)?;
+    
+    // Verify files are no longer tracked
+    for file_path in &file_paths {
+        let normalized_path = handle_path(file_path);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, None, 4000).await);
+    }
+    
+    // Clean up
+    std::fs::remove_dir_all(new_dir_path)?;
+    
+    Ok(())
+}
