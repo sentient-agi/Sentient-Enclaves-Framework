@@ -73,12 +73,7 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
                 RenameMode::To => {
                     println!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
                     if is_directory(&path){
-                        // Collect all the files present in the directory recursively
-                        // and push their hashes.
-                        // let collected_files = collect_files_in_directory(path, file_infos);
-                        // for file_path in collected_files.iter(){
-
-                        // }
+                        handle_directory_rename_from_unwatched( paths, file_infos, hash_info);
                     } else {
                         handle_file_rename_from_unwatched(paths, file_infos, hash_info);  
                     }

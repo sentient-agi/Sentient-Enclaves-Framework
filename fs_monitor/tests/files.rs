@@ -192,7 +192,7 @@ async fn file_deletion_empty() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[tokio::test]
-async fn file_rename() -> Result<(), Box<dyn std::error::Error>> {
+async fn file_rename_basic() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
@@ -239,11 +239,13 @@ async fn file_rename() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("Old Hash: {}, New Hash: {}", old_hash, new_hash);
     assert_eq!(old_hash, new_hash);
 
+    std::fs::remove_file(new_file_path)?;
     Ok(())
 
 }
 
-async fn file_rename_from() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::test]
+async fn file_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
@@ -261,13 +263,44 @@ async fn file_rename_from() -> Result<(), Box<dyn std::error::Error>> {
         ignore_list
     ).await?;
 
+    let file_path = format!("test_{}.txt", Uuid::new_v4());
+    let mut file = File::create(file_path.clone())?;
+    let file_path = handle_path(&file_path);
+    eprintln!("Path: {}", file_path);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
+
+    // Perform dummy writes
+    let _ = file.write_all(b"SOME DATA");
+    let _ = file.flush();
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 2000).await);
+
+    // Close the file
+    file.flush().unwrap();
+    file.sync_all().unwrap(); 
+    drop(file);
     
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 2000).await);
+
+
+    // Move the file out of this directory.
+    // As the parent directory is unwatched, this
+    // effectively moves the file into an unwatched
+    // directory.
+
+    let new_path = Path::new("..").join(&file_path);
+
+    std::fs::rename(file_path.clone(), new_path.clone())?;
+
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 2000).await);
+
+    // Cleanup the renamed file
+    std::fs::remove_file(new_path)?;
 
     Ok(())
 }
 
 #[tokio::test]
-async fn file_move_into_watched() -> Result<(), Box<dyn std::error::Error>> {
+async fn file_rename_from_unwatched() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./empty_ignore"));

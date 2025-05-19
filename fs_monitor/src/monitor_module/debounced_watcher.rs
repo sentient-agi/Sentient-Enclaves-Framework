@@ -33,7 +33,7 @@ pub async fn setup_debounced_watcher(
                 Ok(debounced_events) => {
                     debounced_events.iter().for_each( |debounced_event| {
                         // println!("Debounced Event: {:?}", debounced_event);
-                        handle_debounced_event(debounced_event.clone(), &file_infos, &hash_infos, &ignore_list);
+                        let _ = handle_debounced_event(debounced_event.clone(), &file_infos, &hash_infos, &ignore_list);
                     }                      
                 )},
                 Err(errors) => errors.iter().for_each(|error| println!("{error:?}")),
