@@ -228,9 +228,11 @@ async fn file_rename_basic() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::time::sleep(Duration::from_secs(2)).await;
     let old_hash = retrieve_hash(&file_path, &file_infos, &hash_infos).await.unwrap();
+    
     eprintln!("Attempting to Rename file: {}", file_path);
     let new_file_path = format!("test_{}.txt", Uuid::new_v4());
-    std::fs::rename(file_path.clone(), new_file_path.clone());
+    std::fs::rename(file_path.clone(), new_file_path.clone())?;
+    
     let new_file_path = handle_path(&new_file_path);
     assert!(wait_for_file_state(&file_infos, &file_path, None, 4000).await);
     assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Closed), 4000).await);
@@ -345,5 +347,109 @@ async fn file_rename_from_unwatched() -> Result<(), Box<dyn std::error::Error>> 
     std::fs::remove_file(target_path)?;
     std::fs::remove_dir_all(temp_dir)?;
 
+    Ok(())
+}
+
+// Ignored and unwatched differ in that ignored
+// gives us both the path but we just voluntarily ignore
+// one or both the paths.
+#[tokio::test]
+async fn file_rename_to_ignored() -> Result<(), Box<dyn std::error::Error>>{
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_debounced_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    let file_path = format!("test_{}.txt", Uuid::new_v4());
+    let mut file = File::create(file_path.clone())?;
+    let file_path = handle_path(&file_path);
+    eprintln!("Path: {}", file_path);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 4000).await);
+
+    // Perform dummy writes
+    let _ = file.write_all(b"SOME DATA");
+    let _ = file.flush();
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 4000).await);
+
+    // Close the file
+    file.flush().unwrap();
+    file.sync_all().unwrap(); 
+    drop(file);
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    
+    // Rename to an ignored path
+    eprintln!("Attempting to Rename file to an ignored path: {}", file_path);
+    let new_file_path = format!("tmp_test_{}.txt", Uuid::new_v4());
+    std::fs::rename(file_path.clone(), new_file_path.clone())?;
+    
+    let new_file_path = handle_path(&new_file_path);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 4000).await);
+    assert!(wait_for_file_state(&file_infos, &new_file_path, None, 4000).await);
+
+    std::fs::remove_file(new_file_path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_rename_from_ignored() -> Result<(), Box<dyn std::error::Error>>{
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_debounced_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    let file_path = format!("tmp_test_{}.txt", Uuid::new_v4());
+    let mut file = File::create(file_path.clone())?;
+    let file_path = handle_path(&file_path);
+    eprintln!("Path: {}", file_path);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 4000).await);
+
+    
+    let new_file_path = format!("test_{}.txt", Uuid::new_v4());
+    eprintln!("Attempting to Rename file from an ignored path: {} to: {}", file_path, new_file_path);
+
+    let new_file_path = handle_path(&new_file_path);
+    std::fs::rename(file_path.clone(), new_file_path.clone())?;
+    assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Created), 4000).await);
+
+
+    // Perform dummy write
+    let _ = file.write_all(b"SOME DATA");
+    let _ = file.flush();
+    assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Modified), 4000).await);
+
+    // Close the file
+    file.flush().unwrap();
+    file.sync_all().unwrap(); 
+    drop(file);
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Closed), 4000).await);
+
+    std::fs::remove_file(new_file_path)?;
     Ok(())
 }
