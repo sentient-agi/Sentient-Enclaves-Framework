@@ -5,8 +5,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use crate::hash::hasher;
-use crate::fs_ops::state::FileInfo;
-use crate::fs_ops::fs_utils;
+use crate::monitor_module::state::FileInfo;
+use crate::monitor_module::fs_utils;
 use dashmap::DashMap;
 use sha3::Digest;
 use fs_utils::is_directory;
@@ -96,12 +96,15 @@ pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo
     }
 }
 
+// This checks superset of conditions tested by 
+// ready-handler in web-ra-srv. This should be 
+// adapted during integration.
 pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<Vec<u8>> {
     let file_info = file_infos.get(path)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("File {} is not tracked", path)))?;
 
 
-    if file_info.state != crate::fs_ops::state::FileState::Closed {
+    if file_info.state != crate::monitor_module::state::FileState::Closed {
         return Err(io::Error::new(io::ErrorKind::Other, format!("File {} is yet to be closed", path)));
     }
 
@@ -124,14 +127,4 @@ pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, Fil
     hash_vector.last()
         .cloned()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hash available for {}", path)))
-} 
-
-// Lazy cleanup of removed/renamed files
-
-pub async fn hash_cleanup(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: Arc<HashInfo>) {
-    let mut hash_results = hash_info.hash_results.lock().await;
-    hash_results.remove(path);
-
-    // Remove information about the file
-    file_infos.remove(path);
 }

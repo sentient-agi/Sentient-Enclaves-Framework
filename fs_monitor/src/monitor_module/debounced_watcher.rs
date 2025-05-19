@@ -5,9 +5,9 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::mpsc;
 use crate::hash::storage::HashInfo;
-use crate::fs_ops::state::FileInfo;
-use crate::fs_ops::debounced_events_handler::handle_debounced_event;
-use crate::fs_ops::ignore::IgnoreList;
+use crate::monitor_module::state::FileInfo;
+use crate::monitor_module::debounced_events_handler::handle_debounced_event;
+use crate::monitor_module::ignore::IgnoreList;
 use notify_debouncer_full::Debouncer;
 
 pub async fn setup_debounced_watcher(

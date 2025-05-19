@@ -5,9 +5,9 @@ use std::sync::{Arc};
 use std::vec;
 use dashmap::DashMap;
 use crate::hash::storage::{HashInfo, perform_file_hashing};
-use crate::fs_ops::state::{FileInfo, FileState, FileType};
-use crate::fs_ops::ignore::IgnoreList;
-use crate::fs_ops::fs_utils::{handle_path, is_directory, walk_directory};
+use crate::monitor_module::state::{FileInfo, FileState, FileType};
+use crate::monitor_module::ignore::IgnoreList;
+use crate::monitor_module::fs_utils::{handle_path, is_directory, walk_directory};
 use std::io;
 
 

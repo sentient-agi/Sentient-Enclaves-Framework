@@ -5,15 +5,15 @@ use dashmap::DashMap;
 use clap::Parser;
 
 mod hash;
-mod fs_ops;
+mod monitor_module;
 
-use fs_ops::state::FileInfo;
+use monitor_module::state::FileInfo;
 use hash::storage::{HashInfo, retrieve_hash};
-use fs_ops::ignore::IgnoreList;
-// use fs_ops::watcher::setup_watcher;
-use fs_ops::fs_utils::handle_path;
-use fs_ops::debounced_watcher::setup_debounced_watcher;
-// use fs_ops::
+use monitor_module::ignore::IgnoreList;
+// use monitor_module::watcher::setup_watcher;
+use monitor_module::fs_utils::handle_path;
+use monitor_module::debounced_watcher::setup_debounced_watcher;
+// use monitor_module::
 
 #[derive(Parser, Debug)]
 #[command(

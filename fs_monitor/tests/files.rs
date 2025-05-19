@@ -1,4 +1,4 @@
-use fs_monitor::fs_ops::{debounced_watcher::setup_debounced_watcher, watcher::setup_watcher, IgnoreList, state::{ FileInfo, FileState}, fs_utils::handle_path};
+use fs_monitor::monitor_module::{debounced_watcher::setup_debounced_watcher, IgnoreList, state::{ FileInfo, FileState}, fs_utils::handle_path};
 use fs_monitor::hash::{storage::{HashInfo, retrieve_hash}, hasher::{hash_file, bytes_to_hex}};
 use std::fs::File;
 use std::io::Write;
