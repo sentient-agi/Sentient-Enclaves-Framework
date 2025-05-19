@@ -77,16 +77,19 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
                     } else {
                         handle_file_rename_from_unwatched(paths, file_infos, hash_info);  
                     }
-                    
+
                 }
                 RenameMode::From => {
                     println!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
-                    if is_directory(&path){
-                        handle_directory_delete(vec![path], file_infos, hash_info);
+                    handle_directory_delete(vec![path], file_infos, hash_info);
+                    // if is_directory(&path){
+                    //     eprintln!("Triggered Directory Rename");
+                    //     handle_directory_delete(vec![path], file_infos, hash_info);
 
-                    } else {
-                        handle_file_rename_to_unwatched(paths, file_infos, hash_info);
-                    }
+                    // } else {
+                    //     eprintln!("Triggered file Rename");
+                    //     handle_file_rename_to_unwatched(paths, file_infos, hash_info);
+                    // }
 
                 }
                 RenameMode::Both => {
@@ -385,11 +388,15 @@ fn handle_directory_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, 
     let directory_path = paths[0].clone();
 
     let collected_files = collect_files_in_directory(directory_path, file_infos);
+
+    eprint!("Collected Files: {:?}", collected_files);
     
     // First remove the maintained state synchronously
     for file_path in collected_files.iter(){
        file_infos.remove(file_path);
     }
+
+
 
     let hash_info_clone = Arc::clone(hash_info);
     // In async way remove the hash results
