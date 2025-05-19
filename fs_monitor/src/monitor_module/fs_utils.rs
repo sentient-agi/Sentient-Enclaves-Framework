@@ -31,30 +31,6 @@ pub fn is_directory(path: &str) -> bool {
     Path::new(path).is_dir()
 }
 
-// Helper function to collect all files in a directory recursively
-pub fn collect_files_recursively(dir_path: &std::path::Path, files: &mut Vec<String>) -> io::Result<()> {
-    if !dir_path.is_dir() {
-        return Ok(());
-    }
-
-    for entry in std::fs::read_dir(dir_path)? {
-        let entry = entry?;
-        let path = entry.path();
-        
-        if path.is_file() {
-            if let Some(path_str) = path.to_str() {
-                // Convert to the consistent path format used by the rest of the app
-                let normalized_path = handle_path(path_str);
-                files.push(normalized_path);
-            }
-        } else if path.is_dir() {
-            collect_files_recursively(&path, files)?;
-        }
-    }
-    
-    Ok(())
-}
-
 // Helper function to walk a directory recursively and collect all file paths
 pub fn walk_directory(dir_path: &str) -> io::Result<Vec<String>> {
     let mut files = Vec::new();

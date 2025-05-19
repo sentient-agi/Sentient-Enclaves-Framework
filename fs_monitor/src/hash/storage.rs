@@ -1,12 +1,11 @@
 use std::collections::HashMap;
-use std::fmt::format;
 use std::io;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use crate::hash::hasher;
 use crate::monitor_module::state::FileInfo;
-use crate::monitor_module::fs_utils;
+use crate::monitor_module::fs_utils::{self, walk_directory};
 use dashmap::DashMap;
 use sha3::Digest;
 use fs_utils::is_directory;
@@ -65,14 +64,11 @@ pub async fn perform_file_hashing(path: String, hash_info: Arc<HashInfo>) {
 
 pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<String> {
     if is_directory(path) {
-        let mut files = Vec::new();
-        
-        // Use proper filesystem traversal instead of string prefix matching
-        let dir_path = std::path::Path::new(path);
-        fs_utils::collect_files_recursively(dir_path, &mut files)?;
+        let files = walk_directory(path)?;
         
         // Filter files to only include those that are being tracked
-        let tracked_files: Vec<String> = files.into_iter()
+        let tracked_files: Vec<String> = files
+            .into_iter()
             .filter(|file_path| file_infos.contains_key(file_path))
             .collect();
         
