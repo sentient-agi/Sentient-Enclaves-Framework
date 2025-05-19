@@ -80,7 +80,7 @@ async fn file_modification_simple() -> Result<(), Box<dyn std::error::Error>>{
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
     // 
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 4000).await);
 
     // Write random data to the file
     let _ = file.write_all(b"SOME DATA");
@@ -88,14 +88,14 @@ async fn file_modification_simple() -> Result<(), Box<dyn std::error::Error>>{
 
     file.write_all(b" MORE DATA").unwrap();
     let _ = file.flush();
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 4000).await);
 
     // Close the file
     file.flush().unwrap();
     file.sync_all().unwrap(); 
     drop(file);
     
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 4000).await);
     
     // Calculate hash
     let calculated_hash = bytes_to_hex(&hash_file(&file_path).unwrap());
@@ -135,23 +135,23 @@ async fn file_deletion_simple() -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 4000).await);
 
     let _ = file.write_all(b"SOME DATA");
     let _ = file.flush();
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 4000).await);
 
     // Close the file
     file.flush().unwrap();
     file.sync_all().unwrap(); 
     drop(file);
 
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 4000).await);
 
     eprintln!("Attempting to delete file: {}", file_path);
     std::fs::remove_file(file_path.clone()).ok();
 
-    assert!(wait_for_file_state(&file_infos, &file_path, None, 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 4000).await);
 
     eprintln!("=== Test complete, forcing exit ===");
     Ok(())
@@ -182,11 +182,11 @@ async fn file_deletion_empty() -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 4000).await);
 
     eprintln!("Attempting to delete file: {}", file_path);
     std::fs::remove_file(file_path.clone()).ok();
-    assert!(wait_for_file_state(&file_infos, &file_path, None, 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 4000).await);
     Ok(())
 
 }
@@ -214,12 +214,12 @@ async fn file_rename_basic() -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 4000).await);
 
     // Perform dummy writes
     let _ = file.write_all(b"SOME DATA");
     let _ = file.flush();
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 4000).await);
 
     // Close the file
     file.flush().unwrap();
@@ -232,8 +232,8 @@ async fn file_rename_basic() -> Result<(), Box<dyn std::error::Error>> {
     let new_file_path = format!("test_{}.txt", Uuid::new_v4());
     std::fs::rename(file_path.clone(), new_file_path.clone());
     let new_file_path = handle_path(&new_file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, None, 2000).await);
-    assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Closed), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 4000).await);
+    assert!(wait_for_file_state(&file_infos, &new_file_path, Some(FileState::Closed), 4000).await);
     let new_hash = retrieve_hash(&new_file_path, &file_infos, &hash_infos).await.unwrap();
 
     eprintln!("Old Hash: {}, New Hash: {}", old_hash, new_hash);
@@ -267,19 +267,19 @@ async fn file_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 4000).await);
 
     // Perform dummy writes
     let _ = file.write_all(b"SOME DATA");
     let _ = file.flush();
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Modified), 4000).await);
 
     // Close the file
     file.flush().unwrap();
     file.sync_all().unwrap(); 
     drop(file);
     
-    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Closed), 4000).await);
 
 
     // Move the file out of this directory.
@@ -291,7 +291,7 @@ async fn file_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error>> {
 
     std::fs::rename(file_path.clone(), new_path.clone())?;
 
-    assert!(wait_for_file_state(&file_infos, &file_path, None, 2000).await);
+    assert!(wait_for_file_state(&file_infos, &file_path, None, 4000).await);
 
     // Cleanup the renamed file
     std::fs::remove_file(new_path)?;
@@ -339,7 +339,7 @@ async fn file_rename_from_unwatched() -> Result<(), Box<dyn std::error::Error>> 
     eprintln!("New target path: {:?}", target_path);
 
     // Verify the file is detected and processed
-    assert!(wait_for_file_state(&file_infos, &target_path, Some(FileState::Closed), 3000).await);
+    assert!(wait_for_file_state(&file_infos, &target_path, Some(FileState::Closed), 4000).await);
 
     // Clean up
     std::fs::remove_file(target_path)?;

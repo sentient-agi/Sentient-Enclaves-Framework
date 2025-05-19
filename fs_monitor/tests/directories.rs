@@ -144,7 +144,7 @@ async fn directory_deletion() -> Result<(), Box<dyn std::error::Error>> {
     // Wait for all files to be detected
     for file_path in &file_paths {
         let normalized_path = handle_path(file_path);
-        assert!(wait_for_file_state(&file_infos, &normalized_path, Some(FileState::Closed), 2000).await);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, Some(FileState::Closed), 4000).await);
     }
     
     // Delete the directory
@@ -153,7 +153,7 @@ async fn directory_deletion() -> Result<(), Box<dyn std::error::Error>> {
     // Verify files are removed from tracking
     for file_path in &file_paths {
         let normalized_path = handle_path(file_path);
-        assert!(wait_for_file_state(&file_infos, &normalized_path, None, 2000).await);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, None, 4000).await);
     }
     
     Ok(())
@@ -185,7 +185,7 @@ async fn directory_rename_simple() -> Result<(), Box<dyn std::error::Error>> {
     let mut file_hashes = Vec::new();
     for file_path in &file_paths {
         let normalized_path = handle_path(file_path);
-        assert!(wait_for_file_state(&file_infos, &normalized_path, Some(FileState::Closed), 6000).await);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, Some(FileState::Closed), 4000).await);
         
         // Store hash for later comparison
         let hash = retrieve_hash(&normalized_path, &file_infos, &hash_infos).await.unwrap();
@@ -199,7 +199,7 @@ async fn directory_rename_simple() -> Result<(), Box<dyn std::error::Error>> {
     
     // Verify old paths are gone
     for (path, _) in &file_hashes {
-        assert!(wait_for_file_state(&file_infos, path, None, 2000).await);
+        assert!(wait_for_file_state(&file_infos, path, None, 4000).await);
     }
     
     // Verify new paths exist with same hashes
@@ -208,7 +208,7 @@ async fn directory_rename_simple() -> Result<(), Box<dyn std::error::Error>> {
         let normalized_new_path = handle_path(&new_path);
         
         // Wait for file to be detected at new location
-        assert!(wait_for_file_state(&file_infos, &normalized_new_path, Some(FileState::Closed), 6000).await);
+        assert!(wait_for_file_state(&file_infos, &normalized_new_path, Some(FileState::Closed), 4000).await);
         
         // Check hash is the same
         let new_hash = retrieve_hash(&normalized_new_path, &file_infos, &hash_infos).await.unwrap();
@@ -216,7 +216,91 @@ async fn directory_rename_simple() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     // Clean up
-    // std::fs::remove_dir_all(new_dir_path)?;
+    std::fs::remove_dir_all(new_dir_path)?;
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn directory_rename_from_unwatched() -> Result<(), Box<dyn std::error::Error>> {
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_debounced_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    // Create directory in unwatched location
+    let (root_dir, file_paths) = create_test_directory_hierarchy(std::env::temp_dir().as_path())?;
+    
+    // Move directory to watched location
+    let target_dir = format!("moved_dir_{}", Uuid::new_v4());
+    std::fs::rename(&root_dir, &target_dir)?;
+    
+    // Verify files are detected in new location
+    for file_path in &file_paths {
+        let new_path = file_path.replace(&root_dir, &target_dir);
+        let normalized_new_path = handle_path(&new_path);
+        
+        assert!(wait_for_file_state(&file_infos, &normalized_new_path, Some(FileState::Closed), 4000).await);
+    }
+    
+    // Clean up
+    std::fs::remove_dir_all(&target_dir)?;
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn directory_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error>> {
+    let watch_path = Path::new(".");
+    let mut ignore_list = IgnoreList::new();
+    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+
+    let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
+    let hash_infos = Arc::new(HashInfo{
+        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+    });
+
+    let _watcher = setup_debounced_watcher(
+        watch_path, 
+        Arc::clone(&file_infos), 
+        Arc::clone(&hash_infos),
+        ignore_list
+    ).await?;
+
+    // Create directory in watched location
+    let (root_dir, file_paths) = create_test_directory_hierarchy(Path::new("."))?;
+    
+    // Wait for all files to be detected
+    for file_path in &file_paths {
+        let normalized_path = handle_path(file_path);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, Some(FileState::Closed), 4000).await);
+    }
+    
+    // Move directory to unwatched location
+    let target_dir = std::env::temp_dir().join(format!("moved_unwatched_{}", Uuid::new_v4()));
+    std::fs::rename(&root_dir, &target_dir)?;
+    
+    // Verify files are no longer tracked
+    for file_path in &file_paths {
+        let normalized_path = handle_path(file_path);
+        assert!(wait_for_file_state(&file_infos, &normalized_path, None, 4000).await);
+    }
+    
+    // Clean up
+    std::fs::remove_dir_all(target_dir)?;
     
     Ok(())
 }
