@@ -1,5 +1,5 @@
-use fs_monitor::monitor_module::{debounced_watcher::setup_debounced_watcher, IgnoreList, state::{ FileInfo, FileState}, fs_utils::handle_path};
-use fs_monitor::hash::{storage::{HashInfo, retrieve_hash}, hasher::{hash_file, bytes_to_hex}};
+use fs_monitor::monitor_module::{debounced_watcher::setup_debounced_watcher, ignore::IgnoreList, state::{ FileInfo, FileState}, fs_utils::handle_path};
+use fs_monitor::hash::storage::{HashInfo, retrieve_hash};
 use std::fs::File;
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -123,7 +123,7 @@ fn create_test_directory_hierarchy(base_path: &Path) -> Result<(String, Vec<Stri
 async fn directory_deletion() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{
@@ -163,7 +163,7 @@ async fn directory_deletion() -> Result<(), Box<dyn std::error::Error>> {
 async fn directory_rename_simple() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{
@@ -225,7 +225,7 @@ async fn directory_rename_simple() -> Result<(), Box<dyn std::error::Error>> {
 async fn directory_rename_to_watched() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{
@@ -265,7 +265,7 @@ async fn directory_rename_to_watched() -> Result<(), Box<dyn std::error::Error>>
 async fn directory_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{
@@ -442,7 +442,7 @@ async fn directory_rename_to_dotcache() -> Result<(), Box<dyn std::error::Error>
     }
     
     // Clean up
-    std::fs::remove_dir_all(new_dir_path)?;
+    std::fs::remove_dir_all(cache_dir)?;
     
     Ok(())
 }

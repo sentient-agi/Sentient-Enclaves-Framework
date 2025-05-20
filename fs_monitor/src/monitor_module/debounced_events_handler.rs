@@ -1,14 +1,14 @@
 use notify_debouncer_full::notify::{ Result, EventKind};
 use notify_debouncer_full::notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
 use notify_debouncer_full::DebouncedEvent;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::vec;
 use dashmap::DashMap;
 use crate::hash::storage::{HashInfo, perform_file_hashing};
 use crate::monitor_module::state::{FileInfo, FileState, FileType};
 use crate::monitor_module::ignore::IgnoreList;
 use crate::monitor_module::fs_utils::{handle_path, is_directory, walk_directory};
-use std::io;
+
 
 
 pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList) -> Result<()> {
@@ -44,8 +44,8 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
                     handle_file_delete(paths.clone(), &file_infos, &hash_info);
                 },
                 RemoveKind::Folder => {
-                    handle_directory_delete(paths.clone(), &file_infos, &hash_info);
                     eprintln!("Remove event for Folder: {:?}", paths);
+                    handle_directory_delete(paths.clone(), &file_infos, &hash_info);
                 },
                 _ => {}
             }
@@ -70,6 +70,9 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
                 }
                 RenameMode::From => {
                     eprintln!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
+                    // No cheap way to identify if this event is triggered for a file or folder.
+                    // This is handled conservatively by assuming that the event is always triggered
+                    // for a folder. Internally collect_files_in_directory handles this correctly
                     handle_directory_delete(vec![path], file_infos, hash_info);
 
                 }
@@ -78,16 +81,22 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
                     if paths.len() == 2 {
                         let from_path = paths[0].clone();
                         let to_path = paths[1].clone();
-                        if !ignore_list.is_ignored(&from_path) && !ignore_list.is_ignored(&to_path) {
-                            if is_directory(&to_path){
+                        if is_directory(&to_path){
+                            if !ignore_list.is_ignored(&from_path) && !ignore_list.is_ignored(&to_path) {
                                 handle_directory_rename(&from_path, &to_path, file_infos, hash_info)
-                            } else {
-                                handle_file_rename(&from_path, &to_path, file_infos, hash_info)
+                            } else if ignore_list.is_ignored(&from_path) {
+                                handle_rename_to_watched(vec![to_path], file_infos, hash_info);
+                            } else if ignore_list.is_ignored(&to_path) {
+                                handle_directory_delete(vec![from_path], file_infos, hash_info);
                             }
-                        } else if ignore_list.is_ignored(&from_path) {
-                            handle_rename_to_watched(vec![to_path], file_infos, hash_info);
-                        } else if ignore_list.is_ignored(&to_path) {
-                            handle_directory_delete(vec![from_path], file_infos, hash_info);
+                        } else {
+                            if !ignore_list.is_ignored(&from_path) && !ignore_list.is_ignored(&to_path) {
+                                handle_file_rename(&from_path, &to_path, file_infos, hash_info)
+                            } else if ignore_list.is_ignored(&from_path) {
+                                handle_rename_to_watched(vec![to_path], file_infos, hash_info);
+                            } else if ignore_list.is_ignored(&to_path) {
+                                handle_file_delete(vec![from_path], file_infos, hash_info);
+                            }
                         }
                     }
                 }

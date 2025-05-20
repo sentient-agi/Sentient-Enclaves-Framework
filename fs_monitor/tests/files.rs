@@ -1,4 +1,4 @@
-use fs_monitor::monitor_module::{debounced_watcher::setup_debounced_watcher, IgnoreList, state::{ FileInfo, FileState}, fs_utils::handle_path};
+use fs_monitor::monitor_module::{debounced_watcher::setup_debounced_watcher, ignore::IgnoreList, state::{ FileInfo, FileState}, fs_utils::handle_path};
 use fs_monitor::hash::{storage::{HashInfo, retrieve_hash}, hasher::{hash_file, bytes_to_hex}};
 use std::fs::File;
 use std::io::Write;
@@ -59,7 +59,7 @@ async fn wait_for_file_state(
 async fn file_modification_simple() -> Result<(), Box<dyn std::error::Error>>{
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{
@@ -116,7 +116,7 @@ async fn file_modification_simple() -> Result<(), Box<dyn std::error::Error>>{
 async fn file_deletion_simple() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{
@@ -163,7 +163,7 @@ async fn file_deletion_simple() -> Result<(), Box<dyn std::error::Error>> {
 async fn file_deletion_empty() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{
@@ -179,7 +179,7 @@ async fn file_deletion_empty() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
 
     let file_path = format!("test_{}.txt", Uuid::new_v4());
-    let mut file = File::create(file_path.clone())?;
+    let _file = File::create(file_path.clone())?;
     let file_path = handle_path(&file_path);
     eprintln!("Path: {}", file_path);
     assert!(wait_for_file_state(&file_infos, &file_path, Some(FileState::Created), 4000).await);
@@ -195,7 +195,7 @@ async fn file_deletion_empty() -> Result<(), Box<dyn std::error::Error>> {
 async fn file_rename_basic() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{
@@ -250,7 +250,7 @@ async fn file_rename_basic() -> Result<(), Box<dyn std::error::Error>> {
 async fn file_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{
@@ -305,7 +305,7 @@ async fn file_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error>> {
 async fn file_rename_to_watched() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
-    ignore_list.populate_ignore_list(Path::new("./empty_ignore"));
+    ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
     let hash_infos = Arc::new(HashInfo{

@@ -45,7 +45,7 @@ impl IgnoreList {
 // Necessary unit tests
 // 1. Test that the ignore list generated is empty
 // 2. Test behavior when invalid patterns are provided
-// 3. Test behavior with valid nested patter
+// 3. Test behavior with valid nested patterns
 
 #[cfg(test)]
 mod tests{
@@ -91,12 +91,12 @@ mod tests{
         let mut ignore_list = IgnoreList::new();
         ignore_list.populate_ignore_list(temp_file.path());
 
-        assert!(ignore_list.is_ignored(".cache"));
+        assert!(ignore_list.is_ignored(".cache/"));
 
-        assert!(ignore_list.is_ignored(".cache"));
+        assert!(ignore_list.is_ignored(".cache/"));
         
-        assert!(ignore_list.is_ignored("foo/.cache"));
-        assert!(ignore_list.is_ignored("foo/bar/.cache"));
+        assert!(ignore_list.is_ignored("foo/.cache/"));
+        assert!(ignore_list.is_ignored("foo/bar/.cache/"));
         
 
         println!("Testing: .cache/file1");

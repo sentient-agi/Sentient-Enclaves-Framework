@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::io;
 
+// This normalizes paths returned by notify crate
+// for internal use. Make sure this function is called
+// always before using path with internal data structures.
 pub fn handle_path(path: &str) -> String {
     // check if path is absolute
     // if it is then make it relative
