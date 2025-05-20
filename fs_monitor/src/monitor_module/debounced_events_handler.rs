@@ -13,15 +13,9 @@ use std::io;
 
 pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList) -> Result<()> {
     let event = debounced_event.event;
-    let paths_old: Vec<String> = event.paths.iter()
-        .filter_map(|p| p.to_str().map(|s| s.to_string()))
+    let paths: Vec<String> = event.paths.iter()
+        .filter_map(|p| p.to_str().map(|s| handle_path(s)))
         .collect();
-
-    let mut paths = Vec::new();
-    for path in paths_old {
-        let path = handle_path(&path);
-        paths.push(path);
-    }
 
     // Return early if there are no paths or if all paths should be ignored
     if paths.is_empty() || paths.iter().all(|path| ignore_list.is_ignored(path)) {
@@ -72,11 +66,8 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
             match rename_mode {
                 RenameMode::To => {
                     println!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
-                    if is_directory(&path){
-                        handle_directory_rename_from_unwatched( paths, file_infos, hash_info);
-                    } else {
-                        handle_file_rename_from_unwatched(paths, file_infos, hash_info);  
-                    }
+                    handle_rename_to_watched(paths, file_infos, hash_info);
+
 
                 }
                 RenameMode::From => {
@@ -170,7 +161,7 @@ fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     else if ignore_list.is_ignored(&from_path) {
         eprintln!("File renamed from ignored file: {} to  {}", from_path, to_path);
         let to_path = vec![to_path];
-        handle_file_rename_from_unwatched( to_path, file_infos, hash_info)
+        handle_rename_to_watched( to_path, file_infos, hash_info)
     }
     // Else this is a standard rename where both old and new paths are tracked
     else{
@@ -188,8 +179,6 @@ fn handle_directory_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, 
     let from_path = paths[0].clone();
     let to_path = paths[1].clone();
 
-    // Already  handled case of when both paths are ignored.
-
     // Check if renamed into an unwatched file
     if ignore_list.is_ignored(&to_path) {
         eprintln!("Directory renamed from {} to ignored Directory: {}", from_path, to_path);
@@ -200,7 +189,7 @@ fn handle_directory_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, 
     else if ignore_list.is_ignored(&from_path) {
         eprintln!("Directory renamed from ignored Directory: {} to  {}", from_path, to_path);
         let to_path = vec![to_path];
-        handle_directory_rename_from_unwatched( to_path, file_infos, hash_info)
+        handle_rename_to_watched( to_path, file_infos, hash_info)
     }
     // Else this is a standard rename where both old and new paths are tracked
     else{
@@ -216,49 +205,6 @@ fn handle_file_rename_to_unwatched(from_path: Vec<String>, file_infos: &Arc<Dash
     // let frm_path_str = vec![from_path.to_string()];
     handle_file_delete(from_path, file_infos, hash_info);
 
-}
-
-fn handle_file_rename_from_unwatched(to_path: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
-    // This creates a new entry for the file and performs hashing
-    // let to_path_str = vec![to_path.to_string()];    
-    handle_file_create(to_path.clone(), file_infos);
-    handle_file_save(to_path, file_infos, hash_info);
-
-}
-
-
-fn handle_directory_rename_from_unwatched(to_path: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) {
-    if to_path.is_empty() {
-        return;
-    }
-
-    let dir_path = to_path[0].clone();
-    let file_infos_clone = Arc::clone(file_infos);
-    let hash_info_clone = Arc::clone(hash_info);
-    
-    // Process directory in background to avoid blocking
-    tokio::spawn(async move {
-        // Recursively walk the filesystem to find all files
-        match walk_directory(&dir_path) {
-            Ok(files) => {
-                for file_path in &files {
-                    // Add each file to tracking with state Closed
-                    file_infos_clone.insert(file_path.clone(), FileInfo {
-                        file_type: FileType::File,
-                        state: FileState::Closed,
-                        version: 0,
-                    });
-                    
-                    // Start hashing task for each file
-                    perform_file_hashing(file_path.to_string(), Arc::clone(&hash_info_clone)).await;
-                }
-                eprintln!("Processed directory {}: added {} files to tracking", dir_path, files.len());
-            },
-            Err(e) => {
-                eprintln!("Error collecting files from {}: {}", dir_path, e);
-            }
-        }
-    });
 }
 
 
@@ -297,7 +243,7 @@ fn handle_file_rename_both_tracked(from_path: &String, to_path: &String, file_in
         // For now handle it similar to when a new file is created
         eprint!("Old file: {} renamed to: {}. But no entry found for :{}", from_path, to_path, from_path);
         let to_path = vec![to_path.clone()];
-        handle_file_rename_from_unwatched(to_path, file_infos, hash_info);
+        handle_rename_to_watched( to_path, file_infos, hash_info)
     }
 }
 
@@ -338,7 +284,7 @@ fn handle_file_save(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInf
 
     let path = paths[0].clone();
     
-    if let Some(mut file_info) = file_infos.get_mut(&path) {
+    if let Some(_file_info) = file_infos.get_mut(&path) {
         // Calculate hash first and then update the state and versions
         let path_cloned = path.clone();
         let file_infos_cloned: Arc<DashMap<String, FileInfo>> = Arc::clone(file_infos);
@@ -366,7 +312,6 @@ fn handle_file_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     
     // In the background thread, clean-up the hash
     tokio::spawn( async move {
-        
         // Clean-up the hash
         let mut hash_results = hash_info_clone.hash_results.lock().await;
         hash_results.remove(&path);
@@ -374,14 +319,16 @@ fn handle_file_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
 }
 
 fn collect_files_in_directory(dir_path: String, file_infos: &Arc<DashMap<String, FileInfo>>) -> Vec<String> {
-    let mut collected_files: Vec<String> = vec![];
-    for ref_multi in file_infos.iter() {
-        let path = ref_multi.key().to_string();
-        if path.starts_with(&dir_path) {
-            collected_files.push(path);
-        }
-    }
-    collected_files
+    file_infos.iter()
+        .filter_map(|ref_multi| {
+            let path = ref_multi.key().to_string();
+            if path.starts_with(&dir_path) {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn handle_directory_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
@@ -396,8 +343,6 @@ fn handle_directory_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, 
        file_infos.remove(file_path);
     }
 
-
-
     let hash_info_clone = Arc::clone(hash_info);
     // In async way remove the hash results
     tokio::spawn( async move {
@@ -410,3 +355,53 @@ fn handle_directory_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, 
 
 }
 
+fn handle_rename_to_watched(to_path: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) {
+    if to_path.is_empty() { return; }
+    
+    let path = &to_path[0];
+    
+    if is_directory(path) {
+        let dir_path = path.clone();
+        let file_infos_clone = Arc::clone(file_infos);
+        let hash_info_clone = Arc::clone(hash_info);
+        
+        tokio::spawn(async move {
+            match walk_directory(&dir_path) {
+                Ok(files) => {
+                    for file_path in &files {
+                        file_infos_clone.insert(file_path.clone(), FileInfo {
+                            file_type: FileType::File,
+                            state: FileState::Closed,
+                            version: 0,
+                        });
+                        
+                        perform_file_hashing(file_path.to_string(), Arc::clone(&hash_info_clone)).await;
+                    }
+                    eprintln!("Processed directory {}: added {} files to tracking", dir_path, files.len());
+                },
+                Err(e) => {
+                    eprintln!("Error collecting files from {}: {}", dir_path, e);
+                }
+            }
+        });
+    } else {
+        // Create and hash the file
+        file_infos.insert(path.clone(), FileInfo {
+            file_type: FileType::File,
+            state: FileState::Created,
+            version: 0,
+        });
+        
+        let path_clone = path.clone();
+        let hash_info_clone = Arc::clone(hash_info);
+        let file_infos_clone = Arc::clone(file_infos);
+        
+        tokio::spawn(async move {
+            perform_file_hashing(path_clone.clone(), hash_info_clone).await;
+            if let Some(mut file_info) = file_infos_clone.get_mut(&path_clone) {
+                file_info.version += 1;
+                file_info.state = FileState::Closed;
+            }
+        });
+    }
+}
