@@ -302,7 +302,7 @@ async fn file_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[tokio::test]
-async fn file_rename_from_unwatched() -> Result<(), Box<dyn std::error::Error>> {
+async fn file_rename_to_watched() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./empty_ignore"));

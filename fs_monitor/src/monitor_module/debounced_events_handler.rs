@@ -26,13 +26,13 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
         EventKind::Create(kind) => {
             match kind {
                 CreateKind::File => {
-                    println!("Create event for file: {:?}", paths);
+                    eprintln!("Create event for file: {:?}", paths);
                     handle_file_create(paths, file_infos);
                 },
                 CreateKind::Folder => {
                     // With a flat structure we need not worry about folders.
                     // This event can simply be ignored.
-                    println!("Create event for Folder: {:?}", paths);
+                    eprintln!("Create event for Folder: {:?}", paths);
                 },
                 _ => {}
             }
@@ -40,24 +40,24 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
         EventKind::Remove(kind) => {
             match kind {
                 RemoveKind::File => {
-                    println!("Remove event for file: {:?}", paths);
+                    eprintln!("Remove event for file: {:?}", paths);
                     handle_file_delete(paths.clone(), &file_infos, &hash_info);
                 },
                 RemoveKind::Folder => {
                     handle_directory_delete(paths.clone(), &file_infos, &hash_info);
-                    println!("Remove event for Folder: {:?}", paths);
+                    eprintln!("Remove event for Folder: {:?}", paths);
                 },
                 _ => {}
             }
         }
         
         EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
-            println!("File save event for file: {:?}",paths);
+            eprintln!("File save event for file: {:?}",paths);
             handle_file_save(paths, file_infos, hash_info);
         }
         
         EventKind::Modify(ModifyKind::Data(DataChange::Any) ) => {
-            println!("Modify event for file: {:?}",paths);
+            eprintln!("Modify event for file: {:?}",paths);
            handle_file_modify(paths, file_infos); 
         }
         
@@ -65,35 +65,31 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
             let path = paths[0].clone();
             match rename_mode {
                 RenameMode::To => {
-                    println!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
+                    eprintln!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
                     handle_rename_to_watched(paths, file_infos, hash_info);
-
-
                 }
                 RenameMode::From => {
-                    println!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
+                    eprintln!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
                     handle_directory_delete(vec![path], file_infos, hash_info);
-                    // if is_directory(&path){
-                    //     eprintln!("Triggered Directory Rename");
-                    //     handle_directory_delete(vec![path], file_infos, hash_info);
-
-                    // } else {
-                    //     eprintln!("Triggered file Rename");
-                    //     handle_file_rename_to_unwatched(paths, file_infos, hash_info);
-                    // }
 
                 }
                 RenameMode::Both => {
-                    println!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
-                    // Here, from_path wouldn't exist. Instead use to_path for verifying
-                    let to_path = paths[1].clone();
-                    if is_directory(&to_path){
-                        handle_directory_rename(paths, file_infos, hash_info, ignore_list)
-
-                    } else {
-                        handle_file_rename(paths, file_infos, hash_info, ignore_list);
+                    eprintln!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
+                    if paths.len() == 2 {
+                        let from_path = paths[0].clone();
+                        let to_path = paths[1].clone();
+                        if !ignore_list.is_ignored(&from_path) && !ignore_list.is_ignored(&to_path) {
+                            if is_directory(&to_path){
+                                handle_directory_rename(&from_path, &to_path, file_infos, hash_info)
+                            } else {
+                                handle_file_rename(&from_path, &to_path, file_infos, hash_info)
+                            }
+                        } else if ignore_list.is_ignored(&from_path) {
+                            handle_rename_to_watched(vec![to_path], file_infos, hash_info);
+                        } else if ignore_list.is_ignored(&to_path) {
+                            handle_directory_delete(vec![from_path], file_infos, hash_info);
+                        }
                     }
-                    
                 }
                 _ => {
 
@@ -101,23 +97,19 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
                 
             }
         }
-        
         _ => {
             // eprintln!("Unhandled event kind: {:?} for paths: {:?} ",event.kind, paths);
         }
     }
-
     Ok(())
 }
 
 // File specific functions
 fn handle_file_create(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>) {
-    
     if paths.len() != 1 {
         eprintln!("Create event has multiple paths: {:?}", paths);
         return;
     }
-
     let path = paths[0].clone();
     file_infos.insert(path.clone(), FileInfo {
             file_type: FileType::File,
@@ -139,76 +131,7 @@ fn handle_file_modify(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     }
 }
 
-
-fn handle_file_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList){
-    if paths.len() != 2 {
-        eprintln!("Rename event should have 2 paths: {:?}", paths);
-        return;
-    }
-
-    let from_path = paths[0].clone();
-    let to_path = paths[1].clone();
-
-    // Already  handled case of when both paths are ignored.
-
-    // Check if renamed into an unwatched file
-    if ignore_list.is_ignored(&to_path) {
-        eprintln!("File renamed from {} to ignored file: {}", from_path, to_path);
-        let from_path = vec![from_path];
-        handle_file_rename_to_unwatched(from_path, file_infos, hash_info)
-    }
-    // Check if renamed from an unwatched directory
-    else if ignore_list.is_ignored(&from_path) {
-        eprintln!("File renamed from ignored file: {} to  {}", from_path, to_path);
-        let to_path = vec![to_path];
-        handle_rename_to_watched( to_path, file_infos, hash_info)
-    }
-    // Else this is a standard rename where both old and new paths are tracked
-    else{
-        eprintln!("File renamed from {} to {}", from_path, to_path);
-        handle_file_rename_both_tracked(&from_path, &to_path, file_infos, hash_info)
-    }
-}
-
-fn handle_directory_rename(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList){
-    if paths.len() != 2 {
-        eprintln!("Rename event should have 2 paths: {:?}", paths);
-        return;
-    }
-
-    let from_path = paths[0].clone();
-    let to_path = paths[1].clone();
-
-    // Check if renamed into an unwatched file
-    if ignore_list.is_ignored(&to_path) {
-        eprintln!("Directory renamed from {} to ignored Directory: {}", from_path, to_path);
-        let from_path = vec![from_path];
-        handle_directory_delete(from_path, file_infos, hash_info);
-    }
-    // Check if renamed from an unwatched directory
-    else if ignore_list.is_ignored(&from_path) {
-        eprintln!("Directory renamed from ignored Directory: {} to  {}", from_path, to_path);
-        let to_path = vec![to_path];
-        handle_rename_to_watched( to_path, file_infos, hash_info)
-    }
-    // Else this is a standard rename where both old and new paths are tracked
-    else{
-        eprintln!("Directory renamed from {} to {}", from_path, to_path);
-        handle_directory_rename_both_tracked(&from_path, &to_path, file_infos, hash_info)
-    }
-}
-
-
-
-fn handle_file_rename_to_unwatched(from_path: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
-    // This simply needs to delete the file from being tracked.
-    // let frm_path_str = vec![from_path.to_string()];
-    handle_file_delete(from_path, file_infos, hash_info);
-
-}
-
-
-fn handle_file_rename_both_tracked(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+fn handle_file_rename(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     // Transfer Old file's history
     let file_info_opt = file_infos.remove(from_path);
     if let Some((_, old_info)) = file_info_opt {
@@ -228,14 +151,6 @@ fn handle_file_rename_both_tracked(from_path: &String, to_path: &String, file_in
                     hash_results.insert(to_path, hash_history);
                 }
             }
-            // Perform hashing and update file info
-            // This completely depends on policy.
-            // For now this should be removed.
-            // perform_file_hashing(to_path.clone(), hash_info).await;
-            // if let Some(mut file_info) = file_infos.get_mut(&to_path) {
-            //     file_info.version += 1;
-            //     file_info.state = FileState::Closed;
-            // }
         });
     } else {
         // New entry received before old entry is created. 
@@ -247,8 +162,10 @@ fn handle_file_rename_both_tracked(from_path: &String, to_path: &String, file_in
     }
 }
 
-fn handle_directory_rename_both_tracked(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+fn handle_directory_rename(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
+    
     let collected_files = collect_files_in_directory(from_path.to_string(), file_infos);
+    
     let path_pairs: Vec<(String, String)> = collected_files.iter().map(|old_path| {
         let new_path = old_path.replacen(from_path, &to_path, 1);
         eprintln!("File renamed from: {:?} to {:?}", old_path, new_path);
