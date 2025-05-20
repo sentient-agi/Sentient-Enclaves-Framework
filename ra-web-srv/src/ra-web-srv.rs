@@ -51,6 +51,7 @@ use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 
 use openssl::pkey::{PKey, Private, Public};
 use openssl::nid::Nid as CipherID;
+use openssl::bn::{BigNum, BigNumContext};
 
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
@@ -512,9 +513,9 @@ async fn main() -> io::Result<()> {
         .route("/proof/", get(proof_handler))
         .route("/docs/", get(docs))
         .route("/doc/", get(doc_handler))
-        .route("/pubkeys/", get(pubkeys))
+        .route("/pubkeys/", get(pubkeys).with_state(Arc::clone(&state.app_state)))
         .route("/verify_hash/", post(verify_hash))
-        .route("/verify_proof/", post(verify_proof))
+        .route("/verify_proof/", post(verify_proof).with_state(Arc::clone(&state.app_state)))
         .route("/verify_doc/", post(verify_doc))
         .route("/verify_cert_valid/", post(verify_cert_valid))
         .route("/verify_cert_bundle/", post(verify_cert_bundle))
@@ -637,6 +638,7 @@ fn visit_files_recursively<'a>(
                             let skey4proofs_bignum = skey4proofs_eckey.private_key().to_owned().unwrap();
                             let skey4proofs_vec = skey4proofs_bignum.to_vec();
 
+                            // VRF Proof hash based on private key generated for file path and file hash pair (emulation of CoW FS metadata for enclave's ramdisk FS)
                             let att_proof_data = AttProofData{
                                 file_path: file_path_clone.clone(),
                                 sha3_hash: hex::encode(hash.clone()),
@@ -650,7 +652,10 @@ fn visit_files_recursively<'a>(
                             let mut app_cache = app_cache_clone.write();
 
                             let fd = app_state.nsm_fd;
-                            let nonce = get_randomness_sequence(fd.clone(), 512);
+                            // let nonce = get_randomness_sequence(fd.clone(), 512);
+                            let mut vrf  = ECVRF::from_suite(cipher_suite.clone()).unwrap();
+                            let nonce = vrf.generate_nonce(&skey4proofs_bignum, att_proof_data_json_bytes.as_slice()).unwrap().to_vec();
+
                             let cipher_id = cipher_suite.to_nid();
                             let alg = openssl::ec::EcGroup::from_curve_name(cipher_id).unwrap();
                             let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
@@ -1193,7 +1198,7 @@ async fn docs(
 
 async fn pubkeys(
     Query(query_params): Query<HashMap<String, String>>,
-    State(server_state): State<Arc<ServerState>>,
+    State(app_state): State<Arc<RwLock<AppState>>>,
 ) -> impl IntoResponse {
     info!("{query_params:?}");
 
@@ -1203,7 +1208,7 @@ async fn pubkeys(
     let fmt = query_params.get("fmt").unwrap_or(&String::from("pem")).to_owned();
     info!("Key Format: {:?}", fmt);
 
-    let app_state = server_state.app_state.read().clone();
+    let app_state = app_state.read().clone();
 
     let cipher = app_state.vrf_cipher_suite.to_nid();
 
@@ -1433,8 +1438,8 @@ fn att_doc_fmt(
 
         "att_doc_user_data" | "att_doc_user_data_json" | "att_doc_user_data_json_hex" => {
             let json_value = json!({
-                "public_key": hex::encode(attestation_doc.public_key.unwrap_or(ByteBuf::new()).into_vec()),
                 "user_data": hex::encode(att_doc_user_data_bytes.clone()),
+                "public_key": hex::encode(attestation_doc.public_key.unwrap_or(ByteBuf::new()).into_vec()),
             });
             serde_json::to_string_pretty(&json_value).unwrap_or_else(
                 |e| {
@@ -1629,14 +1634,60 @@ async fn verify_hash(
 }
 
 async fn verify_proof(
-    State(state): State<Arc<ServerState>>,
+    State(_app_state): State<Arc<RwLock<AppState>>>,
     Json(payload): Json<VerifyProofRequest>,
 ) -> impl IntoResponse {
-    todo!()
-//    let user_data = payload.user_data.clone();
-//    let public_key = payload.public_key.clone();
-//    (StatusCode::BAD_REQUEST, format!("{:?}\n", message.to_string()))
-//    (StatusCode::OK, format!("{:?}\n", message.to_string()))
+    let att_doc_user_data_bytes = match hex::decode(payload.user_data) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Malformed 'user_data' input as a JSON field: {}", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'user_data' input as a JSON field: {}\n", e))
+        }
+    };
+
+    let att_doc_user_data = match serde_json::from_slice::<AttUserData>(att_doc_user_data_bytes.as_slice()) {
+        Ok(user_data) => user_data,
+        Err(e) => {
+            error!("Malformed 'AttUserData' data structure from 'user_data' input as a JSON field: {}", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'AttUserData' data structure from 'user_data' input as a JSON field: {}\n", e))
+        }
+    };
+
+    let pubkey4proof_pubkey_pem_bytes = match hex::decode(payload.public_key) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Malformed 'public_key' input as a JSON field: {}", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'public_key' input as a JSON field: {}\n", e))
+        }
+    };
+
+    let pubkey4proof_pkey_pubkey = PKey::public_key_from_pem(pubkey4proof_pubkey_pem_bytes.as_slice()).unwrap();
+    let pubkey4proof_ec_pubkey = pubkey4proof_pkey_pubkey.ec_key().unwrap();
+    let cipher_id = att_doc_user_data.vrf_cipher_suite.to_nid();
+    let alg = openssl::ec::EcGroup::from_curve_name(cipher_id).unwrap();
+    let pubkey4proof_ec_point = pubkey4proof_ec_pubkey.public_key().to_owned(alg.as_ref()).unwrap();
+    let pubkey4proof_pubkey_bytes = pubkey4proof_ec_point.to_bytes(alg.as_ref(), openssl::ec::PointConversionForm::COMPRESSED, &mut BigNumContext::new_secure().unwrap()).unwrap();
+
+    let vrf_proof_bytes = match hex::decode(att_doc_user_data.vrf_proof) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Malformed 'vrf_proof' input as field of 'AttUserData' data structure from 'user_data' input as a JSON field: {}", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'vrf_proof' input as field of 'AttUserData' data structure from 'user_data' input as a JSON field: {}\n", e))
+        }
+    };
+
+    // VRF Proof hash based on private key generated for file path and file hash pair (emulation of CoW FS metadata for enclave's ramdisk FS)
+    let att_proof_data = AttProofData{
+        file_path: att_doc_user_data.file_path.clone(),
+        sha3_hash: hex::encode(att_doc_user_data.sha3_hash.clone()),
+    };
+    let att_proof_data_json_bytes = serde_json::to_vec(&att_proof_data).unwrap();
+    let cipher_suite = att_doc_user_data.vrf_cipher_suite;
+
+    match vrf_verify(att_proof_data_json_bytes.as_slice(), vrf_proof_bytes.as_slice(), pubkey4proof_pubkey_bytes.as_slice(), cipher_suite) {
+        Ok(message) => return (StatusCode::OK, format!("{:?}\n", message)),
+        Err(message) => return (StatusCode::OK, format!("{:?}\n", message)),
+    }
 }
 
 async fn verify_doc(
@@ -1714,19 +1765,24 @@ fn vrf_proof(message: &[u8], secret_key: &[u8], cipher_suite: CipherSuite) -> Re
     Ok(proof)
 }
 
-fn vrf_verify(message: &[u8], proof: &[u8], public_key: &[u8], cipher_suite: CipherSuite) -> Result<bool, Error> {
+fn vrf_verify(message: &[u8], proof: &[u8], public_key: &[u8], cipher_suite: CipherSuite) -> Result<String, String> {
     let mut vrf  = ECVRF::from_suite(cipher_suite).unwrap();
     let hash = vrf.proof_to_hash(&proof).unwrap();
     let outcome = vrf.verify(&public_key, &proof, &message);
     match outcome {
         Ok(outcome) => {
-            info!("VRF proof is valid!");
-            let result = if hash == outcome { true } else { false };
-            Ok(result)
+            let result = if hash == outcome {
+                info!("VRF proof is valid!");
+                Ok("VRF proof is valid!".to_string())
+            } else {
+                error!("VRF proof is not valid!");
+                Err("VRF proof is not valid!".to_string())
+            };
+            result
         }
         Err(e) => {
-            error!("VRF proof is not valid! Error: {}", e);
-            Err(e)
+            error!("VRF proof is not valid! Error: {:?}", e);
+            Err(format!("VRF proof is not valid! Error: {:?}", e))
         }
     }
 }
