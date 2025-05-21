@@ -655,12 +655,7 @@ fn visit_files_recursively<'a>(
                             // let nonce = get_randomness_sequence(fd.clone(), 512);
                             let mut vrf  = ECVRF::from_suite(cipher_suite.clone()).unwrap();
                             let nonce = vrf.generate_nonce(&skey4proofs_bignum, att_proof_data_json_bytes.as_slice()).unwrap().to_vec();
-
-                            let cipher_id = cipher_suite.to_nid();
-                            let alg = openssl::ec::EcGroup::from_curve_name(cipher_id).unwrap();
-                            let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key()).unwrap();
-                            let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey).unwrap();
-                            let skey4proofs_pubkey_pem = skey4proofs_pkey_pubkey.public_key_to_pem().unwrap();
+                            let skey4proofs_pubkey = vrf.derive_public_key(skey4proofs_vec.as_slice()).unwrap();
 
                             let att_user_data = AttUserData {
                                 file_path: file_path_clone.clone(),
@@ -668,14 +663,13 @@ fn visit_files_recursively<'a>(
                                 vrf_proof: hex::encode(vrf_proof.clone()),
                                 vrf_cipher_suite: cipher_suite.clone(),
                             };
-
                             let att_user_data_json_bytes = serde_json::to_vec(&att_user_data).unwrap();
 
                             let att_doc = get_attestation_doc(
                                 fd,
                                 Some(ByteBuf::from(att_user_data_json_bytes)),
                                 Some(ByteBuf::from(nonce.clone())),
-                                Some(ByteBuf::from(skey4proofs_pubkey_pem.clone())),
+                                Some(ByteBuf::from(skey4proofs_pubkey.clone())),
                             );
 
                             app_cache.att_data.insert(file_path_clone.clone(), AttData {
@@ -1653,20 +1647,13 @@ async fn verify_proof(
         }
     };
 
-    let pubkey4proof_pubkey_pem_bytes = match hex::decode(payload.public_key) {
+    let pubkey4proof_pubkey_bytes = match hex::decode(payload.public_key) {
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Malformed 'public_key' input as a JSON field: {}", e);
             return (StatusCode::BAD_REQUEST, format!("Malformed 'public_key' input as a JSON field: {}\n", e))
         }
     };
-
-    let pubkey4proof_pkey_pubkey = PKey::public_key_from_pem(pubkey4proof_pubkey_pem_bytes.as_slice()).unwrap();
-    let pubkey4proof_ec_pubkey = pubkey4proof_pkey_pubkey.ec_key().unwrap();
-    let cipher_id = att_doc_user_data.vrf_cipher_suite.to_nid();
-    let alg = openssl::ec::EcGroup::from_curve_name(cipher_id).unwrap();
-    let pubkey4proof_ec_point = pubkey4proof_ec_pubkey.public_key().to_owned(alg.as_ref()).unwrap();
-    let pubkey4proof_pubkey_bytes = pubkey4proof_ec_point.to_bytes(alg.as_ref(), openssl::ec::PointConversionForm::COMPRESSED, &mut BigNumContext::new_secure().unwrap()).unwrap();
 
     let vrf_proof_bytes = match hex::decode(att_doc_user_data.vrf_proof) {
         Ok(bytes) => bytes,
@@ -1682,6 +1669,7 @@ async fn verify_proof(
         sha3_hash: hex::encode(att_doc_user_data.sha3_hash.clone()),
     };
     let att_proof_data_json_bytes = serde_json::to_vec(&att_proof_data).unwrap();
+
     let cipher_suite = att_doc_user_data.vrf_cipher_suite;
 
     match vrf_verify(att_proof_data_json_bytes.as_slice(), vrf_proof_bytes.as_slice(), pubkey4proof_pubkey_bytes.as_slice(), cipher_suite) {
