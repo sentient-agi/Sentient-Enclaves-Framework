@@ -52,6 +52,7 @@ use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 use openssl::pkey::{PKey, Private, Public};
 use openssl::nid::Nid as CipherID;
 use openssl::bn::{BigNum, BigNumContext};
+use openssl::x509::X509;
 
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
@@ -516,7 +517,7 @@ async fn main() -> io::Result<()> {
         .route("/pubkeys/", get(pubkeys).with_state(Arc::clone(&state.app_state)))
         .route("/verify_hash/", post(verify_hash))
         .route("/verify_proof/", post(verify_proof).with_state(Arc::clone(&state.app_state)))
-        .route("/verify_doc/", post(verify_doc))
+        .route("/verify_doc/", post(verify_doc).with_state(Arc::clone(&state.app_state)))
         .route("/verify_cert_valid/", post(verify_cert_valid))
         .route("/verify_cert_bundle/", post(verify_cert_bundle))
         .route("/echo/", get(echo))
@@ -652,9 +653,11 @@ fn visit_files_recursively<'a>(
                             let mut app_cache = app_cache_clone.write();
 
                             let fd = app_state.nsm_fd;
-                            // let nonce = get_randomness_sequence(fd.clone(), 512);
                             let mut vrf  = ECVRF::from_suite(cipher_suite.clone()).unwrap();
+                            // Cryptographic nonce provided by the attestation document as a proof of authenticity of document and user data
                             let nonce = vrf.generate_nonce(&skey4proofs_bignum, att_proof_data_json_bytes.as_slice()).unwrap().to_vec();
+                            // Random nonce provided by the attestation document as a proof of authenticity of document and user data
+                            // let nonce = get_randomness_sequence(fd.clone(), 512);
                             let skey4proofs_pubkey = vrf.derive_public_key(skey4proofs_vec.as_slice()).unwrap();
 
                             let att_user_data = AttUserData {
@@ -1634,32 +1637,40 @@ async fn verify_proof(
     let att_doc_user_data_bytes = match hex::decode(payload.user_data) {
         Ok(bytes) => bytes,
         Err(e) => {
-            error!("Malformed 'user_data' input as a JSON field: {}", e);
-            return (StatusCode::BAD_REQUEST, format!("Malformed 'user_data' input as a JSON field: {}\n", e))
+            error!("Malformed 'user_data' input as a JSON field: {}\n
+            Please use GET 'att_doc_user_data' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'user_data' input as a JSON field: {}\n
+            Please use GET 'att_doc_user_data' endpoint to request correct JSON", e))
         }
     };
 
     let att_doc_user_data = match serde_json::from_slice::<AttUserData>(att_doc_user_data_bytes.as_slice()) {
         Ok(user_data) => user_data,
         Err(e) => {
-            error!("Malformed 'AttUserData' data structure from 'user_data' input as a JSON field: {}", e);
-            return (StatusCode::BAD_REQUEST, format!("Malformed 'AttUserData' data structure from 'user_data' input as a JSON field: {}\n", e))
+            error!("Malformed 'AttUserData' data structure from 'user_data' input as a JSON field: {}\n
+            Please use GET 'att_doc_user_data' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'AttUserData' data structure from 'user_data' input as a JSON field: {}\n
+            Please use GET 'att_doc_user_data' endpoint to request correct JSON", e))
         }
     };
 
     let pubkey4proof_pubkey_bytes = match hex::decode(payload.public_key) {
         Ok(bytes) => bytes,
         Err(e) => {
-            error!("Malformed 'public_key' input as a JSON field: {}", e);
-            return (StatusCode::BAD_REQUEST, format!("Malformed 'public_key' input as a JSON field: {}\n", e))
+            error!("Malformed 'public_key' input as a JSON field: {}\n
+            Please use GET 'att_doc_user_data' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'public_key' input as a JSON field: {}\n
+            Please use GET 'att_doc_user_data' endpoint to request correct JSON", e))
         }
     };
 
     let vrf_proof_bytes = match hex::decode(att_doc_user_data.vrf_proof) {
         Ok(bytes) => bytes,
         Err(e) => {
-            error!("Malformed 'vrf_proof' input as field of 'AttUserData' data structure from 'user_data' input as a JSON field: {}", e);
-            return (StatusCode::BAD_REQUEST, format!("Malformed 'vrf_proof' input as field of 'AttUserData' data structure from 'user_data' input as a JSON field: {}\n", e))
+            error!("Malformed 'vrf_proof' input as field of 'AttUserData' data structure from 'user_data' input as a JSON field: {}\n
+            Please use GET 'att_doc_user_data' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'vrf_proof' input as field of 'AttUserData' data structure from 'user_data' input as a JSON field: {}\n
+            Please use GET 'att_doc_user_data' endpoint to request correct JSON", e))
         }
     };
 
@@ -1673,16 +1684,65 @@ async fn verify_proof(
     let cipher_suite = att_doc_user_data.vrf_cipher_suite;
 
     match vrf_verify(att_proof_data_json_bytes.as_slice(), vrf_proof_bytes.as_slice(), pubkey4proof_pubkey_bytes.as_slice(), cipher_suite) {
-        Ok(message) => return (StatusCode::OK, format!("{:?}\n", message)),
-        Err(message) => return (StatusCode::OK, format!("{:?}\n", message)),
+        Ok(message) => (StatusCode::OK, format!("{:?}\n", message)),
+        Err(message) => (StatusCode::BAD_REQUEST, format!("{:?}\n", message)),
     }
 }
 
 async fn verify_doc(
-    State(state): State<Arc<ServerState>>,
+    State(_app_state): State<Arc<RwLock<AppState>>>,
     Json(payload): Json<VerifyDocRequest>,
 ) -> impl IntoResponse {
-    todo!()
+    let cose_doc_bytes = match hex::decode(payload.cose_doc_bytes) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Malformed 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e))
+        }
+    };
+
+    let cose_doc = CoseSign1::from_bytes(cose_doc_bytes.as_slice()).unwrap();
+    let (protected_header, attestation_doc_bytes) =
+        cose_doc.get_protected_and_payload::<Openssl>(None).unwrap();
+    info!("Protected header: {:#?}", protected_header);
+    let unprotected_header = cose_doc.get_unprotected();
+    info!("Unprotected header: {:#?}", unprotected_header);
+    let attestation_doc = AttestationDoc::from_binary(&attestation_doc_bytes[..]).unwrap();
+    info!("Attestation document: {:#?}", attestation_doc);
+    let attestation_doc_signature = cose_doc.get_signature();
+    info!("Attestation document signature: {:#?}", hex::encode(attestation_doc_signature.clone()));
+
+    let att_doc_certificate_bytes = attestation_doc.certificate.into_vec();
+    let att_doc_certificate = match X509::from_der(att_doc_certificate_bytes.as_slice()) {
+        Ok(x509) => x509,
+        Err(e) => {
+            error!("Malformed 'certificate' in attestation document, incorrect 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'certificate' in attestation document, incorrect 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e))
+        }
+    };
+    let att_doc_certificate_pubkey_pkey = att_doc_certificate.public_key().unwrap();
+
+    let outcome = cose_doc.verify_signature::<Openssl>(&att_doc_certificate_pubkey_pkey);
+    match outcome {
+        Ok(result) => if result {
+            (StatusCode::OK, format!(r#"
+                Attestation document signature verification: {:?}
+                Attestation document signature is valid!
+                Attestation document signature verification against attestation document certificate public key is successful!
+                "#, "Successful".to_string()))
+        } else {
+            (StatusCode::OK, format!(r#"
+                Attestation document signature verification: {:?}
+                Attestation document signature is NOT valid!
+                Attestation document signature verification against attestation document certificate public key is NOT successful!
+                "#, "NOT successful".to_string()))
+        },
+        Err(error) => (StatusCode::BAD_REQUEST, format!("An error returned during attestation document signature verification: {:?}", error))
+    }
 }
 
 async fn verify_cert_valid(
