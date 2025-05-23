@@ -52,7 +52,9 @@ use rand_core::{RngCore, OsRng}; // requires 'getrandom' feature
 use openssl::pkey::{PKey, Private, Public};
 use openssl::nid::Nid as CipherID;
 use openssl::bn::{BigNum, BigNumContext};
-use openssl::x509::X509;
+use openssl::x509::{X509, X509StoreContext};
+use openssl::x509::store::X509StoreBuilder;
+use openssl::stack::Stack;
 
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
@@ -340,16 +342,6 @@ struct VerifyDocRequest {
     cose_doc_bytes: String,
 }
 
-#[derive(Default, Debug, Clone, Deserialize)]
-struct VerifyCertValidRequest {
-    att_doc_bytes: String,
-}
-
-#[derive(Default, Debug, Clone, Deserialize)]
-struct VerifyCertCABundleRequest {
-    att_doc_bytes: String,
-}
-
 #[tokio::main]
 async fn main() -> io::Result<()> {
     tracing_subscriber::registry()
@@ -515,11 +507,11 @@ async fn main() -> io::Result<()> {
         .route("/docs/", get(docs))
         .route("/doc/", get(doc_handler))
         .route("/pubkeys/", get(pubkeys).with_state(Arc::clone(&state.app_state)))
-        .route("/verify_hash/", post(verify_hash))
+        .route("/verify_hash/", post(verify_hash).with_state(Arc::clone(&state.app_state)))
         .route("/verify_proof/", post(verify_proof).with_state(Arc::clone(&state.app_state)))
         .route("/verify_doc/", post(verify_doc).with_state(Arc::clone(&state.app_state)))
-        .route("/verify_cert_valid/", post(verify_cert_valid))
-        .route("/verify_cert_bundle/", post(verify_cert_bundle))
+        .route("/verify_cert_valid/", post(verify_cert_valid).with_state(Arc::clone(&state.app_state)))
+        .route("/verify_cert_bundle/", post(verify_cert_bundle).with_state(Arc::clone(&state.app_state)))
         .route("/echo/", get(echo))
         .route("/hello/", get(hello))
         .route("/nsm_desc", get(nsm_desc).with_state(Arc::clone(&state.app_state)))
@@ -1624,7 +1616,7 @@ impl std::fmt::Display for LocalNsmDigest {
 }
 
 async fn verify_hash(
-    State(state): State<Arc<ServerState>>,
+    State(_app_state): State<Arc<RwLock<AppState>>>,
     Json(payload): Json<VerifyHashRequest>,
 ) -> impl IntoResponse {
     todo!()
@@ -1685,7 +1677,7 @@ async fn verify_proof(
 
     match vrf_verify(att_proof_data_json_bytes.as_slice(), vrf_proof_bytes.as_slice(), pubkey4proof_pubkey_bytes.as_slice(), cipher_suite) {
         Ok(message) => (StatusCode::OK, format!("{:?}\n", message)),
-        Err(message) => (StatusCode::BAD_REQUEST, format!("{:?}\n", message)),
+        Err(message) => (StatusCode::OK, format!("{:?}\n", message)),
     }
 }
 
@@ -1731,32 +1723,112 @@ async fn verify_doc(
         Ok(result) => if result {
             (StatusCode::OK, format!(r#"
                 Attestation document signature verification: {:?}
-                Attestation document signature is valid!
+                Attestation document signature is VALID!
                 Attestation document signature verification against attestation document certificate public key is successful!
                 "#, "Successful".to_string()))
         } else {
             (StatusCode::OK, format!(r#"
                 Attestation document signature verification: {:?}
-                Attestation document signature is NOT valid!
+                Attestation document signature is INVALID!
                 Attestation document signature verification against attestation document certificate public key is NOT successful!
                 "#, "NOT successful".to_string()))
         },
-        Err(error) => (StatusCode::BAD_REQUEST, format!("An error returned during attestation document signature verification: {:?}", error))
+        Err(error) => (StatusCode::BAD_REQUEST, format!("Verification failed. An error returned during attestation document signature verification check: {:?}", error))
     }
 }
 
 async fn verify_cert_valid(
-    State(state): State<Arc<ServerState>>,
-    Json(payload): Json<VerifyCertValidRequest>,
+    State(_app_state): State<Arc<RwLock<AppState>>>,
+    Json(payload): Json<VerifyDocRequest>,
 ) -> impl IntoResponse {
     todo!()
 }
 
 async fn verify_cert_bundle(
-    State(state): State<Arc<ServerState>>,
-    Json(payload): Json<VerifyCertCABundleRequest>,
+    State(_app_state): State<Arc<RwLock<AppState>>>,
+    Json(payload): Json<VerifyDocRequest>,
 ) -> impl IntoResponse {
-    todo!()
+    let cose_doc_bytes = match hex::decode(payload.cose_doc_bytes) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Malformed 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e))
+        }
+    };
+
+    let cose_doc = CoseSign1::from_bytes(cose_doc_bytes.as_slice()).unwrap();
+    let (protected_header, attestation_doc_bytes) =
+        cose_doc.get_protected_and_payload::<Openssl>(None).unwrap();
+    info!("Protected header: {:#?}", protected_header);
+    let unprotected_header = cose_doc.get_unprotected();
+    info!("Unprotected header: {:#?}", unprotected_header);
+    let attestation_doc = AttestationDoc::from_binary(&attestation_doc_bytes[..]).unwrap();
+    info!("Attestation document: {:#?}", attestation_doc);
+    let attestation_doc_signature = cose_doc.get_signature();
+    info!("Attestation document signature: {:#?}", hex::encode(attestation_doc_signature.clone()));
+
+    if attestation_doc.cabundle.is_empty() {
+        error!("Malformed 'cabundle' in attestation document, incorrect 'cose_doc_bytes' input as a JSON field: {}\n
+        Please use GET 'cose_doc' endpoint to request correct JSON", "");
+        return (StatusCode::BAD_REQUEST, format!("Malformed 'cabundle' in attestation document, incorrect 'cose_doc_bytes' input as a JSON field: {}\n
+        Please use GET 'cose_doc' endpoint to request correct JSON", ""))
+    };
+
+    let att_doc_certificate_bytes = attestation_doc.certificate.into_vec();
+    let att_doc_certificate = match X509::from_der(att_doc_certificate_bytes.as_slice()) {
+        Ok(x509) => x509,
+        Err(e) => {
+            error!("Malformed 'certificate' in attestation document, incorrect 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'certificate' in attestation document, incorrect 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e))
+        }
+    };
+
+    let (root_cert, intermediate_certs) = attestation_doc.cabundle.split_first().unwrap();
+    let root_cert = root_cert.to_vec();
+    let root_cert_x509 = X509::from_der(root_cert.as_slice()).unwrap();
+
+    let mut root_cert_store_builder = X509StoreBuilder::new().unwrap();
+    root_cert_store_builder.add_cert(root_cert_x509).unwrap();
+    let root_cert_store = root_cert_store_builder.build();
+
+    let mut intermediate_certs_stack = Stack::new().unwrap();
+    intermediate_certs.iter().for_each(
+        |cert| {
+            let cert = cert.to_vec();
+            let cert_x509 = X509::from_der(cert.as_slice()).unwrap();
+            intermediate_certs_stack.push(cert_x509).unwrap();
+        }
+    );
+
+    let mut ctx = X509StoreContext::new().unwrap();
+    let outcome = ctx.init(&root_cert_store, &att_doc_certificate, &intermediate_certs_stack, |ctx| ctx.verify_cert());
+
+    match outcome {
+        Ok(result) => if result {
+            (StatusCode::OK, format!(r#"
+                Attestation document certificate verification: {:?}
+                Attestation document certificate is VALID!
+                Attestation document certificate verification against attestation document certificates bundle (root certificate and intermediate certificates) is successful!
+                "#, "Successful".to_string()
+            ))
+        } else {
+            let cert_verification_context = format!("OpenSSL error: {:?}", ctx.error().error_string());
+            (StatusCode::OK, format!(r#"
+                Attestation document certificate verification: {:?}
+                Attestation document certificate is INVALID!
+                Attestation document certificate verification against attestation document certificates bundle (root certificate and intermediate certificates) is NOT successful!
+                Verification context: {:?}
+                "#,
+                    "NOT successful".to_string(),
+                    cert_verification_context,
+            ))
+        },
+        Err(error) => (StatusCode::BAD_REQUEST, format!("Verification failed. An error returned during attestation document certificate verification check: {:?}", error))
+    }
 }
 
 /// Randomly generate PRIME256V1/P-256 key to use for validating signing internally
