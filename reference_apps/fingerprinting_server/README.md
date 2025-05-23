@@ -23,7 +23,7 @@ An efficient and scalable HTTP server for generating and managing fingerprints b
 
 ### Prerequisites
 - **Sentient OML Fingerprinting library:** Ensure you have the Sentient OML Fingerprinting repository cloned and it's dependencies installed. For more information, refer to the [Sentient OML Fingerprinting](https://github.com/sentient-agi/oml-1.0-fingerprinting) library. 
-- **DeepSpeed:** Required for executing fingerprinting tasks. We recomment building it [from source](https://www.deepspeed.ai/tutorials/advanced-install/#install-deepspeed-from-source).
+- **DeepSpeed:** Required for executing fingerprinting tasks. We recommend building it [from source](https://www.deepspeed.ai/tutorials/advanced-install/#install-deepspeed-from-source).
 
 ### Installation
 
