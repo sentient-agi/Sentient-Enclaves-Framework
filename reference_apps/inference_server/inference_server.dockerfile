@@ -18,9 +18,10 @@ RUN curl -fsSL https://sh.rustup.rs | bash -is -- -y --verbose --no-modify-path 
 WORKDIR /app-builder
 
 # Copy the source code
-RUN git clone https://github.com/shivraj-sj/reference_apps.git
+# RUN git clone https://github.com/shivraj-sj/reference_apps.git
+RUN git clone https://github.com/sentient-agi/sentient-enclaves-framework.git
 
-RUN cd /app-builder/reference_apps/inference_server && \
+RUN cd /app-builder/sentient-enclaves-framework/reference_apps/inference_server && \
     cargo build --release
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as enclave_app
@@ -49,6 +50,6 @@ RUN dnf install -y lynx w3m
 RUN dnf install -y awscli
 
 # Copy the server binary
-COPY --from=server_builder /app-builder/reference_apps/inference_server/target/release/inference_server /apps/inference_server
+COPY --from=server_builder /app-builder/sentient-enclaves-framework/reference_apps/inference_server/target/release/inference_server /apps/inference_server
 
 CMD tail -f /dev/null
