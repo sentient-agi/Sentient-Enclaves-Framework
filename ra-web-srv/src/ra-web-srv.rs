@@ -55,6 +55,9 @@ use openssl::bn::{BigNum, BigNumContext};
 use openssl::x509::{X509, X509StoreContext};
 use openssl::x509::store::X509StoreBuilder;
 use openssl::stack::Stack;
+use openssl::asn1::Asn1Time;
+
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
@@ -1742,6 +1745,33 @@ async fn verify_cert_valid(
     Json(payload): Json<VerifyDocRequest>,
 ) -> impl IntoResponse {
     todo!()
+}
+
+fn check_cert_validity(cert: &X509) -> Result<bool, String> {
+    // Check if the certificate has expired or is not yet valid
+    // let now = Asn1Time::days_from_now(0).unwrap();
+    let now = SystemTime::now();
+    let since_epoch = now.duration_since(UNIX_EPOCH).unwrap();
+    let seconds_since_epoch = since_epoch.as_secs() as i64;
+    let now = Asn1Time::from_unix(seconds_since_epoch).unwrap();
+
+    let not_before = match cert.not_before().compare(&now) {
+        Ok(ord) => if ord.is_gt() { true } else { false },
+        Err(e) => return Err(format!("Certificate is not yet valid. {:?}", e)),
+    };
+
+    let not_after = match cert.not_after().compare(&now) {
+        Ok(ord) => if ord.is_lt() { true } else { false },
+        Err(e) => return Err(format!("Certificate has expired. {:?}", e)),
+    };
+
+    // Additional checks can be performed here, such as checking the certificate's subject and issuer
+
+    if not_before == false || not_after == false {
+        Ok(false)
+    } else {
+        Ok(true)
+    }
 }
 
 async fn verify_cert_bundle(
