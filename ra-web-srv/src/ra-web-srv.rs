@@ -1817,22 +1817,102 @@ async fn verify_cert_bundle(
         }
     };
 
+    let att_doc_cert_info = att_doc_certificate.to_text().unwrap();
+    let att_doc_cert_info_string = String::from_utf8_lossy(att_doc_cert_info.as_slice());
+    info!("Attestation document certificate information: {}\n", att_doc_cert_info_string);
+
+    let att_doc_cert_pubkey_pkey = att_doc_certificate.public_key().unwrap();
+    match att_doc_certificate.verify(&att_doc_cert_pubkey_pkey) {
+        Ok(valid) => if !valid {
+            error!("Attestation document certificate signature verification against its public key is not successful, signature is invalid. Certificate information: {}\n", att_doc_cert_info_string);
+            return (StatusCode::BAD_REQUEST, format!("Attestation document certificate signature verification against its public key is not successful, signature is invalid. Certificate information: {}\n", att_doc_cert_info_string))
+        },
+        Err(e) => {
+            error!("Attestation document certificate signature verification against its public key is not successful. Error returned: {:?}\nCertificate information: {}\n", e, att_doc_cert_info_string);
+            return (StatusCode::BAD_REQUEST, format!("Attestation document certificate signature verification against its public key is not successful. Error returned: {:?}\nCertificate information: {}\n", e, att_doc_cert_info_string))
+        },
+    };
+
+    match check_cert_validity(&att_doc_certificate) {
+        Ok(valid) => if !valid {
+            error!("Attestation document certificate is not yet valid or expired.\n");
+            return (StatusCode::BAD_REQUEST, format!("Attestation document certificate is not yet valid or expired. {}\n", ""))
+        },
+        Err(e) => {
+            error!("Attestation document certificate is not yet valid or expired. Error returned: {:?}\n", e);
+            return (StatusCode::BAD_REQUEST, format!("Attestation document certificate is not yet valid or expired. Error returned: {:?}\n", e))
+        },
+    };
+
     let (root_cert, intermediate_certs) = attestation_doc.cabundle.split_first().unwrap();
     let root_cert = root_cert.to_vec();
     let root_cert_x509 = X509::from_der(root_cert.as_slice()).unwrap();
+
+    let root_cert_info = root_cert_x509.to_text().unwrap();
+    let root_cert_info_string = String::from_utf8_lossy(root_cert_info.as_slice());
+    info!("Root certificate information: {}\n", root_cert_info_string);
+
+    let root_cert_pubkey_pkey = root_cert_x509.public_key().unwrap();
+    match root_cert_x509.verify(&root_cert_pubkey_pkey) {
+        Ok(valid) => if !valid {
+            error!("Attestation document root certificate from CA bundle chain signature verification against its public key is not successful, signature is invalid. Certificate information: {}\n", root_cert_info_string);
+            return (StatusCode::BAD_REQUEST, format!("Attestation document root certificate from CA bundle chain signature verification against its public key is not successful, signature is invalid. Certificate information: {}\n", root_cert_info_string))
+        },
+        Err(e) => {
+            error!("Attestation document root certificate from CA bundle chain signature verification against its public key is not successful. Error returned: {:?}\nCertificate information: {}\n", e, root_cert_info_string);
+            return (StatusCode::BAD_REQUEST, format!("Attestation document root certificate from CA bundle chain signature verification against its public key is not successful. Error returned: {:?}\nCertificate information: {}\n", e, root_cert_info_string))
+        },
+    };
+
+    match check_cert_validity(&root_cert_x509) {
+        Ok(valid) => if !valid {
+            error!("Attestation document root certificate from CA bundle is not yet valid or expired.\n");
+            return (StatusCode::BAD_REQUEST, format!("Attestation document root certificate from CA bundle is not yet valid or expired. {}\n", ""))
+        },
+        Err(e) => {
+            error!("Attestation document root certificate from CA bundle is not yet valid or expired. Error returned: {:?}\n", e);
+            return (StatusCode::BAD_REQUEST, format!("Attestation document root certificate from CA bundle is not yet valid or expired. Error returned: {:?}\n", e))
+        },
+    };
 
     let mut root_cert_store_builder = X509StoreBuilder::new().unwrap();
     root_cert_store_builder.add_cert(root_cert_x509).unwrap();
     let root_cert_store = root_cert_store_builder.build();
 
     let mut intermediate_certs_stack = Stack::new().unwrap();
-    intermediate_certs.iter().for_each(
-        |cert| {
-            let cert = cert.to_vec();
-            let cert_x509 = X509::from_der(cert.as_slice()).unwrap();
-            intermediate_certs_stack.push(cert_x509).unwrap();
-        }
-    );
+    for cert in intermediate_certs.iter() {
+        let cert = cert.to_vec();
+        let cert_x509 = X509::from_der(cert.as_slice()).unwrap();
+
+        let cert_info = cert_x509.to_text().unwrap();
+        let cert_info_string = String::from_utf8_lossy(cert_info.as_slice());
+        info!("Intermediate certificate information: {}\n", cert_info_string);
+
+        let cert_pubkey_pkey = cert_x509.public_key().unwrap();
+        match cert_x509.verify(&cert_pubkey_pkey) {
+            Ok(valid) => if !valid {
+                error!("Attestation document intermediate certificate from CA bundle chain signature verification against its public key is not successful, signature is invalid. Certificate information: {}\n", cert_info_string);
+                return (StatusCode::BAD_REQUEST, format!("Attestation document intermediate certificate from CA bundle chain signature verification against its public key is not successful, signature is invalid. Certificate information: {}\n", cert_info_string))
+            },
+            Err(e) => {
+                error!("Attestation document intermediate certificate from CA bundle chain signature verification against its public key is not successful. Error returned: {:?}\nCertificate information: {}\n", e, cert_info_string);
+                return (StatusCode::BAD_REQUEST, format!("Attestation document intermediate certificate from CA bundle chain signature verification against its public key is not successful. Error returned: {:?}\nCertificate information: {}\n", e, cert_info_string))
+            },
+        };
+
+        match check_cert_validity(&cert_x509) {
+            Ok(valid) => if !valid {
+                error!("Attestation document intermediate certificate from CA bundle chain is not yet valid or expired. Certificate information: {}\n", cert_info_string);
+                return (StatusCode::BAD_REQUEST, format!("Attestation document intermediate certificate from CA bundle chain is not yet valid or expired. Certificate information: {}\n", cert_info_string))
+            },
+            Err(e) => {
+                error!("Attestation document intermediate certificate from CA bundle chain is not yet valid or expired. Error returned: {:?}\nCertificate information: {}\n", e, cert_info_string);
+                return (StatusCode::BAD_REQUEST, format!("Attestation document intermediate certificate from CA bundle chain is not yet valid or expired. Error returned: {:?}\nCertificate information: {}\n", e, cert_info_string))
+            },
+        };
+
+        intermediate_certs_stack.push(cert_x509).unwrap();
+    };
 
     let mut ctx = X509StoreContext::new().unwrap();
     let outcome = ctx.init(&root_cert_store, &att_doc_certificate, &intermediate_certs_stack, |ctx| ctx.verify_cert());
