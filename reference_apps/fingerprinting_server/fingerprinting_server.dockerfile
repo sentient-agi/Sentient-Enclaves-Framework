@@ -19,9 +19,10 @@ RUN curl -fsSL https://sh.rustup.rs | bash -is -- -y --verbose --no-modify-path 
 WORKDIR /app-builder
 
 # Copy the source code
-RUN git clone https://github.com/shivraj-sj/reference_apps.git
+RUN git clone https://github.com/sentient-agi/sentient-enclaves-framework.git
 
-RUN cd /app-builder/reference_apps/fingerprinting_server && \
+
+RUN cd /app-builder/sentient-enclaves-framework/reference_apps/fingerprinting_server && \
     cargo build --release
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as enclave_app
@@ -65,7 +66,7 @@ RUN git clone https://github.com/sentient-agi/oml-1.0-fingerprinting.git
 
 ## Install library dependencies
 RUN cd oml-1.0-fingerprinting && \
-    pip3.11 install -r requirements.txt
+    pip3.11 install --retries 3 --timeout 300 -r requirements.txt
 
 RUN dnf install -y \
     wget gcc gcc-c++ make which
@@ -78,8 +79,8 @@ RUN git clone https://github.com/microsoft/DeepSpeed.git /tmp/DeepSpeed && \
     rm -rf /tmp/DeepSpeed
 
 # Copy the server binary
-COPY --from=server_builder /app-builder/reference_apps/fingerprinting_server/target/release/fingerprinting_server /apps/fingerprinting_server
-COPY --from=server_builder /app-builder/reference_apps/fingerprinting_server/config_tee.toml /apps/config.toml
+COPY --from=server_builder /app-builder/sentient-enclaves-framework/reference_apps/fingerprinting_server/target/release/fingerprinting_server /apps/fingerprinting_server
+COPY --from=server_builder /app-builder/sentient-enclaves-framework/reference_apps/fingerprinting_server/config_tee.toml /apps/config.toml
 
 # ARG FS=0
 # ENV FS=${FS}

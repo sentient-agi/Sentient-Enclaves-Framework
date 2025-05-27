@@ -8,7 +8,8 @@ RUN dnf install -y python3 python3-pip git
 
 # Get the X Agent
 WORKDIR /build
-RUN git clone https://github.com/shivraj-sj/reference_apps.git
+# RUN git clone https://github.com/shivraj-sj/reference_apps.git
+RUN git clone https://github.com/sentient-agi/sentient-enclaves-framework.git
 
 
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as enclave_app
@@ -42,7 +43,7 @@ RUN dnf install -y awscli
 RUN dnf install -y python3 python3-pip
 
 RUN curl -sSL https://pdm-project.org/install-pdm.py | python3 -
-COPY --from=fetcher /build/reference_apps/X_Agent /apps/X_Agent
+COPY --from=fetcher /build/sentient-enclaves-framework/reference_apps/X_Agent /apps/X_Agent
 RUN cd /apps/X_Agent && /root/.local/bin/pdm install
 
 # Keep the enclave running
