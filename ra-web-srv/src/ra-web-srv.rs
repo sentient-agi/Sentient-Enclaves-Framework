@@ -557,7 +557,7 @@ async fn generate_handler(
             return (
                 StatusCode::NOT_FOUND,
                 format!("Path not found: {:?}\n", e),
-            );
+            )
         }
     };
 
@@ -1740,13 +1740,6 @@ async fn verify_doc(
     }
 }
 
-async fn verify_cert_valid(
-    State(_app_state): State<Arc<RwLock<AppState>>>,
-    Json(payload): Json<VerifyDocRequest>,
-) -> impl IntoResponse {
-    todo!()
-}
-
 fn check_cert_validity(cert: &X509) -> Result<bool, String> {
     // Check if the certificate has expired or is not yet valid
     // let now = Asn1Time::days_from_now(0).unwrap();
@@ -1771,6 +1764,99 @@ fn check_cert_validity(cert: &X509) -> Result<bool, String> {
         Ok(false)
     } else {
         Ok(true)
+    }
+}
+
+async fn verify_cert_valid(
+    State(_app_state): State<Arc<RwLock<AppState>>>,
+    Json(payload): Json<VerifyDocRequest>,
+) -> impl IntoResponse {
+    let cose_doc_bytes = match hex::decode(payload.cose_doc_bytes) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Malformed 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e))
+        }
+    };
+
+    let cose_doc = CoseSign1::from_bytes(cose_doc_bytes.as_slice()).unwrap();
+    let (protected_header, attestation_doc_bytes) =
+        cose_doc.get_protected_and_payload::<Openssl>(None).unwrap();
+    info!("Protected header: {:#?}", protected_header);
+    let unprotected_header = cose_doc.get_unprotected();
+    info!("Unprotected header: {:#?}", unprotected_header);
+    let attestation_doc = AttestationDoc::from_binary(&attestation_doc_bytes[..]).unwrap();
+    info!("Attestation document: {:#?}", attestation_doc);
+    let attestation_doc_signature = cose_doc.get_signature();
+    info!("Attestation document signature: {:#?}", hex::encode(attestation_doc_signature.clone()));
+
+    let att_doc_certificate_bytes = attestation_doc.certificate.into_vec();
+    let att_doc_certificate = match X509::from_der(att_doc_certificate_bytes.as_slice()) {
+        Ok(x509) => x509,
+        Err(e) => {
+            error!("Malformed 'certificate' in attestation document, incorrect 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e);
+            return (StatusCode::BAD_REQUEST, format!("Malformed 'certificate' in attestation document, incorrect 'cose_doc_bytes' input as a JSON field: {}\n
+            Please use GET 'cose_doc' endpoint to request correct JSON", e))
+        }
+    };
+
+    let att_doc_cert_info = att_doc_certificate.to_text().unwrap();
+    let att_doc_cert_info_string = String::from_utf8_lossy(att_doc_cert_info.as_slice());
+    info!("Attestation document certificate information: {}\n", att_doc_cert_info_string);
+
+    let att_doc_cert_pubkey_pkey = att_doc_certificate.public_key().unwrap();
+    let att_doc_cert_verification_result = match att_doc_certificate.verify(&att_doc_cert_pubkey_pkey) {
+        Ok(valid) => if !valid {
+            error!("Attestation document certificate signature verification against its public key is NOT successful, signature is INVALID! Certificate information: {}\n", att_doc_cert_info_string);
+            Err(format!("Attestation document certificate signature verification against its public key is NOT successful, signature is INVALID! Certificate information: {}\n", att_doc_cert_info_string))
+        } else {
+            Ok(format!("Attestation document certificate signature verification against its public key is successful, signature is VALID! Certificate information: {}\n", att_doc_cert_info_string))
+        },
+        Err(e) => {
+            error!("Attestation document certificate signature verification against its public key FAILED! Error returned: {:?}\nCertificate information: {}\n", e, att_doc_cert_info_string);
+            Err(format!("Attestation document certificate signature verification against its public key FAILED! Error returned: {:?}\nCertificate information: {}\n", e, att_doc_cert_info_string))
+        },
+    };
+
+    let att_doc_cert_validity_check_result = match check_cert_validity(&att_doc_certificate) {
+        Ok(valid) => if !valid {
+            error!("Attestation document certificate is not yet valid or expired. {}\n", att_doc_cert_info_string);
+            Err(format!("Attestation document certificate is not yet valid or expired. {}\n", att_doc_cert_info_string))
+        } else {
+            Ok(format!("Attestation document certificate validity check (validation) is SUCCESSFUL! Certificate is VALID! Certificate information: {}\n", att_doc_cert_info_string))
+        },
+        Err(e) => {
+            error!("Attestation document certificate validity check (validation) FAILED! Error returned: {:?}\nCertificate information: {}\n", e, att_doc_cert_info_string);
+            Err(format!("Attestation document certificate validity check (validation) FAILED! Error returned: {:?}\nCertificate information: {}\n", e, att_doc_cert_info_string))
+        },
+    };
+
+    match (att_doc_cert_verification_result, att_doc_cert_validity_check_result) {
+        (Ok(verification_result), Ok(validity_check_result)) =>
+            (StatusCode::OK, format!(r#"
+                Attestation document certificate signature verification result:
+                    {:?}
+                Attestation document certificate validity check (validation) result:
+                    {:?}
+                "#,
+                    verification_result,
+                    validity_check_result,
+            )),
+        (Err(verification_result), Ok(validity_check_result)) |
+        (Ok(verification_result), Err(validity_check_result)) |
+        (Err(verification_result), Err(validity_check_result)) =>
+            (StatusCode::BAD_REQUEST, format!(r#"
+                Attestation document certificate signature verification result:
+                    {:?}
+                Attestation document certificate validity check (validation) result:
+                    {:?}
+                "#,
+                    verification_result,
+                    validity_check_result,
+            )),
     }
 }
 
