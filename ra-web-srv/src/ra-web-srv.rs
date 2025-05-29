@@ -1622,7 +1622,68 @@ async fn verify_hash(
     State(_app_state): State<Arc<RwLock<AppState>>>,
     Json(payload): Json<VerifyHashRequest>,
 ) -> impl IntoResponse {
-    todo!()
+    info!("{payload:?}");
+
+    let path_string = payload.file_path;
+    let request_hash_string = payload.sha3_hash;
+
+    let path = StdPath::new(&path_string);
+
+    // Check if the file path exists
+    let metadata = match tokio::fs::metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            return (
+                StatusCode::NOT_FOUND,
+                format!("File path not found: {:?}\n", e),
+            )
+        }
+    };
+
+    // Check if the path is a directory
+    if metadata.is_dir() {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!(r#"'file_path' field in a JSON request is a directory. Should be a file.
+                'file_path' string from JSON request: {:?}
+                'sha3_hash' string from JSON request: {:?}
+            "#,
+                path_string,
+                request_hash_string,
+            ),
+        )
+    };
+
+    let hash = hash_file(path_string.as_str()).unwrap();
+    let file_hash_string = hex::encode(hash.as_slice());
+
+    if file_hash_string == request_hash_string {
+        (
+            StatusCode::OK,
+            format!(r#"File present in FS and hash provided in JSON request is equal to actual file hash. Hash is VALID!
+                'file_path' string from JSON request: {:?}
+                'sha3_hash' string from JSON request: {:?}
+                computed actual 'sha3_hash' string for file: {:?}
+            "#,
+                path_string,
+                request_hash_string,
+                file_hash_string,
+            ),
+        )
+    } else {
+        (
+            StatusCode::OK,
+            format!(r#"File present in FS, but hash provided in JSON request is NOT equal to actual file hash - hashes are different! Hash is INVALID!
+                'file_path' string from JSON request: {:?}
+                'sha3_hash' string from JSON request: {:?}
+                computed actual 'sha3_hash' string for file: {:?}
+            "#,
+                path_string,
+                request_hash_string,
+                file_hash_string,
+            ),
+        )
+    }
 }
 
 async fn verify_proof(
