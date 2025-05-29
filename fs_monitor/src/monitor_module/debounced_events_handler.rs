@@ -147,17 +147,16 @@ fn handle_file_rename(from_path: &String, to_path: &String, file_infos: &Arc<Das
         // Insert the file info with the new path
         file_infos.insert(to_path.clone(), old_info);
         
-        let hash_info = Arc::clone(hash_info);
+        let hash_info_clone = Arc::clone(hash_info);
         // let file_infos = Arc::clone(file_infos);
-        let to_path = to_path.clone();
-        let from_path = from_path.clone();
+        let to_path_clone = to_path.clone();
+        let from_path_clone = from_path.clone();
         
         tokio::spawn(async move {
             // Transfer hash history
             {
-                let mut hash_results = hash_info.hash_results.lock().await;
-                if let Some(hash_history) = hash_results.remove(&from_path) {
-                    hash_results.insert(to_path, hash_history);
+                if let Err(e) = hash_info_clone.rename_hash_entry(&from_path_clone, &to_path_clone).await {
+                    eprintln!("Error renaming hash entry from {} to {}: {}", from_path_clone, to_path_clone, e);
                 }
             }
         });
@@ -192,10 +191,9 @@ fn handle_directory_rename(from_path: &String, to_path: &String, file_infos: &Ar
 
     // Transfer hash history
     tokio::spawn( async move {
-        let mut hash_results = hash_info_clone.hash_results.lock().await;
         for (old_path, new_path) in path_pairs_clone {
-            if let Some(hash_history) = hash_results.remove(&old_path) {
-                hash_results.insert(new_path, hash_history);
+            if let Err(e) = hash_info_clone.rename_hash_entry(&old_path, &new_path).await {
+                eprintln!("Error renaming hash entry from {} to {}: {}", old_path, new_path, e);
             }
         }
     });
@@ -239,8 +237,9 @@ fn handle_file_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     // In the background thread, clean-up the hash
     tokio::spawn( async move {
         // Clean-up the hash
-        let mut hash_results = hash_info_clone.hash_results.lock().await;
-        hash_results.remove(&path);
+        if let Err(e) = hash_info_clone.remove_hash_entry(&path).await {
+            eprintln!("Error removing hash entry for {}: {}", path, e);
+        }
     });
 }
 
@@ -272,10 +271,11 @@ fn handle_directory_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, 
     let hash_info_clone = Arc::clone(hash_info);
     // In async way remove the hash results
     tokio::spawn( async move {
-        let mut hash_results = hash_info_clone.hash_results.lock().await;
         for file_path in collected_files.iter() {
             // Clean-up the hash
-            hash_results.remove(file_path);
+            if let Err(e) = hash_info_clone.remove_hash_entry(&file_path).await {
+                eprintln!("Error removing hash entry for {}: {}", file_path, e);
+           }
         }
     });
 
