@@ -9,11 +9,75 @@ use crate::monitor_module::fs_utils::{self, walk_directory};
 use dashmap::DashMap;
 use sha3::Digest;
 use fs_utils::is_directory;
+use async_nats::jetstream::kv::Store as KvStore;
+use bytes::Bytes;
 
 #[derive(Debug, Clone)]
 pub struct HashInfo {
     pub ongoing_tasks: Arc<Mutex<HashMap<String, JoinHandle<io::Result<Vec<u8>>>>>>,
     pub hash_results: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
+    kv_store: Arc<KvStore>,
+}
+
+impl HashInfo{
+    pub fn new(kv_store: KvStore) -> Self {
+        Self {
+            ongoing_tasks: Arc::new(Mutex::new(HashMap::new())),
+            hash_results: Arc::new(Mutex::new(HashMap::new())),
+            kv_store: Arc::new(kv_store),
+        }
+        
+    }
+
+    pub async fn add_hash_entry(&self, file_path: String, hash: Vec<u8>) -> io::Result<()> {
+        let mut results_guard = self.hash_results.lock().await;
+        let entry_hashes = results_guard.entry(file_path.clone()).or_insert_with(Vec::new);
+        entry_hashes.push(hash.clone());
+        drop(results_guard);
+
+        // Update the KV Store
+        if let Err(e) = self.kv_store.put(&file_path, Bytes::from(hash)).await {
+            eprintln!("Failed to put hash for {} to KV store: {}", file_path, e);
+            return Err(io::Error::new(io::ErrorKind::Other, format!("KV put error: {}", e)));
+        }
+        Ok(())
+    }
+
+    pub async fn remove_hash_entry(&self, file_path: String) -> io::Result<()> {
+        let mut results_guard = self.hash_results.lock().await;
+        results_guard.remove(&file_path);
+        drop(results_guard);
+
+        // Update the KV Store
+        if let Err(e) = self.kv_store.delete(&file_path).await {
+           eprintln!("Failed to delete hash for {} from KV store: {}", file_path, e);
+           return Err(io::Error::new(io::ErrorKind::Other, format!("KV delete error: {}", e)));
+       }
+       Ok(())
+    }
+
+    pub async fn rename_hash_entry(&self, from_path: String, to_path: String) -> io::Result<()> {
+        let mut results_guard = self.hash_results.lock().await;
+        if let Some(hash_history) = results_guard.remove(&from_path) {
+            let latest_hash_opt = hash_history.last().cloned();
+            results_guard.insert(to_path.clone(), hash_history);
+            drop(results_guard);
+
+            // Update the KV Store
+            if let Some(latest_hash) = latest_hash_opt {
+                if let Err(e) = self.kv_store.put(&to_path, Bytes::from(latest_hash)).await {
+                    eprintln!("Failed to put renamed hash for {} to KV store: {}", to_path, e);
+                    return Err(io::Error::new(io::ErrorKind::Other, format!("KV put error (rename): {}", e)));
+                }
+                if let Err(e) = self.kv_store.delete(&from_path).await {
+                    eprintln!("Failed to delete old hash for {} from KV store after rename: {}", from_path, e);
+                }
+            }
+        } else {
+            drop(results_guard);
+        }
+        Ok(())
+    }
 }
 
 pub async fn perform_file_hashing(path: String, hash_info: Arc<HashInfo>) {
