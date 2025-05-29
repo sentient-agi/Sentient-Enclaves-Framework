@@ -10,10 +10,10 @@ mod monitor_module;
 use monitor_module::state::FileInfo;
 use hash::storage::{HashInfo, retrieve_hash};
 use monitor_module::ignore::IgnoreList;
-// use monitor_module::watcher::setup_watcher;
 use monitor_module::fs_utils::handle_path;
 use monitor_module::debounced_watcher::setup_debounced_watcher;
-// use monitor_module::
+use async_nats::jetstream;
+// use async_nats::Client as NatsClient;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -29,6 +29,11 @@ struct Args {
     /// Path to the ignore file (relative to watched directory or absolute)
     #[arg(short, long, value_name = "FILE", default_value = ".fsignore", help = "Specify the ignore file with patterns to exclude.")]
     ignore_file: String,
+
+    #[arg(long, default_value = "nats://localhost:4222")] 
+    nats_url: String,
+    #[arg(long, default_value = "file_hashes")]
+    kv_bucket_name: String,
 }
 
 #[tokio::main]
@@ -37,11 +42,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(&args.directory);
     let ignore_path = Path::new(&args.ignore_file);
 
+    let nats_client = async_nats::connect(&args.nats_url).await?;
+    let js_context = jetstream::new(nats_client);
+    let kv_store = js_context.get_key_value(&args.kv_bucket_name).await;
+
+    let kv_store_handle = match kv_store {
+        Ok(store) => store,
+        Err(_) => {
+            let kv_config = jetstream::kv::Config {
+                bucket: args.kv_bucket_name.clone(),
+                history: 5,
+                ..Default::default()
+            };
+            js_context.create_key_value(kv_config).await?
+        }
+    };
+    println!("Connected to NATS and using KV bucket: {}", args.kv_bucket_name);
+
     let file_infos: Arc<DashMap<String, FileInfo>> = Arc::new(DashMap::new());
-    let hash_infos = Arc::new(HashInfo{
-        ongoing_tasks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-        hash_results: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-    });
+    let hash_infos = Arc::new(HashInfo::new(kv_store_handle));
     
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(ignore_path);
@@ -56,7 +75,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Interactive command loop
     loop {
-        
         println!("Enter path relative to current working directory to get hash of file");
         print!(">>> ");
         std::io::stdout().flush().unwrap();
@@ -72,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
              Err(e) => eprintln!("Error retrieving hash for {}: {}", path, e),
         }
         println!("================================================");
+        println!("{:?}", hash_infos);
     }
 }
 
