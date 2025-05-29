@@ -29,7 +29,7 @@ impl HashInfo{
         
     }
 
-    pub async fn add_hash_entry(&self, file_path: String, hash: Vec<u8>) -> io::Result<()> {
+    pub async fn add_hash_entry(&self, file_path: &String, hash: Vec<u8>) -> io::Result<()> {
         let mut results_guard = self.hash_results.lock().await;
         let entry_hashes = results_guard.entry(file_path.clone()).or_insert_with(Vec::new);
         entry_hashes.push(hash.clone());
@@ -43,9 +43,9 @@ impl HashInfo{
         Ok(())
     }
 
-    pub async fn remove_hash_entry(&self, file_path: String) -> io::Result<()> {
+    pub async fn remove_hash_entry(&self, file_path: &String) -> io::Result<()> {
         let mut results_guard = self.hash_results.lock().await;
-        results_guard.remove(&file_path);
+        results_guard.remove(file_path);
         drop(results_guard);
 
         // Update the KV Store
@@ -56,21 +56,21 @@ impl HashInfo{
        Ok(())
     }
 
-    pub async fn rename_hash_entry(&self, from_path: String, to_path: String) -> io::Result<()> {
+    pub async fn rename_hash_entry(&self, from_path: &String, to_path: &String) -> io::Result<()> {
         let mut results_guard = self.hash_results.lock().await;
-        if let Some(hash_history) = results_guard.remove(&from_path) {
+        if let Some(hash_history) = results_guard.remove(from_path) {
             let latest_hash_opt = hash_history.last().cloned();
             results_guard.insert(to_path.clone(), hash_history);
             drop(results_guard);
 
             // Update the KV Store
             if let Some(latest_hash) = latest_hash_opt {
+                if let Err(e) = self.kv_store.delete(&from_path).await {
+                    eprintln!("Failed to delete old hash for {} from KV store after rename: {}", from_path, e);
+                }
                 if let Err(e) = self.kv_store.put(&to_path, Bytes::from(latest_hash)).await {
                     eprintln!("Failed to put renamed hash for {} to KV store: {}", to_path, e);
                     return Err(io::Error::new(io::ErrorKind::Other, format!("KV put error (rename): {}", e)));
-                }
-                if let Err(e) = self.kv_store.delete(&from_path).await {
-                    eprintln!("Failed to delete old hash for {} from KV store after rename: {}", from_path, e);
                 }
             }
         } else {
@@ -80,24 +80,24 @@ impl HashInfo{
     }
 }
 
-pub async fn perform_file_hashing(path: String, hash_info: Arc<HashInfo>) {
+pub async fn perform_file_hashing(path: String, hash_info_arc: Arc<HashInfo>) {
     let file_path = path;
     let handle = tokio::task::spawn_blocking({
         let file_path = file_path.clone();
         move || hasher::hash_file(&file_path)
     });
 
-    hash_info.ongoing_tasks.lock().await.insert(file_path.clone(), handle);
+    hash_info_arc.ongoing_tasks.lock().await.insert(file_path.clone(), handle);
 
-    let ongoing_tasks = Arc::clone(&hash_info.ongoing_tasks);
-    let hash_results = Arc::clone(&hash_info.hash_results);
+    let ongoing_tasks = Arc::clone(&hash_info_arc.ongoing_tasks);
+    let hash_info_for_result = Arc::clone(&hash_info_arc);
     let file_path_clone = file_path.clone();
     
     tokio::spawn(async move {
         let task_result = {
-            let mut tasks = ongoing_tasks.lock().await;
-            if let Some(handle) = tasks.get_mut(&file_path_clone) {
-                Some(async { handle.await }.await)
+            let mut tasks_guard = ongoing_tasks.lock().await;
+            if let Some(handle_ref) = tasks_guard.get_mut(&file_path_clone) {
+                Some(async { handle_ref.await }.await)
             } else {
                 None
             }
@@ -105,17 +105,16 @@ pub async fn perform_file_hashing(path: String, hash_info: Arc<HashInfo>) {
 
         if let Some(result) = task_result {
             match result {
-                Ok(Ok(hash)) => {
-                    let mut results = hash_results.lock().await;
-                    let mut hashes = results.get(&file_path_clone).unwrap_or(&Vec::new()).clone();
-                    hashes.push(hash);
-                    results.insert(file_path_clone.clone(), hashes);
+                Ok(Ok(hash_bytes)) => {
+                    if let Err(e) = hash_info_for_result.add_hash_entry(&file_path_clone, hash_bytes).await {
+                        eprintln!("Error adding hash entry for {}: {}", &file_path_clone, e);
+                    }
                 }
                 Ok(Err(e)) => {
                     eprintln!("Error hashing file: {}", e);
                 }
                 Err(e) => {
-                    eprintln!("Task panicked: {}", e);
+                    eprintln!("Task panicked while hashing file: {}", e);
                 }
             }
             // Remove the task from HashMap after awaiting it (after it completes)
@@ -173,6 +172,8 @@ pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, Fil
     if tasks.contains_key(path) {
         return Err(io::Error::new(io::ErrorKind::Other, format!("Hashing for {} is yet to complete", path)));
     }
+    // The code below needs to be updated to be useful opaquely with storage method.
+    // Better way would be to add a method that retrieve's a file's hash for HashInfo struct directly.
     let results_map = hash_info.hash_results.lock().await;
     let hash_vector = results_map.get(path)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hashes recorded for {}", path)))?;
