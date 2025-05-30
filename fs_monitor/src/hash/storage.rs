@@ -56,7 +56,7 @@ impl HashInfo{
        Ok(())
     }
 
-    pub async fn get_hash(&self, file_path: &String) -> io::Result<(Vec<u8>)> {
+    pub async fn get_hash_entry(&self, file_path: &String) -> io::Result<(Vec<u8>)> {
         // Check if hashing task is pending
         let tasks_guard = self.ongoing_tasks.lock().await;
         if tasks_guard.contains_key(file_path) {
@@ -166,7 +166,7 @@ pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo
         
         let mut dir_hasher = sha3::Sha3_512::new();
         for file_path in sorted_files {
-            println!("Calculating hash for: {}", file_path);
+            println!("Retrieving hash for: {}", file_path);
             let file_hash = retrieve_file_hash(&file_path, file_infos, hash_info).await?;
             dir_hasher.update(file_hash);
         }
@@ -182,33 +182,21 @@ pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo
 // ready-handler in web-ra-srv. This should be 
 // adapted during integration.
 pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<Vec<u8>> {
+    // Checks if the fs_monitor tracks the file before trying to retrieve the hash.
     let file_info = file_infos.get(path)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("File {} is not tracked", path)))?;
 
-
+    // This is the case when the file is probably being modified.
+    // Retrieving hash in that state would provide stale hash.
+    // So, instead return error.
     if file_info.state != crate::monitor_module::state::FileState::Closed {
         return Err(io::Error::new(io::ErrorKind::Other, format!("File {} is yet to be closed", path)));
     }
 
-    // Check if hashing task is pending
-    let tasks = hash_info.ongoing_tasks.lock().await;
-    if tasks.contains_key(path) {
-        return Err(io::Error::new(io::ErrorKind::Other, format!("Hashing for {} is yet to complete", path)));
+    // Retrieve file hash from hash_info struct
+    let file_path = &path.to_string();
+    match hash_info.get_hash_entry(file_path).await {
+        Ok(hash) => Ok(hash),
+        Err(e) => Err(e),
     }
-    // The code below needs to be updated to be useful opaquely with storage method.
-    // Better way would be to add a method that retrieve's a file's hash for HashInfo struct directly.
-    let results_map = hash_info.hash_results.lock().await;
-    let hash_vector = results_map.get(path)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hashes recorded for {}", path)))?;
-
-    // This version matching might be too restrictive here.
-    // Removed for now
-    // let version = file_info.version as usize;
-    // if hash_vector.len() != version {
-    //     return Err(io::Error::new(io::ErrorKind::NotFound, "Latest hash is not available"));
-    // }
-
-    hash_vector.last()
-        .cloned()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hash available for {}", path)))
 }
