@@ -4,11 +4,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use crate::hash::hasher;
-use crate::monitor_module::state::FileInfo;
-use crate::monitor_module::fs_utils::{self, walk_directory};
-use dashmap::DashMap;
-use sha3::Digest;
-use fs_utils::is_directory;
 use async_nats::jetstream::kv::Store as KvStore;
 use bytes::Bytes;
 
@@ -112,13 +107,12 @@ pub async fn perform_file_hashing(path: String, hash_info_arc: Arc<HashInfo>) {
 
     hash_info_arc.ongoing_tasks.lock().await.insert(file_path.clone(), handle);
 
-    let ongoing_tasks = Arc::clone(&hash_info_arc.ongoing_tasks);
     let hash_info_for_result = Arc::clone(&hash_info_arc);
     let file_path_clone = file_path.clone();
     
     tokio::spawn(async move {
         let task_result = {
-            let mut tasks_guard = ongoing_tasks.lock().await;
+            let mut tasks_guard = hash_info_for_result.ongoing_tasks.lock().await;
             if let Some(handle_ref) = tasks_guard.get_mut(&file_path_clone) {
                 Some(async { handle_ref.await }.await)
             } else {
@@ -141,62 +135,8 @@ pub async fn perform_file_hashing(path: String, hash_info_arc: Arc<HashInfo>) {
                 }
             }
             // Remove the task from HashMap after awaiting it (after it completes)
-            let mut tasks = ongoing_tasks.lock().await;
+            let mut tasks = hash_info_for_result.ongoing_tasks.lock().await;
             tasks.remove(&file_path_clone);
         }
     });
-}
-
-
-pub async fn retrieve_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<String> {
-    if is_directory(path) {
-        let files = walk_directory(path)?;
-        
-        // Filter files to only include those that are being tracked
-        let tracked_files: Vec<String> = files
-            .into_iter()
-            .filter(|file_path| file_infos.contains_key(file_path))
-            .collect();
-        
-        // Sort files for consistent hash results
-        let mut sorted_files = tracked_files;
-        sorted_files.sort();
-
-        println!("Processing directory: {} with {} tracked files", path, sorted_files.len());
-        
-        let mut dir_hasher = sha3::Sha3_512::new();
-        for file_path in sorted_files {
-            println!("Retrieving hash for: {}", file_path);
-            let file_hash = retrieve_file_hash(&file_path, file_infos, hash_info).await?;
-            dir_hasher.update(file_hash);
-        }
-
-        Ok(hasher::bytes_to_hex(&dir_hasher.finalize()))
-    } else {
-        let hash_bytes = retrieve_file_hash(path, file_infos, hash_info).await?;
-        Ok(hasher::bytes_to_hex(&hash_bytes))
-    }
-}
-
-// This checks superset of conditions tested by 
-// ready-handler in web-ra-srv. This should be 
-// adapted during integration.
-pub async fn retrieve_file_hash(path: &str, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>) -> io::Result<Vec<u8>> {
-    // Checks if the fs_monitor tracks the file before trying to retrieve the hash.
-    let file_info = file_infos.get(path)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("File {} is not tracked", path)))?;
-
-    // This is the case when the file is probably being modified.
-    // Retrieving hash in that state would provide stale hash.
-    // So, instead return error.
-    if file_info.state != crate::monitor_module::state::FileState::Closed {
-        return Err(io::Error::new(io::ErrorKind::Other, format!("File {} is yet to be closed", path)));
-    }
-
-    // Retrieve file hash from hash_info struct
-    let file_path = &path.to_string();
-    match hash_info.get_hash_entry(file_path).await {
-        Ok(hash) => Ok(hash),
-        Err(e) => Err(e),
-    }
 }

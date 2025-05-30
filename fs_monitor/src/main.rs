@@ -8,7 +8,7 @@ mod hash;
 mod monitor_module;
 
 use monitor_module::state::FileInfo;
-use hash::storage::{HashInfo, retrieve_hash};
+use hash::{storage::HashInfo, retrieve_hash};
 use monitor_module::ignore::IgnoreList;
 use monitor_module::fs_utils::handle_path;
 use monitor_module::debounced_watcher::setup_debounced_watcher;
