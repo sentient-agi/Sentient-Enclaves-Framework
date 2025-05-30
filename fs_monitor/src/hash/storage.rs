@@ -15,7 +15,7 @@ use bytes::Bytes;
 #[derive(Debug, Clone)]
 pub struct HashInfo {
     pub ongoing_tasks: Arc<Mutex<HashMap<String, JoinHandle<io::Result<Vec<u8>>>>>>,
-    pub hash_results: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
+    hash_results: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
     kv_store: Arc<KvStore>,
 }
 
@@ -54,6 +54,29 @@ impl HashInfo{
            return Err(io::Error::new(io::ErrorKind::Other, format!("KV delete error: {}", e)));
        }
        Ok(())
+    }
+
+    pub async fn get_hash(&self, file_path: &String) -> io::Result<(Vec<u8>)> {
+        // Check if hashing task is pending
+        let tasks_guard = self.ongoing_tasks.lock().await;
+        if tasks_guard.contains_key(file_path) {
+            return Err(io::Error::new(io::ErrorKind::Other, format!("Hashing for {} is yet to complete", file_path)));
+        }
+
+        let results_guard = self.hash_results.lock().await;
+        let hash_vector = results_guard.get(file_path)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hashes recorded for {}", file_path)))?;
+
+        // This version matching might be too restrictive here.
+        // Removed for now
+        // let version = file_info.version as usize;
+        // if hash_vector.len() != version {
+        //     return Err(io::Error::new(io::ErrorKind::NotFound, "Latest hash is not available"));
+        // }
+
+        hash_vector.last()
+            .cloned()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hash available for {}", file_path)))
     }
 
     pub async fn rename_hash_entry(&self, from_path: &String, to_path: &String) -> io::Result<()> {

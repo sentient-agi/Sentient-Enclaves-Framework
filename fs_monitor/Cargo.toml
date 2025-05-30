@@ -16,3 +16,5 @@ tokio = { version = "1.36.0", features = ["full"] }
 clap = { version = "4.5.28", features = ["derive"] }
 uuid = { version = "1.16.0", features = ["v4"] }
 notify-debouncer-full = "0.5.0"
+async-nats = "0.36.0"
+bytes = "1.10.1"
