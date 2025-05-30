@@ -58,20 +58,36 @@ impl HashInfo{
             return Err(io::Error::new(io::ErrorKind::Other, format!("Hashing for {} is yet to complete", file_path)));
         }
 
-        let results_guard = self.hash_results.lock().await;
-        let hash_vector = results_guard.get(file_path)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hashes recorded for {}", file_path)))?;
+        // let results_guard = self.hash_results.lock().await;
+        // let hash_vector = results_guard.get(file_path)
+        //     .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hashes recorded for {}", file_path)))?;
 
-        // This version matching might be too restrictive here.
-        // Removed for now
-        // let version = file_info.version as usize;
-        // if hash_vector.len() != version {
-        //     return Err(io::Error::new(io::ErrorKind::NotFound, "Latest hash is not available"));
-        // }
+        // // This version matching might be too restrictive here.
+        // // Removed for now
+        // // let version = file_info.version as usize;
+        // // if hash_vector.len() != version {
+        // //     return Err(io::Error::new(io::ErrorKind::NotFound, "Latest hash is not available"));
+        // // }
 
-        hash_vector.last()
-            .cloned()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hash available for {}", file_path)))
+        // hash_vector.last()
+        //     .cloned()
+        //     .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hash available for {}", file_path)))
+
+        // Use KV store to obtain the hash
+        let hash = self.kv_store.get(file_path).await;
+        match hash {
+            Ok(Some(bytes)) => {
+                return Ok(bytes.into());
+            }
+            Ok(None) => {
+                return Err(io::Error::new(io::ErrorKind::NotFound, format!("No hash available for {}", file_path)));
+            }
+            Err(e) => {
+                eprintln!("Failed to get hash for {} from KV store: {}", file_path, e);
+                return Err(io::Error::new(io::ErrorKind::Other, format!("KV get error: {}", e)));
+            }
+        }
+
     }
 
     pub async fn rename_hash_entry(&self, from_path: &String, to_path: &String) -> io::Result<()> {
