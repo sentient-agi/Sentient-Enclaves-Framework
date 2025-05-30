@@ -51,7 +51,7 @@ impl HashInfo{
        Ok(())
     }
 
-    pub async fn get_hash_entry(&self, file_path: &String) -> io::Result<(Vec<u8>)> {
+    pub async fn get_hash_entry(&self, file_path: &String) -> io::Result<Vec<u8>> {
         // Check if hashing task is pending
         let tasks_guard = self.ongoing_tasks.lock().await;
         if tasks_guard.contains_key(file_path) {
