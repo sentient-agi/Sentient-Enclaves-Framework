@@ -329,6 +329,11 @@ struct GenerateRequest {
 }
 
 #[derive(Default, Debug, Clone, Deserialize)]
+struct VerifyPCRsRequest {
+    pcrs: String,
+}
+
+#[derive(Default, Debug, Clone, Deserialize)]
 struct VerifyHashRequest {
     file_path: String,
     sha3_hash: String,
@@ -510,6 +515,7 @@ async fn main() -> io::Result<()> {
         .route("/docs/", get(docs))
         .route("/doc/", get(doc_handler))
         .route("/pubkeys/", get(pubkeys).with_state(Arc::clone(&state.app_state)))
+        .route("/verify_pcrs/", post(verify_pcrs).with_state(Arc::clone(&state.app_state)))
         .route("/verify_hash/", post(verify_hash).with_state(Arc::clone(&state.app_state)))
         .route("/verify_proof/", post(verify_proof).with_state(Arc::clone(&state.app_state)))
         .route("/verify_doc/", post(verify_doc).with_state(Arc::clone(&state.app_state)))
@@ -1681,6 +1687,61 @@ async fn verify_hash(
                 path_string,
                 request_hash_string,
                 file_hash_string,
+            ),
+        )
+    }
+}
+
+/// PCRs verification endpoint to compare base image PCR registers with actual running enclave PCR registers
+async fn verify_pcrs(
+    State(app_state): State<Arc<RwLock<AppState>>>,
+    Json(payload): Json<VerifyPCRsRequest>,
+) -> impl IntoResponse {
+    info!("{payload:?}");
+    let pcrs_string_req = payload.pcrs;
+
+    let fd = app_state.read().nsm_fd;
+    let cose_doc_bytes = get_attestation_doc(fd, None, None, None);
+
+    let cose_doc = CoseSign1::from_bytes(cose_doc_bytes.as_slice()).unwrap();
+    let (protected_header, attestation_doc_bytes) =
+        cose_doc.get_protected_and_payload::<Openssl>(None).unwrap();
+    info!("Protected header: {:#?}", protected_header);
+    let unprotected_header = cose_doc.get_unprotected();
+    info!("Unprotected header: {:#?}", unprotected_header);
+    let attestation_doc = AttestationDoc::from_binary(&attestation_doc_bytes[..]).unwrap();
+    info!("Attestation document: {:#?}", attestation_doc);
+    let attestation_doc_signature = cose_doc.get_signature();
+    info!("Attestation document signature: {:#?}", hex::encode(attestation_doc_signature.clone()));
+
+    let pcrs_fmt = attestation_doc.pcrs.iter().map(
+        |(key, val)| format!(r#"{}: {}"#, key.to_string(), hex::encode(val.clone().into_vec()))
+    )
+    .collect::<Vec<String>>()
+    .join(",\n");
+
+    if pcrs_string_req == pcrs_fmt {
+        (
+            StatusCode::OK,
+            format!(r#"PCRs provided in JSON request are equal to actual PCRs retrieved from enclave's attestation document.
+                PCR registers of base image and running enclave from base image are equal and are VALID!
+                PCRs from JSON request: {:?}
+                PCRs retrieved from enclave's attestation document: {:?}
+            "#,
+                pcrs_string_req,
+                pcrs_fmt,
+            ),
+        )
+    } else {
+        (
+            StatusCode::OK,
+            format!(r#"PCRs provided in JSON request are NOT equal to actual PCRs retrieved from enclave's attestation document.
+                PCR registers of base image and running enclave from base image are NOT equal and are INVALID!
+                PCRs from JSON request: {:?}
+                PCRs retrieved from enclave's attestation document: {:?}
+            "#,
+                pcrs_string_req,
+                pcrs_fmt,
             ),
         )
     }
