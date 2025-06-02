@@ -482,6 +482,8 @@ async fn main() -> io::Result<()> {
         },
     };
 
+    // ToDo: Persistent layer and integration with enclave's service bus
+
     //Create a handle for our TLS server so the shutdown signal can all shutdown
     let handle = axum_server::Handle::new();
     //save the future for easy shutting down of redirect server
@@ -629,60 +631,7 @@ fn visit_files_recursively<'a>(
                         Ok(Ok(hash)) => {
                             let mut results = results_clone.lock().await;
                             results.insert(file_path_clone.clone(), hash.clone());
-
-                            // Proofs gen logic
-
-                            let app_state = app_state_clone.read().clone();
-
-                            let skey4proofs_bytes = app_state.sk4proofs;
-                            let skey4proofs_pkey = PKey::private_key_from_pem(skey4proofs_bytes.as_slice()).unwrap();
-                            let skey4proofs_eckey = skey4proofs_pkey.ec_key().unwrap();
-                            let skey4proofs_bignum = skey4proofs_eckey.private_key().to_owned().unwrap();
-                            let skey4proofs_vec = skey4proofs_bignum.to_vec();
-
-                            // VRF Proof hash based on private key generated for file path and file hash pair (emulation of CoW FS metadata for enclave's ramdisk FS)
-                            let att_proof_data = AttProofData{
-                                file_path: file_path_clone.clone(),
-                                sha3_hash: hex::encode(hash.clone()),
-                            };
-                            let att_proof_data_json_bytes = serde_json::to_vec(&att_proof_data).unwrap();
-                            let cipher_suite = app_state.vrf_cipher_suite;
-                            let vrf_proof = vrf_proof(att_proof_data_json_bytes.as_slice(), skey4proofs_vec.as_slice(), cipher_suite.clone()).unwrap();
-
-                            // Docs gen logic
-
-                            let mut app_cache = app_cache_clone.write();
-
-                            let fd = app_state.nsm_fd;
-                            let mut vrf  = ECVRF::from_suite(cipher_suite.clone()).unwrap();
-                            // Cryptographic nonce provided by the attestation document as a proof of authenticity of document and user data
-                            let nonce = vrf.generate_nonce(&skey4proofs_bignum, att_proof_data_json_bytes.as_slice()).unwrap().to_vec();
-                            // Random nonce provided by the attestation document as a proof of authenticity of document and user data
-                            // let nonce = get_randomness_sequence(fd.clone(), 512);
-                            let skey4proofs_pubkey = vrf.derive_public_key(skey4proofs_vec.as_slice()).unwrap();
-
-                            let att_user_data = AttUserData {
-                                file_path: file_path_clone.clone(),
-                                sha3_hash: hex::encode(hash.clone()),
-                                vrf_proof: hex::encode(vrf_proof.clone()),
-                                vrf_cipher_suite: cipher_suite.clone(),
-                            };
-                            let att_user_data_json_bytes = serde_json::to_vec(&att_user_data).unwrap();
-
-                            let att_doc = get_attestation_doc(
-                                fd,
-                                Some(ByteBuf::from(att_user_data_json_bytes)),
-                                Some(ByteBuf::from(nonce.clone())),
-                                Some(ByteBuf::from(skey4proofs_pubkey.clone())),
-                            );
-
-                            app_cache.att_data.insert(file_path_clone.clone(), AttData {
-                                file_path: file_path_clone.clone(),
-                                sha3_hash: hex::encode(hash.clone()),
-                                vrf_proof: hex::encode(vrf_proof.clone()),
-                                vrf_cipher_suite: cipher_suite.clone(),
-                                att_doc: att_doc.clone(),
-                            });
+                            make_attestation_docs(file_path_clone.clone().as_str(), hash.clone().as_slice(), app_state_clone, app_cache_clone);
                         }
                         Ok(Err(e)) => {
                             eprintln!("Error hashing file: {:?}", e);
@@ -721,6 +670,64 @@ fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
     }
 
     Ok(hasher.finalize().to_vec())
+}
+
+fn make_attestation_docs(file_path: &str, hash: &[u8], app_state: Arc<RwLock<AppState>>, app_cache: Arc<RwLock<AppCache>>) {
+    let file_path_string = file_path.to_string();
+
+    // Proofs gen logic
+
+    let app_state = app_state.read().clone();
+
+    let skey4proofs_bytes = app_state.sk4proofs;
+    let skey4proofs_pkey = PKey::private_key_from_pem(skey4proofs_bytes.as_slice()).unwrap();
+    let skey4proofs_eckey = skey4proofs_pkey.ec_key().unwrap();
+    let skey4proofs_bignum = skey4proofs_eckey.private_key().to_owned().unwrap();
+    let skey4proofs_vec = skey4proofs_bignum.to_vec();
+
+    // VRF Proof hash based on private key generated for file path and file hash pair (emulation of CoW FS metadata for enclave's ramdisk FS)
+    let att_proof_data = AttProofData{
+        file_path: file_path_string.clone(),
+        sha3_hash: hex::encode(hash.clone()),
+    };
+    let att_proof_data_json_bytes = serde_json::to_vec(&att_proof_data).unwrap();
+    let cipher_suite = app_state.vrf_cipher_suite;
+    let vrf_proof = vrf_proof(att_proof_data_json_bytes.as_slice(), skey4proofs_vec.as_slice(), cipher_suite.clone()).unwrap();
+
+    // Docs gen logic
+
+    let mut app_cache = app_cache.write();
+
+    let fd = app_state.nsm_fd;
+    let mut vrf  = ECVRF::from_suite(cipher_suite.clone()).unwrap();
+    // Cryptographic nonce provided by the attestation document as a proof of authenticity of document and user data
+    let nonce = vrf.generate_nonce(&skey4proofs_bignum, att_proof_data_json_bytes.as_slice()).unwrap().to_vec();
+    // Random nonce provided by the attestation document as a proof of authenticity of document and user data
+    // let nonce = get_randomness_sequence(fd.clone(), 512);
+    let skey4proofs_pubkey = vrf.derive_public_key(skey4proofs_vec.as_slice()).unwrap();
+
+    let att_user_data = AttUserData {
+        file_path: file_path_string.clone(),
+        sha3_hash: hex::encode(hash.clone()),
+        vrf_proof: hex::encode(vrf_proof.clone()),
+        vrf_cipher_suite: cipher_suite.clone(),
+    };
+    let att_user_data_json_bytes = serde_json::to_vec(&att_user_data).unwrap();
+
+    let att_doc = get_attestation_doc(
+        fd,
+        Some(ByteBuf::from(att_user_data_json_bytes)),
+        Some(ByteBuf::from(nonce.clone())),
+        Some(ByteBuf::from(skey4proofs_pubkey.clone())),
+    );
+
+    app_cache.att_data.insert(file_path_string.clone(), AttData {
+        file_path: file_path_string.clone(),
+        sha3_hash: hex::encode(hash.clone()),
+        vrf_proof: hex::encode(vrf_proof.clone()),
+        vrf_cipher_suite: cipher_suite.clone(),
+        att_doc: att_doc.clone(),
+    });
 }
 
 /// Testing echo endpoint handler for API protocol and parameters parsing various testing purposes
