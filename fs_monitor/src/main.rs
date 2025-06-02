@@ -42,7 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let watch_path = Path::new(&args.directory);
     let ignore_path = Path::new(&args.ignore_file);
 
-    let nats_client = async_nats::connect(&args.nats_url).await?;
+    let nats_client = async_nats::connect(&args.nats_url).await
+        .map_err(|e| format!("Failed to connect to NATS at {}: {}. Confirm that NATS server is running and JetStream is enabled.", args.nats_url, e))?;
     let js_context = jetstream::new(nats_client);
     let kv_store = js_context.get_key_value(&args.kv_bucket_name).await;
 
