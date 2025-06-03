@@ -33,6 +33,7 @@ use std::{
 };
 
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use tokio::signal;
 
 use parking_lot::RwLock;
@@ -62,6 +63,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
 
+use async_nats::jetstream::kv::{Config as KVConfig, Entry as KVEntry, Store as KVStore};
+use async_nats::jetstream::context::Context as JSContext;
+use async_nats::client::Client as NATSClient;
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct Ports {
     http: u16,
@@ -80,6 +85,16 @@ struct Config {
     ports: Ports,
     keys: Keys,
     vrf_cipher_suite: Option<CipherSuite>,
+    nats: NATSMQPersistency,
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct NATSMQPersistency {
+    nats_persistency_enabled: Option<u8>,
+    nats_url: String,
+    hash_bucket_name: String,
+    att_docs_bucket_name: String,
+    persistent_client_name: String,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -285,6 +300,7 @@ struct AppState {
     sk4proofs: Vec<u8>,
     sk4docs: Vec<u8>,
     vrf_cipher_suite: CipherSuite,
+    nats_client: Option<NATSClient>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -370,7 +386,7 @@ async fn main() -> io::Result<()> {
     };
 
     let fd = app_config.get_nsm_fd();
-    assert!(fd >= 0, "[Error] NSM initialization returned {}.", fd);
+    assert!(fd >= 0, "[Error] NSM initialization returned {}", fd);
     info!("NSM device initialized.");
     let vrf_cipher_suite = app_config.get_vrf_cipher_suite();
 
@@ -549,6 +565,22 @@ async fn main() -> io::Result<()> {
         .await?;
 
     Ok(())
+}
+
+/// KV bucket getter/creator
+async fn get_or_create_kv(js: &JSContext, bucket_name: &str) -> Result<KVStore, Box<dyn std::error::Error>> {
+    Ok(match js.get_key_value(bucket_name).await {
+        Ok(kv) => kv,
+        Err(_) => {
+            info!("[NATS KV] Creating bucket '{}'", bucket_name);
+            js.create_key_value(KVConfig {
+                bucket: bucket_name.to_string(),
+                history: 10,
+                ..Default::default()
+            })
+            .await?
+        }
+    })
 }
 
 async fn generate_handler(
