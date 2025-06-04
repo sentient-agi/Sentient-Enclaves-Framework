@@ -66,6 +66,8 @@ use vrf::VRF;
 use async_nats::jetstream::kv::{Config as KVConfig, Entry as KVEntry, Store as KVStore};
 use async_nats::jetstream::context::Context as JSContext;
 use async_nats::client::Client as NATSClient;
+use async_nats::jetstream::kv::Keys as KVKeys;
+use futures::StreamExt;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct Ports {
@@ -581,6 +583,31 @@ async fn get_or_create_kv(js: &JSContext, bucket_name: &str) -> Result<KVStore, 
             .await?
         }
     })
+}
+
+/// Walker task
+async fn walk_kv_entries(store: KVStore, sender: mpsc::Sender<(String, String)>) {
+    info!("[NATS Walker] Walking through existing entries...");
+    match store.keys().await {
+        Ok(mut keys) => {
+            while let Some(key_result) = keys.next().await {
+                match key_result {
+                    Ok(key) => match store.get(&key).await {
+                        Ok(Some(bytes)) => {
+                            let val = String::from_utf8_lossy(&bytes).to_string();
+                            let _ = sender.send((key.clone(), val)).await;
+                        }
+                        Ok(None) => {
+                            error!("[NATS Walker] Key '{}' not found or value not set", key);
+                        }
+                        Err(e) => error!("[NATS Walker] Failed to read key '{}': {}", key, e),
+                    },
+                    Err(e) => error!("[NATS Walker] Failed to read keys: {}", e),
+                }
+            }
+        }
+        Err(e) => error!("[NATS Walker] Unable to list keys: {}", e),
+    }
 }
 
 async fn generate_handler(
