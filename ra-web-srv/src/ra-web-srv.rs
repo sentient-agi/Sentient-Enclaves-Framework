@@ -610,6 +610,26 @@ async fn walk_kv_entries(store: KVStore, sender: mpsc::Sender<(String, String)>)
     }
 }
 
+async fn watch_kv_changes(store: KVStore, sender: mpsc::Sender<(String, String)>) {
+    info!("[NATS Watcher] Watching for changes...");
+    match store.watch_all().await {
+        Ok(mut watcher) => {
+            while let Some(entry_result) = watcher.next().await {
+                match entry_result {
+                    Ok(entry) => {
+                        let key = entry.key.clone();
+                        let val = &entry.value;
+                        let val_str = String::from_utf8_lossy(val).to_string();
+                        let _ = sender.send((key, val_str)).await;
+                    }
+                    Err(e) => error!("[NATS Watcher] Watch error: {}", e),
+                }
+            }
+        }
+        Err(e) => error!("[NATS Watcher] Failed to start watcher: {}", e),
+    }
+}
+
 async fn generate_handler(
     State(state): State<Arc<ServerState>>,
     Json(payload): Json<GenerateRequest>,
