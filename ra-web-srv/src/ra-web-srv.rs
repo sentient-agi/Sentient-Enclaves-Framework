@@ -67,6 +67,7 @@ use async_nats::jetstream::kv::{Config as KVConfig, Entry as KVEntry, Store as K
 use async_nats::jetstream::context::Context as JSContext;
 use async_nats::client::Client as NATSClient;
 use async_nats::jetstream::kv::Keys as KVKeys;
+use bytes::Bytes;
 use futures::StreamExt;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -627,6 +628,24 @@ async fn watch_kv_changes(store: KVStore, sender: mpsc::Sender<(String, String)>
             }
         }
         Err(e) => error!("[NATS Watcher] Failed to start watcher: {}", e),
+    }
+}
+
+async fn produce_kv_updates(
+    store: KVStore,
+    mut walker_rx: mpsc::Receiver<(String, String)>,
+    mut watcher_rx: mpsc::Receiver<(String, String)>,
+) {
+    info!("[NATS Producer] Processing walker entries...");
+    while let Some((key, val)) = walker_rx.recv().await {
+        info!("[NATS Producer] Walker: Putting [{}] = {}", key, val);
+        let _ = store.put(&key, Bytes::from(val)).await;
+    }
+
+    info!("[NATS Producer] Watching updates from watcher...");
+    while let Some((key, val)) = watcher_rx.recv().await {
+        info!("[NATS Producer] Watcher: Putting [{}] = {}", key, val);
+        let _ = store.put(&key, Bytes::from(val)).await;
     }
 }
 

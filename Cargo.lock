@@ -2331,6 +2331,7 @@ dependencies = [
  "axum-extra",
  "axum-macros",
  "axum-server",
+ "bytes",
  "futures",
  "hex",
  "openssl",
