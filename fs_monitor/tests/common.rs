@@ -1,5 +1,5 @@
 // Common test utilities
-use fs_monitor::monitor_module::{debounced_watcher::setup_debounced_watcher, ignore::IgnoreList, state::{FileInfo, FileState}};
+use fs_monitor::monitor_module::{debounced_watcher::setup_debounced_watcher, ignore::IgnoreList, state::{FileInfo, FileState}, fs_utils::set_watch_path};
 use fs_monitor::hash::storage::HashInfo;
 use std::path::Path;
 use std::sync::Arc;
@@ -51,6 +51,8 @@ async fn create_test_kv_store() -> Result<(KvStore, String), Box<dyn std::error:
 
 pub async fn setup_test_environment() -> Result<TestSetup, Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
+    set_watch_path(watch_path.to_path_buf())
+        .map_err(|e| format!("Failed to set watch path '{}': {}", watch_path.display(), e))?;
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 

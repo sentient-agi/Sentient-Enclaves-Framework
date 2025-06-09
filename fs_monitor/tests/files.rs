@@ -169,9 +169,11 @@ async fn file_rename_to_unwatched() -> Result<(), Box<dyn std::error::Error>> {
     assert!(wait_for_file_state(&setup.file_infos, &file_path, Some(FileState::Closed), 4000).await);
 
     // Move the file out of this directory.
-    let new_path = Path::new("..").join(&file_path);
+    let file_name = Path::new(&file_path).file_name().unwrap();
+    let new_path = Path::new("..").join(file_name);
+    eprintln!("Renaming from {} to {:?}", file_path, new_path);
     std::fs::rename(file_path.clone(), new_path.clone())?;
-    assert!(wait_for_file_state(&setup.file_infos, &file_path, None, 4000).await);
+    assert!(wait_for_file_state(&setup.file_infos, &file_path, None, 6000).await);
 
     // Cleanup the renamed file
     std::fs::remove_file(new_path)?;

@@ -15,6 +15,7 @@ async fn directory_deletion() -> Result<(), Box<dyn std::error::Error>> {
     // Wait for all files to be detected
     for file_path in &file_paths {
         let normalized_path = handle_path(file_path);
+        println!("Normalized path: {}", normalized_path);
         assert!(wait_for_file_state(&setup.file_infos, &normalized_path, Some(FileState::Closed), 4000).await);
     }
     
