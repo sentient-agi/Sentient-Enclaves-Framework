@@ -10,11 +10,12 @@ use crate::monitor_module::ignore::IgnoreList;
 use crate::monitor_module::fs_utils::{handle_path, is_directory, walk_directory};
 
 
-
 pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>, ignore_list: &IgnoreList) -> Result<()> {
     let event = debounced_event.event;
     let paths: Vec<String> = event.paths.iter()
-        .filter_map(|p| p.to_str().map(|s| handle_path(s)))
+        .filter_map(|p| p.to_str().map(|s| {
+            handle_path(s)
+        }))
         .collect();
 
     // Return early if there are no paths or if all paths should be ignored
@@ -172,7 +173,7 @@ fn handle_file_rename(from_path: &String, to_path: &String, file_infos: &Arc<Das
 
 fn handle_directory_rename(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     
-    let collected_files = collect_files_in_directory(from_path.to_string(), file_infos);
+    let collected_files = collect_files_in_directory_from_dashmap(from_path.to_string(), file_infos);
     
     let path_pairs: Vec<(String, String)> = collected_files.iter().map(|old_path| {
         let new_path = old_path.replacen(from_path, &to_path, 1);
@@ -243,7 +244,10 @@ fn handle_file_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
     });
 }
 
-fn collect_files_in_directory(dir_path: String, file_infos: &Arc<DashMap<String, FileInfo>>) -> Vec<String> {
+// Collects files that lie in a directory from all the entries tracked
+// in dashmap. This just iterates over dashmap and does not call a
+// file system method to identify the files present.
+fn collect_files_in_directory_from_dashmap(dir_path: String, file_infos: &Arc<DashMap<String, FileInfo>>) -> Vec<String> {
     file_infos.iter()
         .filter_map(|ref_multi| {
             let path = ref_multi.key().to_string();
@@ -258,9 +262,7 @@ fn collect_files_in_directory(dir_path: String, file_infos: &Arc<DashMap<String,
 
 fn handle_directory_delete(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
     let directory_path = paths[0].clone();
-
-    let collected_files = collect_files_in_directory(directory_path, file_infos);
-
+    let collected_files = collect_files_in_directory_from_dashmap(directory_path, file_infos);
     eprint!("Collected Files: {:?}", collected_files);
     
     // First remove the maintained state synchronously

@@ -10,7 +10,7 @@ mod monitor_module;
 use monitor_module::state::FileInfo;
 use hash::{storage::HashInfo, retrieve_hash};
 use monitor_module::ignore::IgnoreList;
-use monitor_module::fs_utils::handle_path;
+use monitor_module::fs_utils::{ handle_path, set_watch_path };
 use monitor_module::debounced_watcher::setup_debounced_watcher;
 use async_nats::jetstream;
 // use async_nats::Client as NatsClient;
@@ -40,8 +40,10 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let watch_path = Path::new(&args.directory);
-    let ignore_path = Path::new(&args.ignore_file);
+    set_watch_path(watch_path.to_path_buf())
+        .map_err(|e| format!("Failed to set watch path '{}': {}", watch_path.display(), e))?;
 
+    let ignore_path = Path::new(&args.ignore_file);
     let nats_client = async_nats::connect(&args.nats_url).await
         .map_err(|e| format!("Failed to connect to NATS at {}: {}. Confirm that NATS server is running and JetStream is enabled.", args.nats_url, e))?;
     let js_context = jetstream::new(nats_client);
@@ -76,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Interactive command loop
     loop {
-        println!("Enter path relative to current working directory to get hash of file");
+        println!("Enter path relative to the watched directory to get hash of file");
         print!(">>> ");
         std::io::stdout().flush().unwrap();
 
@@ -91,7 +93,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
              Err(e) => eprintln!("Error retrieving hash for {}: {}", path, e),
         }
         println!("================================================");
-        println!("{:?}", hash_infos);
     }
 }
 
