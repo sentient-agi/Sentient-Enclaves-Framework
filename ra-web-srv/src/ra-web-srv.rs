@@ -570,6 +570,40 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
+/// NATS orchestrator task: sets up client, channels, spawns core logic tasks (walker, watcher, producer)
+async fn nats_kv_pipeline_orchestrator() -> Result<(), Box<dyn std::error::Error>> {
+    // Connect to NATS
+    let nats_url = "nats://127.0.0.1:4222";
+    let client = loop {
+        match async_nats::connect(nats_url).await {
+            Ok(conn) => break conn,
+            Err(e) => {
+                error!("[NATS Orchestrator] Connection failed: {}, retrying...", e);
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
+        }
+    };
+    info!("[NATS Orchestrator] Connected to NATS at {}", nats_url);
+
+    // Get JetStream context
+    let js = async_nats::jetstream::new(client);
+
+    // Source and target buckets
+    let source_kv = get_or_create_kv(&js, "source_bucket").await?;
+    let target_kv = get_or_create_kv(&js, "target_bucket").await?;
+
+    // Channels: walker -> producer, watcher -> producer
+    let (walker_tx, walker_rx) = mpsc::channel::<(String, String)>(100);
+    let (watcher_tx, watcher_rx) = mpsc::channel::<(String, String)>(100);
+
+    // Spawn pipeline components
+    tokio::spawn(walk_kv_entries(source_kv.clone(), walker_tx));
+    tokio::spawn(watch_kv_changes(source_kv.clone(), watcher_tx));
+    tokio::spawn(produce_kv_updates(target_kv.clone(), walker_rx, watcher_rx));
+
+    Ok(())
+}
+
 /// KV bucket getter/creator
 async fn get_or_create_kv(js: &JSContext, bucket_name: &str) -> Result<KVStore, Box<dyn std::error::Error>> {
     Ok(match js.get_key_value(bucket_name).await {
@@ -611,6 +645,7 @@ async fn walk_kv_entries(store: KVStore, sender: mpsc::Sender<(String, String)>)
     }
 }
 
+/// Watcher task
 async fn watch_kv_changes(store: KVStore, sender: mpsc::Sender<(String, String)>) {
     info!("[NATS Watcher] Watching for changes...");
     match store.watch_all().await {
@@ -631,6 +666,7 @@ async fn watch_kv_changes(store: KVStore, sender: mpsc::Sender<(String, String)>
     }
 }
 
+/// Producer task
 async fn produce_kv_updates(
     store: KVStore,
     mut walker_rx: mpsc::Receiver<(String, String)>,
