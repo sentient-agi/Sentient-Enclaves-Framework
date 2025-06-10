@@ -571,11 +571,14 @@ async fn main() -> io::Result<()> {
 }
 
 /// NATS orchestrator task: sets up client, channels, spawns core logic tasks (walker, watcher, producer)
-async fn nats_kv_pipeline_orchestrator() -> Result<(), Box<dyn std::error::Error>> {
+async fn nats_kv_pipeline_orchestrator(app_state: Arc<RwLock<AppState>>, app_config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     // Connect to NATS
-    let nats_url = "nats://127.0.0.1:4222";
+    let nats_url = app_config.inner.read().nats.nats_url.clone(); // "nats://127.0.0.1:4222"
+    let source_bucket = app_config.inner.read().nats.hash_bucket_name.clone();
+    let target_bucket = app_config.inner.read().nats.att_docs_bucket_name.clone();
+
     let client = loop {
-        match async_nats::connect(nats_url).await {
+        match async_nats::connect(nats_url.as_str()).await {
             Ok(conn) => break conn,
             Err(e) => {
                 error!("[NATS Orchestrator] Connection failed: {}, retrying...", e);
@@ -585,12 +588,17 @@ async fn nats_kv_pipeline_orchestrator() -> Result<(), Box<dyn std::error::Error
     };
     info!("[NATS Orchestrator] Connected to NATS at {}", nats_url);
 
+    {
+        let mut app_state = app_state.write();
+        app_state.nats_client = Some(client.clone());
+    };
+
     // Get JetStream context
     let js = async_nats::jetstream::new(client);
 
     // Source and target buckets
-    let source_kv = get_or_create_kv(&js, "source_bucket").await?;
-    let target_kv = get_or_create_kv(&js, "target_bucket").await?;
+    let source_kv = get_or_create_kv(&js, source_bucket.as_str()).await?;
+    let target_kv = get_or_create_kv(&js, target_bucket.as_str()).await?;
 
     // Channels: walker -> producer, watcher -> producer
     let (walker_tx, walker_rx) = mpsc::channel::<(String, String)>(100);
