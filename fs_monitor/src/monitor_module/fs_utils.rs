@@ -85,3 +85,49 @@ pub fn walk_directory(dir_path: &str) -> io::Result<Vec<String>> {
     
     Ok(files)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_handle_path_variants() {
+
+        assert_eq!(handle_path("./foo/bar.txt"), "foo/bar.txt");
+        assert_eq!(handle_path("foo/bar.txt"), "foo/bar.txt");
+    }
+
+    #[test]
+    fn test_is_directory_behavior() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_file.txt");
+        File::create(&file_path).unwrap();
+
+        assert!(is_directory(dir.path().to_str().unwrap()));
+        assert!(!is_directory(file_path.to_str().unwrap()));
+    }
+
+    #[test]
+    fn test_walk_directory_structure() {
+        let base_dir = tempdir().unwrap();
+        let sub_dir = base_dir.path().join("sub");
+        fs::create_dir(&sub_dir).unwrap();
+
+        let file1_path = base_dir.path().join("file1.txt");
+        File::create(&file1_path).unwrap();
+        let file2_path = sub_dir.join("file2.txt");
+        File::create(&file2_path).unwrap();
+
+        let files = walk_directory(base_dir.path().to_str().unwrap()).unwrap();
+        
+        // handle_path will be applied by walk_directory, so check against normalized paths
+        let expected_file1 = handle_path(file1_path.to_str().unwrap());
+        let expected_file2 = handle_path(file2_path.to_str().unwrap());
+
+        assert_eq!(files.len(), 2);
+        assert!(files.contains(&expected_file1));
+        assert!(files.contains(&expected_file2));
+    }
+}

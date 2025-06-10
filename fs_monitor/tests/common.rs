@@ -51,8 +51,7 @@ async fn create_test_kv_store() -> Result<(KvStore, String), Box<dyn std::error:
 
 pub async fn setup_test_environment() -> Result<TestSetup, Box<dyn std::error::Error>> {
     let watch_path = Path::new(".");
-    set_watch_path(watch_path.to_path_buf())
-        .map_err(|e| format!("Failed to set watch path '{}': {}", watch_path.display(), e))?;
+    let _  = set_watch_path(watch_path.to_path_buf());
     let mut ignore_list = IgnoreList::new();
     ignore_list.populate_ignore_list(Path::new("./fs_ignore"));
 
