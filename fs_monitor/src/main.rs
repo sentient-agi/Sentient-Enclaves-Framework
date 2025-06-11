@@ -13,7 +13,6 @@ use monitor_module::ignore::IgnoreList;
 use monitor_module::fs_utils::{ handle_path, set_watch_path };
 use monitor_module::debounced_watcher::setup_debounced_watcher;
 use async_nats::jetstream;
-// use async_nats::Client as NatsClient;
 
 #[derive(Parser, Debug)]
 #[command(

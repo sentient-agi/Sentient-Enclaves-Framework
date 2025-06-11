@@ -25,6 +25,7 @@ impl HashInfo{
     }
 
     pub async fn add_hash_entry(&self, file_path: &String, hash: Vec<u8>) -> io::Result<()> {
+        // Update the HashMap
         let mut results_guard = self.hash_results.lock().await;
         let entry_hashes = results_guard.entry(file_path.clone()).or_insert_with(Vec::new);
         entry_hashes.push(hash.clone());
@@ -39,6 +40,7 @@ impl HashInfo{
     }
 
     pub async fn remove_hash_entry(&self, file_path: &String) -> io::Result<()> {
+        // Update the HashMap
         let mut results_guard = self.hash_results.lock().await;
         results_guard.remove(file_path);
         drop(results_guard);
@@ -58,21 +60,6 @@ impl HashInfo{
             return Err(io::Error::new(io::ErrorKind::Other, format!("Hashing for {} is yet to complete", file_path)));
         }
 
-        // let results_guard = self.hash_results.lock().await;
-        // let hash_vector = results_guard.get(file_path)
-        //     .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hashes recorded for {}", file_path)))?;
-
-        // // This version matching might be too restrictive here.
-        // // Removed for now
-        // // let version = file_info.version as usize;
-        // // if hash_vector.len() != version {
-        // //     return Err(io::Error::new(io::ErrorKind::NotFound, "Latest hash is not available"));
-        // // }
-
-        // hash_vector.last()
-        //     .cloned()
-        //     .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("No hash available for {}", file_path)))
-
         // Use KV store to obtain the hash
         let hash = self.kv_store.get(file_path).await;
         match hash {
@@ -91,6 +78,7 @@ impl HashInfo{
     }
 
     pub async fn rename_hash_entry(&self, from_path: &String, to_path: &String) -> io::Result<()> {
+        // Update the HashMap
         let mut results_guard = self.hash_results.lock().await;
         if let Some(hash_history) = results_guard.remove(from_path) {
             let latest_hash_opt = hash_history.last().cloned();
@@ -136,6 +124,7 @@ pub async fn perform_file_hashing(path: String, hash_info_arc: Arc<HashInfo>) {
             }
         };
 
+        // If hashing has finished, add it to the storage
         if let Some(result) = task_result {
             match result {
                 Ok(Ok(hash_bytes)) => {

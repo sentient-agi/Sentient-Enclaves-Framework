@@ -56,7 +56,7 @@ pub fn is_directory(path: &str) -> bool {
     Path::new(path).is_dir()
 }
 
-// Helper function to walk a directory recursively and collect all file paths
+// Helper function to walk a directory in a file system recursively and collect all file paths
 pub fn walk_directory(dir_path: &str) -> io::Result<Vec<String>> {
     let mut files = Vec::new();
     let path = std::path::Path::new(dir_path);
@@ -94,7 +94,6 @@ mod tests {
 
     #[test]
     fn test_handle_path_variants() {
-
         assert_eq!(handle_path("./foo/bar.txt"), "foo/bar.txt");
         assert_eq!(handle_path("foo/bar.txt"), "foo/bar.txt");
     }

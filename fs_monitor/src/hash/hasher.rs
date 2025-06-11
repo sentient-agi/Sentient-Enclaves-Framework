@@ -2,6 +2,11 @@ use sha3::{Digest, Sha3_512};
 use std::io::{self, Read};
 use std::fs;
 
+// Hash a file given it's path.
+// This works well with absolute paths, so unless testing
+// make sure the path has been canonicalized through
+// handle_path function. Relative paths might fail if
+// they aren't relative to CWD of the fs_monitor.
 pub fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
     let mut file = fs::File::open(file_path)?;
     let mut hasher = Sha3_512::new();

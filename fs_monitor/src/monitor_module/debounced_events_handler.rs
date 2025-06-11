@@ -73,9 +73,8 @@ pub fn handle_debounced_event(debounced_event: DebouncedEvent, file_infos: &Arc<
                     eprintln!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
                     // No cheap way to identify if this event is triggered for a file or folder.
                     // This is handled conservatively by assuming that the event is always triggered
-                    // for a folder. Internally collect_files_in_directory handles this correctly
+                    // for a folder. Internally collect_files_in_directory_from_dashmap handles this correctly
                     handle_directory_delete(vec![path], file_infos, hash_info);
-
                 }
                 RenameMode::Both => {
                     eprintln!("Rename event for: {:?} of kind {:?}",paths, rename_mode);
@@ -142,19 +141,16 @@ fn handle_file_modify(paths: Vec<String>, file_infos: &Arc<DashMap<String, FileI
 }
 
 fn handle_file_rename(from_path: &String, to_path: &String, file_infos: &Arc<DashMap<String, FileInfo>>, hash_info: &Arc<HashInfo>){
-    // Transfer Old file's history
     let file_info_opt = file_infos.remove(from_path);
     if let Some((_, old_info)) = file_info_opt {
         // Insert the file info with the new path
         file_infos.insert(to_path.clone(), old_info);
         
         let hash_info_clone = Arc::clone(hash_info);
-        // let file_infos = Arc::clone(file_infos);
         let to_path_clone = to_path.clone();
         let from_path_clone = from_path.clone();
         
         tokio::spawn(async move {
-            // Transfer hash history
             {
                 if let Err(e) = hash_info_clone.rename_hash_entry(&from_path_clone, &to_path_clone).await {
                     eprintln!("Error renaming hash entry from {} to {}: {}", from_path_clone, to_path_clone, e);
