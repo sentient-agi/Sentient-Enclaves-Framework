@@ -88,13 +88,13 @@ struct Config {
     ports: Ports,
     keys: Keys,
     vrf_cipher_suite: Option<CipherSuite>,
-    nats: NATSMQPersistency,
+    nats: Option<NATSMQPersistency>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct NATSMQPersistency {
     nats_persistency_enabled: Option<u8>,
-    nats_url: String,
+    nats_url: String, // "nats://127.0.0.1:4222"
     hash_bucket_name: String,
     att_docs_bucket_name: String,
     persistent_client_name: String,
@@ -573,9 +573,31 @@ async fn main() -> io::Result<()> {
 /// NATS orchestrator task: sets up client, channels, spawns core logic tasks (walker, watcher, producer)
 async fn nats_kv_pipeline_orchestrator(app_state: Arc<RwLock<AppState>>, app_config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     // Connect to NATS
-    let nats_url = app_config.inner.read().nats.nats_url.clone(); // "nats://127.0.0.1:4222"
-    let source_bucket = app_config.inner.read().nats.hash_bucket_name.clone();
-    let target_bucket = app_config.inner.read().nats.att_docs_bucket_name.clone();
+    let nats_config = app_config.inner.read().nats.clone().unwrap_or_else(|| NATSMQPersistency {
+        nats_persistency_enabled: Some(1u8),
+        nats_url: "nats://127.0.0.1:4222".to_string(),
+        hash_bucket_name: "fs_hashes".to_string(),
+        att_docs_bucket_name: "fs_att_docs".to_string(),
+        persistent_client_name: "ra_web_srv".to_string(),
+    });
+
+    let nats_url = if nats_config.nats_url.is_empty() {
+        "nats://127.0.0.1:4222".to_string()
+    } else {
+        nats_config.nats_url
+    };
+
+    let source_bucket = if nats_config.hash_bucket_name.is_empty() {
+        "fs_hashes".to_string()
+    } else {
+        nats_config.hash_bucket_name
+    };
+
+    let target_bucket = if nats_config.att_docs_bucket_name.is_empty() {
+        "fs_att_docs".to_string()
+    } else {
+        nats_config.att_docs_bucket_name
+    };
 
     let client = loop {
         match async_nats::connect(nats_url.as_str()).await {
