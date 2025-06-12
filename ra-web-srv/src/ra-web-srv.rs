@@ -381,7 +381,7 @@ async fn main() -> io::Result<()> {
 
     let default_config_path = format!("./.config/{}.config.toml", env!("CARGO_CRATE_NAME"));
     let config_path = default_config_path.as_str();
-    let app_config = AppConfig::new_from_file(config_path);
+    let app_config = Arc::new(AppConfig::new_from_file(config_path));
 
     let ports = Ports {
         http: app_config.get_ports().http,
@@ -501,7 +501,15 @@ async fn main() -> io::Result<()> {
         },
     };
 
-    // ToDo: Persistent layer and integration with enclave's service bus
+    // Persistent layer and integration with enclave's service bus (based on NATS MQ and KV buckets)
+    // Non-blocking: delegate to orchestrator in its own thread the management of NATS KV buckets, walker, watcher and producer threads
+    let app_state_clone = Arc::clone(&state.app_state);
+    let app_config_clone = Arc::clone(&app_config.inner);
+    tokio::spawn(async move {
+        if let Err(e) = nats_orchestrator(app_state_clone, app_config_clone).await {
+            error!("[NATS Orchestrator] NATS Orchestrator error: {}", e);
+        }
+    });
 
     //Create a handle for our TLS server so the shutdown signal can all shutdown
     let handle = axum_server::Handle::new();
@@ -571,9 +579,9 @@ async fn main() -> io::Result<()> {
 }
 
 /// NATS orchestrator task: sets up client, channels, spawns core logic tasks (walker, watcher, producer)
-async fn nats_kv_pipeline_orchestrator(app_state: Arc<RwLock<AppState>>, app_config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
+async fn nats_orchestrator(app_state: Arc<RwLock<AppState>>, app_config: Arc<RwLock<Config>>) -> Result<(), Box<dyn std::error::Error>> {
     // Connect to NATS
-    let nats_config = app_config.inner.read().nats.clone().unwrap_or_else(|| NATSMQPersistency {
+    let nats_config = app_config.read().nats.clone().unwrap_or_else(|| NATSMQPersistency {
         nats_persistency_enabled: Some(1u8),
         nats_url: "nats://127.0.0.1:4222".to_string(),
         hash_bucket_name: "fs_hashes".to_string(),
@@ -623,8 +631,8 @@ async fn nats_kv_pipeline_orchestrator(app_state: Arc<RwLock<AppState>>, app_con
     let target_kv = get_or_create_kv(&js, target_bucket.as_str()).await?;
 
     // Channels: walker -> producer, watcher -> producer
-    let (walker_tx, walker_rx) = mpsc::channel::<(String, String)>(100);
-    let (watcher_tx, watcher_rx) = mpsc::channel::<(String, String)>(100);
+    let (walker_tx, walker_rx) = mpsc::channel::<(String, String)>(1000);
+    let (watcher_tx, watcher_rx) = mpsc::channel::<(String, String)>(1000);
 
     // Spawn pipeline components
     tokio::spawn(walk_kv_entries(source_kv.clone(), walker_tx));
