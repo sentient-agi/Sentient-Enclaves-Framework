@@ -8,7 +8,7 @@ authors = [
 dependencies = [
     "openai==1.55.3",
     "pydantic>=2.10,<3",
-    "requests==2.32.3",
+    "requests==2.32.4",
     "langchain-core==0.2.43",
     "langsmith==0.1.112",
     "tweepy==4.14.0",
