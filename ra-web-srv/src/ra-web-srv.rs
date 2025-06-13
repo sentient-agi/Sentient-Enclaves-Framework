@@ -31,7 +31,6 @@ use std::{
     path::{Path as StdPath, PathBuf},
     net::{SocketAddr, IpAddr, Ipv4Addr}, time::Duration,
 };
-
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::signal;
@@ -63,7 +62,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use vrf::openssl::{CipherSuite, Error, ECVRF};
 use vrf::VRF;
 
-use async_nats::jetstream::kv::{Config as KVConfig, Entry as KVEntry, Store as KVStore};
+use async_nats::jetstream::kv::{
+    Config as KVConfig,
+    Entry as KVEntry,
+    Store as KVStore,
+    Operation as KVOperation
+};
 use async_nats::jetstream::context::Context as JSContext;
 use async_nats::client::Client as NATSClient;
 use async_nats::jetstream::kv::Keys as KVKeys;
@@ -93,11 +97,11 @@ struct Config {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct NATSMQPersistency {
-    nats_persistency_enabled: Option<u8>,
+    nats_persistency_enabled: Option<i32>, // == Some(1) > Some(0)
     nats_url: String, // "nats://127.0.0.1:4222"
-    hash_bucket_name: String,
-    att_docs_bucket_name: String,
-    persistent_client_name: String,
+    hash_bucket_name: String, // "fs_hashes"
+    att_docs_bucket_name: String, // "fs_att_docs"
+    persistent_client_name: String, // "ra_web_srv"
 }
 
 #[derive(Default, Debug, Clone)]
@@ -304,6 +308,7 @@ struct AppState {
     sk4docs: Vec<u8>,
     vrf_cipher_suite: CipherSuite,
     nats_client: Option<NATSClient>,
+    storage: Option<KVStore>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -311,7 +316,7 @@ struct AppCache {
     att_data: HashMap<String, AttData>,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct AttData {
     file_path: String,
     sha3_hash: String,
@@ -502,14 +507,18 @@ async fn main() -> io::Result<()> {
     };
 
     // Persistent layer and integration with enclave's service bus (based on NATS MQ and KV buckets)
+    // Retrieve NATS configuration data
+    let nats_config = app_config.inner.read().nats.clone().unwrap_or_else(|| NATSMQPersistency::default());
     // Non-blocking: delegate to orchestrator in its own thread the management of NATS KV buckets, walker, watcher and producer threads
-    let app_state_clone = Arc::clone(&state.app_state);
-    let app_config_clone = Arc::clone(&app_config.inner);
-    tokio::spawn(async move {
-        if let Err(e) = nats_orchestrator(app_state_clone, app_config_clone).await {
-            error!("[NATS Orchestrator] NATS Orchestrator error: {}", e);
-        }
-    });
+    if nats_config.nats_persistency_enabled.is_some_and(|enabled| enabled > 0) {
+        let app_state_clone = Arc::clone(&state.app_state);
+        let app_cache_clone = Arc::clone(&state.app_cache);
+        tokio::spawn(async move {
+            if let Err(e) = nats_orchestrator(app_state_clone, app_cache_clone, nats_config).await {
+                error!("[NATS Orchestrator] NATS Orchestrator error: {}", e);
+            }
+        });
+    };
 
     //Create a handle for our TLS server so the shutdown signal can all shutdown
     let handle = axum_server::Handle::new();
@@ -579,15 +588,13 @@ async fn main() -> io::Result<()> {
 }
 
 /// NATS orchestrator task: sets up client, channels, spawns core logic tasks (walker, watcher, producer)
-async fn nats_orchestrator(app_state: Arc<RwLock<AppState>>, app_config: Arc<RwLock<Config>>) -> Result<(), Box<dyn std::error::Error>> {
-    // Connect to NATS
-    let nats_config = app_config.read().nats.clone().unwrap_or_else(|| NATSMQPersistency {
-        nats_persistency_enabled: Some(1u8),
-        nats_url: "nats://127.0.0.1:4222".to_string(),
-        hash_bucket_name: "fs_hashes".to_string(),
-        att_docs_bucket_name: "fs_att_docs".to_string(),
-        persistent_client_name: "ra_web_srv".to_string(),
-    });
+async fn nats_orchestrator(
+    app_state: Arc<RwLock<AppState>>,
+    app_cache: Arc<RwLock<AppCache>>,
+    nats_config: NATSMQPersistency,
+) -> Result<(), Box<dyn std::error::Error>> {
+
+    // Retrieve NATS configuration data
 
     let nats_url = if nats_config.nats_url.is_empty() {
         "nats://127.0.0.1:4222".to_string()
@@ -607,6 +614,7 @@ async fn nats_orchestrator(app_state: Arc<RwLock<AppState>>, app_config: Arc<RwL
         nats_config.att_docs_bucket_name
     };
 
+    // Create NATS Client with NATS connection, connect to NATS
     let client = loop {
         match async_nats::connect(nats_url.as_str()).await {
             Ok(conn) => break conn,
@@ -618,6 +626,12 @@ async fn nats_orchestrator(app_state: Arc<RwLock<AppState>>, app_config: Arc<RwL
     };
     info!("[NATS Orchestrator] Connected to NATS at {}", nats_url);
 
+    // Check connection status
+    info!("Connection status: {}", client.connection_state());
+    client.flush().await?;
+    info!("Connection verified!");
+
+    // Save NATS Client in App State
     {
         let mut app_state = app_state.write();
         app_state.nats_client = Some(client.clone());
@@ -630,14 +644,22 @@ async fn nats_orchestrator(app_state: Arc<RwLock<AppState>>, app_config: Arc<RwL
     let source_kv = get_or_create_kv(&js, source_bucket.as_str()).await?;
     let target_kv = get_or_create_kv(&js, target_bucket.as_str()).await?;
 
-    // Channels: walker -> producer, watcher -> producer
-    let (walker_tx, walker_rx) = mpsc::channel::<(String, String)>(1000);
-    let (watcher_tx, watcher_rx) = mpsc::channel::<(String, String)>(1000);
+    // Save target NATS KV Store for attestation documents in App State
+    {
+        let mut app_state = app_state.write();
+        app_state.storage = Some(target_kv.clone());
+    };
 
-    // Spawn pipeline components
+    // Channels: walker -> producer, watcher -> producer
+    let (walker_tx, walker_rx) = mpsc::channel::<(String, Bytes)>(1000);
+    let (watcher_tx, watcher_rx) = mpsc::channel::<(String, Bytes)>(1000);
+
+    // Spawn pipeline of logic components in separate threads
     tokio::spawn(walk_kv_entries(source_kv.clone(), walker_tx));
     tokio::spawn(watch_kv_changes(source_kv.clone(), watcher_tx));
-    tokio::spawn(produce_kv_updates(target_kv.clone(), walker_rx, watcher_rx));
+    let app_state_clone = Arc::clone(&app_state);
+    let app_cache_clone = Arc::clone(&app_cache);
+    tokio::spawn(produce_kv_updates(walker_rx, watcher_rx, app_state_clone, app_cache_clone));
 
     Ok(())
 }
@@ -659,7 +681,7 @@ async fn get_or_create_kv(js: &JSContext, bucket_name: &str) -> Result<KVStore, 
 }
 
 /// Walker task
-async fn walk_kv_entries(store: KVStore, sender: mpsc::Sender<(String, String)>) {
+async fn walk_kv_entries(store: KVStore, sender: mpsc::Sender<(String, Bytes)>) {
     info!("[NATS Walker] Walking through existing entries...");
     match store.keys().await {
         Ok(mut keys) => {
@@ -667,8 +689,7 @@ async fn walk_kv_entries(store: KVStore, sender: mpsc::Sender<(String, String)>)
                 match key_result {
                     Ok(key) => match store.get(&key).await {
                         Ok(Some(bytes)) => {
-                            let val = String::from_utf8_lossy(&bytes).to_string();
-                            let _ = sender.send((key.clone(), val)).await;
+                            let _ = sender.send((key.clone(), bytes)).await;
                         }
                         Ok(None) => {
                             error!("[NATS Walker] Key '{}' not found or value not set", key);
@@ -684,7 +705,7 @@ async fn walk_kv_entries(store: KVStore, sender: mpsc::Sender<(String, String)>)
 }
 
 /// Watcher task
-async fn watch_kv_changes(store: KVStore, sender: mpsc::Sender<(String, String)>) {
+async fn watch_kv_changes(store: KVStore, sender: mpsc::Sender<(String, Bytes)>) {
     info!("[NATS Watcher] Watching for changes...");
     match store.watch_all().await {
         Ok(mut watcher) => {
@@ -692,9 +713,14 @@ async fn watch_kv_changes(store: KVStore, sender: mpsc::Sender<(String, String)>
                 match entry_result {
                     Ok(entry) => {
                         let key = entry.key.clone();
-                        let val = &entry.value;
-                        let val_str = String::from_utf8_lossy(val).to_string();
-                        let _ = sender.send((key, val_str)).await;
+                        let val = entry.value;
+                        let operation = match entry.operation {
+                            KVOperation::Put => "PUT",
+                            KVOperation::Delete => "DELETE",
+                            KVOperation::Purge => "PURGE",
+                        };
+                        info!("[NATS Watcher] Operation: {} | Key: {} | Value: {:?}", operation, key, val);
+                        let _ = sender.send((key, val)).await;
                     }
                     Err(e) => error!("[NATS Watcher] Watch error: {}", e),
                 }
@@ -706,20 +732,21 @@ async fn watch_kv_changes(store: KVStore, sender: mpsc::Sender<(String, String)>
 
 /// Producer task
 async fn produce_kv_updates(
-    store: KVStore,
-    mut walker_rx: mpsc::Receiver<(String, String)>,
-    mut watcher_rx: mpsc::Receiver<(String, String)>,
+    mut walker_rx: mpsc::Receiver<(String, Bytes)>,
+    mut watcher_rx: mpsc::Receiver<(String, Bytes)>,
+    app_state: Arc<RwLock<AppState>>,
+    app_cache: Arc<RwLock<AppCache>>,
 ) {
     info!("[NATS Producer] Processing walker entries...");
     while let Some((key, val)) = walker_rx.recv().await {
-        info!("[NATS Producer] Walker: Putting [{}] = {}", key, val);
-        let _ = store.put(&key, Bytes::from(val)).await;
+        info!("[NATS Producer] Walker: Putting [{}] = {:?}", key, val);
+        make_attestation_docs(key.as_str(), val.to_vec().as_slice(), Arc::clone(&app_state), Arc::clone(&app_cache));
     }
 
     info!("[NATS Producer] Watching updates from watcher...");
     while let Some((key, val)) = watcher_rx.recv().await {
-        info!("[NATS Producer] Watcher: Putting [{}] = {}", key, val);
-        let _ = store.put(&key, Bytes::from(val)).await;
+        info!("[NATS Producer] Watcher: Putting [{}] = {:?}", key, val);
+        make_attestation_docs(key.as_str(), val.to_vec().as_slice(), Arc::clone(&app_state), Arc::clone(&app_cache));
     }
 }
 
@@ -844,7 +871,12 @@ fn hash_file(file_path: &str) -> io::Result<Vec<u8>> {
     Ok(hasher.finalize().to_vec())
 }
 
-fn make_attestation_docs(file_path: &str, hash: &[u8], app_state: Arc<RwLock<AppState>>, app_cache: Arc<RwLock<AppCache>>) {
+fn make_attestation_docs(
+    file_path: &str,
+    hash: &[u8],
+    app_state: Arc<RwLock<AppState>>,
+    app_cache: Arc<RwLock<AppCache>>,
+) {
     let file_path_string = file_path.to_string();
 
     // Proofs gen logic
@@ -860,7 +892,7 @@ fn make_attestation_docs(file_path: &str, hash: &[u8], app_state: Arc<RwLock<App
     // VRF Proof hash based on private key generated for file path and file hash pair (emulation of CoW FS metadata for enclave's ramdisk FS)
     let att_proof_data = AttProofData{
         file_path: file_path_string.clone(),
-        sha3_hash: hex::encode(hash.clone()),
+        sha3_hash: hex::encode(hash),
     };
     let att_proof_data_json_bytes = serde_json::to_vec(&att_proof_data).unwrap();
     let cipher_suite = app_state.vrf_cipher_suite;
@@ -880,7 +912,7 @@ fn make_attestation_docs(file_path: &str, hash: &[u8], app_state: Arc<RwLock<App
 
     let att_user_data = AttUserData {
         file_path: file_path_string.clone(),
-        sha3_hash: hex::encode(hash.clone()),
+        sha3_hash: hex::encode(hash),
         vrf_proof: hex::encode(vrf_proof.clone()),
         vrf_cipher_suite: cipher_suite.clone(),
     };
@@ -893,13 +925,28 @@ fn make_attestation_docs(file_path: &str, hash: &[u8], app_state: Arc<RwLock<App
         Some(ByteBuf::from(skey4proofs_pubkey.clone())),
     );
 
-    app_cache.att_data.insert(file_path_string.clone(), AttData {
+    let att_data = AttData {
         file_path: file_path_string.clone(),
-        sha3_hash: hex::encode(hash.clone()),
+        sha3_hash: hex::encode(hash),
         vrf_proof: hex::encode(vrf_proof.clone()),
         vrf_cipher_suite: cipher_suite.clone(),
         att_doc: att_doc.clone(),
-    });
+    };
+
+    app_cache.att_data.insert(file_path_string.clone(), att_data.clone());
+
+    if let Some(store) = app_state.storage {
+        let att_data_json_bytes = serde_json::to_vec(&att_data).unwrap();
+        tokio::task::spawn(async move {
+            let _ = store.put(&file_path_string, Bytes::from(att_data_json_bytes)).await.unwrap_or_else(
+                |e| {
+                    error!("[NATS Producer: attestation docs maker] Error while putting data to KV store: {}", e);
+                    eprintln!("[NATS Producer: attestation docs maker] Error while putting data to KV store: {}", e);
+                    0u64
+                }
+            );
+        });
+    };
 }
 
 /// Testing echo endpoint handler for API protocol and parameters parsing various testing purposes
