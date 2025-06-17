@@ -1,4 +1,5 @@
 FROM nixos/nix:latest AS build
+
 ARG TARGET=all
 ENV TARGET=${TARGET}
 
