@@ -8,3 +8,10 @@ https = 8443
 [keys]
 sk4proofs = ""
 sk4docs = ""
+
+[nats]
+nats_persistency_enabled = 1
+nats_url = "nats://127.0.0.1:4222"
+hash_bucket_name = "fs_hashes"
+att_docs_bucket_name = "fs_att_docs"
+persistent_client_name = "ra_web_srv"

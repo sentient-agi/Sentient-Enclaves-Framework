@@ -7,6 +7,9 @@ shopt -s extquote
 
 set -f
 
+# Sentient Enclaves Framework
+declare VERSION="$(git describe --tags)"
+
 # Kernel full version, either substituted from CLI as '--kernel' parameter to 'rbuild.sh' shell build script, or default version will be substituted
 # Linux kernel full version, including major.minor.patch, from Semantic Versioning notation
 declare kversion_full='6.14.5'
@@ -175,11 +178,19 @@ help_ext() {
         docker_prepare_apps_rs_buildenv
         docker_apps_rs_build
 
-        Build custom init system for enclave, stages are:
+        Build custom Init system and init apps for enclave using Docker build environment, stages are:
 
-        docker_init_container_clear
-        docker_init_image_clear
-        docker_init_build
+        docker_init_apps_container_clear
+        docker_init_apps_image_clear
+        docker_init_apps_image_build
+        docker_prepare_init_apps_buildenv
+        docker_init_apps_build
+
+        Build custom Init system for enclave using Nix build system, stages are:
+
+        docker_init_nix_container_clear
+        docker_init_nix_image_clear
+        docker_init_nix_build
 
         Build enclave image file (EIF) stages:
 
@@ -430,18 +441,21 @@ docker_prepare_apps_rs_buildenv() {
     docker exec -i apps_rs_build bash -cis -- "mkdir -vp /app-builder" ;
     docker exec -i apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format.git ./eif_build" ;
     docker exec -i apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/aws-nitro-enclaves-image-format-build-extract.git ./eif_extract" ;
-    docker exec -i apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/pipeline-tee.rs.git ./secure-enclaves-framework" ;
+    docker exec -i apps_rs_build bash -cis -- "cd /app-builder; git clone -o sentient.github https://github.com/andrcmdr/secure-enclaves-framework.git ./secure-enclaves-framework" ;
 }
 
 docker_apps_rs_build() {
     docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_build; git checkout ${eif_build_ref}; cargo build --all --release;" ;
     docker exec -i apps_rs_build bash -cis -- "cd /app-builder/eif_extract; cargo build --all --release;" ;
     docker exec -i apps_rs_build bash -cis -- "cd /app-builder/secure-enclaves-framework; cargo build --all --release;" ;
+
     mkdir -vp ./eif_build/ ;
     docker cp apps_rs_build:/app-builder/eif_build/target/release/eif_build ./eif_build/ ;
+
     mkdir -vp ./eif_extract/ ;
     docker cp apps_rs_build:/app-builder/eif_extract/target/release/eif_extract ./eif_extract/ ;
     docker cp apps_rs_build:/app-builder/eif_extract/target/release/eif_build ./eif_extract/ ;
+
     mkdir -vp ./secure-enclaves-framework/ ;
     docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/pipeline ./secure-enclaves-framework/ ;
     docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/ip-to-vsock ./secure-enclaves-framework/ ;
@@ -450,54 +464,146 @@ docker_apps_rs_build() {
     docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/vsock-to-ip-transparent ./secure-enclaves-framework/ ;
     docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/transparent-port-to-vsock ./secure-enclaves-framework/ ;
     docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/ra-web-srv ./secure-enclaves-framework/ ;
+    docker cp apps_rs_build:/app-builder/secure-enclaves-framework/target/release/fs-monitor ./secure-enclaves-framework/ ;
+
     # docker stop apps_rs_build ;
     docker kill apps_rs_build ;
 
-    mkdir -vp ./secure-enclaves-framework/.config/ ./network.init/.config/ ./network.init/pf-proxy/ ;
-    mkdir -vp ./secure-enclaves-framework/certs/ ./network.init/certs/ ;
+    mkdir -vp ./secure-enclaves-framework/.config/ ./enclave.init/.config/ ;
+    mkdir -vp ./secure-enclaves-framework/.logs/ ./enclave.init/.logs/
+
+    mkdir -vp ./enclave.init/pf-proxy/ ;
+    mkdir -vp ./secure-enclaves-framework/certs/ ./enclave.init/certs/ ;
 
     cp -vr ../pipeline/.config/pipeline.config.toml ./secure-enclaves-framework/.config/ ;
-    cp -vr ../pipeline/.config/pipeline.config.toml ./network.init/.config/ ;
+    cp -vr ../pipeline/.config/pipeline.config.toml ./enclave.init/.config/ ;
 
     cp -vr ../ra-web-srv/.config/ra_web_srv.config.toml ./secure-enclaves-framework/.config/ ;
-    cp -vr ../ra-web-srv/.config/ra_web_srv.config.toml ./network.init/.config/ ;
+    cp -vr ../ra-web-srv/.config/ra_web_srv.config.toml ./enclave.init/.config/ ;
+
     cp -vrf ../ra-web-srv/certs/ -T ./secure-enclaves-framework/certs/ ;
-    cp -vrf ../ra-web-srv/certs/ -T ./network.init/certs/ ;
+    cp -vrf ../ra-web-srv/certs/ -T ./enclave.init/certs/ ;
+
+    cp -vr ../fs-monitor/.fs_ignore ./secure-enclaves-framework/ ;
+    cp -vr ../fs-monitor/.fs_ignore ./enclave.init/ ;
 
     cp -vr ../.bin/pipeline-dir ./secure-enclaves-framework/ ;
     cp -vr ../.bin/shell.sh ./secure-enclaves-framework/ ;
-    cp -vr ../.bin/pipeline-dir ./network.init/ ;
-    cp -vr ../.bin/shell.sh ./network.init/ ;
+    cp -vr ../.bin/pipeline-dir ./enclave.init/ ;
+    cp -vr ../.bin/shell.sh ./enclave.init/ ;
 
-    cp -vr ./secure-enclaves-framework/pipeline ./network.init/ ;
-    cp -vr ./secure-enclaves-framework/ip-to-vsock ./network.init/pf-proxy/ip2vs ;
-    cp -vr ./secure-enclaves-framework/ip-to-vsock-transparent ./network.init/pf-proxy/ip2vs-tp ;
-    cp -vr ./secure-enclaves-framework/transparent-port-to-vsock ./network.init/pf-proxy/tpp2vs ;
-    cp -vr ./secure-enclaves-framework/vsock-to-ip ./network.init/pf-proxy/vs2ip ;
-    cp -vr ./secure-enclaves-framework/vsock-to-ip-transparent ./network.init/pf-proxy/vs2ip-tp ;
-    cp -vr ./secure-enclaves-framework/ra-web-srv ./network.init/ ;
+    cp -vr ./secure-enclaves-framework/pipeline ./enclave.init/ ;
+    cp -vr ./secure-enclaves-framework/ip-to-vsock ./enclave.init/pf-proxy/ip2vs ;
+    cp -vr ./secure-enclaves-framework/ip-to-vsock-transparent ./enclave.init/pf-proxy/ip2vs-tp ;
+    cp -vr ./secure-enclaves-framework/transparent-port-to-vsock ./enclave.init/pf-proxy/tpp2vs ;
+    cp -vr ./secure-enclaves-framework/vsock-to-ip ./enclave.init/pf-proxy/vs2ip ;
+    cp -vr ./secure-enclaves-framework/vsock-to-ip-transparent ./enclave.init/pf-proxy/vs2ip-tp ;
+    cp -vr ./secure-enclaves-framework/ra-web-srv ./enclave.init/ ;
+    cp -vr ./secure-enclaves-framework/fs-monitor ./enclave.init/ ;
 }
 
-# Building Init system for enclave:
+# Build Init system for enclave and apps that are starting via Init process during enclave boot up process
+# Using Docker environment for building Clang and Golang apps
 
-docker_init_container_clear() {
+docker_init_apps_container_clear() {
+    docker kill init_apps_build
+    docker rm --force init_apps_build ;
+}
+
+docker_init_apps_image_clear() {
+    docker rmi --force init-apps-build-toolkit ;
+}
+
+docker_init_apps_image_build() {
+    DOCKER_BUILDKIT=1 docker build --no-cache -f ./golang-clang-build-toolkit.dockerfile -t "init-apps-build-toolkit" ./ ;
+    # -ti
+    docker create --name init_apps_build init-apps-build-toolkit sleep infinity; sleep 1;
+    # docker create --name init_apps_build init-apps-build-toolkit tail -f /dev/null; sleep 1;
+    # -tid
+    # docker run -d --name init_apps_build init-apps-build-toolkit sleep infinity & disown; sleep 1;
+    # docker run -d --name init_apps_build init-apps-build-toolkit tail -f /dev/null & disown; sleep 1;
+    # docker stop init_apps_build ;
+    docker kill init_apps_build ;
+    docker start init_apps_build ;
+}
+
+docker_prepare_init_apps_buildenv() {
+    docker exec -i init_apps_build bash -cis -- 'whoami; uname -a; pwd;' ;
+    docker exec -i init_apps_build bash -cis -- "mkdir -vp /app-builder" ;
+
+    docker cp ./init_apps/init_go/ init_apps_build:/app-builder/ ;
+    docker cp ./init_apps/init/ init_apps_build:/app-builder/ ;
+
+    docker exec -i init_apps_build bash -cis -- "cd /app-builder/; git clone -o sentient.github https://github.com/nats-io/nats-server.git ./nats-server/" ;
+}
+
+docker_init_apps_build() {
+
+    docker exec -i init_apps_build bash -cis -- ' \
+        cd /app-builder/init/; \
+        mkdir -p ./build/; \
+        gcc -v -Wall -Wextra -Werror -O3 -flto -static -static-libgcc -o ./build/init ./init.c; \
+        strip -v --strip-all ./build/init; \
+    ' ;
+
+    docker exec -i init_apps_build bash -cis -- " \
+        cd /app-builder/init_go/; \
+        go mod download -x; \
+        CGO_ENABLED=0 go build -v -x -a -trimpath -ldflags "-s -w -extldflags=-static \
+        -X main.Version=$(VERSION) \
+        -X main.version=${VERSION}" -o ./build/init ./init.go; \
+    " ;
+
+    docker exec -i init_apps_build bash -cis -- ' \
+        cd /app-builder/nats-server/; \
+        git checkout $(git tag --sort="-version:refname" | grep -iP "^v?[0-9]+\.?[0-9]+?\.?[0-9]*?$" | awk "NR==1{print \$1}"); \
+        go mod download -x; \
+        CGO_ENABLED=0 go build -v -x -a -trimpath -ldflags "-s -w -extldflags=-static \
+        -X main.Version=$(git describe --tags) \
+        -X main.version=$(git describe --tags) \
+        -X github.com/nats-io/nats-server/v2/server.serverVersion=$(git describe --tags) \
+        -X github.com/nats-io/nats-server/v2/server.gitCommit=$(git rev-parse HEAD)" -o ./build/nats-server ./main.go; \
+    ' ;
+
+    mkdir -vp ./init_apps_build/ ./init_apps_build/init/ ./init_apps_build/init_go/ ./init_apps_build/nats-server/ ;
+    docker cp init_apps_build:/app-builder/init/build/init ./init_apps_build/init/ ;
+    docker cp init_apps_build:/app-builder/init_go/build/init ./init_apps_build/init_go/ ;
+    docker cp init_apps_build:/app-builder/nats-server/build/nats-server ./init_apps_build/nats-server/ ;
+
+    # docker stop init_apps_build ;
+    docker kill init_apps_build ;
+
+    mkdir -vp ./cpio/ ./cpio/init/ ./cpio/init_go/ ;
+    cp -vr ./init_apps_build/init/init ./cpio/init/ ;
+    cp -vr ./init_apps_build/init_go/init ./cpio/init_go/ ;
+
+    mkdir -vp ./enclave.init/.config/ ./enclave.init/.logs/ ./enclave.init/nats.db/ ;
+    cp -vr ./init_apps_build/nats-server/nats-server ./enclave.init/ ;
+}
+
+# Build Init system for enclave with Nix build system:
+
+docker_init_nix_container_clear() {
     docker kill init-build-blobs ;
     docker rm --force init-build-blobs ;
 }
 
-docker_init_image_clear() {
+docker_init_nix_image_clear() {
     docker rmi --force init-build-blobs ;
 }
 
-docker_init_build() {
-    mkdir -vp ./init_build/init_blobs/eif_build/ ./init_build/init_blobs/eif_extract/ ./init_build/init_blobs/init/ ./init_build/init_blobs/init_go/ ;
-    DOCKER_BUILDKIT=1 sudo docker build --no-cache --output ./init_build/ --build-arg TARGET=all -f ./init_build/init-build-blobs.dockerfile -t "init-build-blobs" ./init_build/
+docker_init_nix_build() {
+
+    mkdir -vp ./init_apps/init_blobs/eif_build/ ./init_apps/init_blobs/eif_extract/ ./init_apps/init_blobs/init/ ./init_apps/init_blobs/init_go/ ;
+
+    DOCKER_BUILDKIT=1 sudo docker build --no-cache --output ./init_apps/ --build-arg TARGET=all -f ./init_apps/init-build-blobs.dockerfile -t "init-build-blobs" ./init_apps/
+
     mkdir -vp ./cpio/ ./cpio/init/ ./cpio/init_go/ ;
 
-    sudo find ./init_build/init_blobs/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
-    sudo find ./init_build/init_blobs/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
-    sudo find ./init_build/init_blobs/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
-    sudo find ./init_build/init_blobs/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
+    sudo find ./init_apps/init_blobs/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
+    sudo find ./init_apps/init_blobs/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
+    sudo find ./init_apps/init_blobs/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
+    sudo find ./init_apps/init_blobs/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
 
     sudo find ./cpio/init/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
     sudo find ./cpio/init/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
@@ -509,22 +615,22 @@ docker_init_build() {
     sudo find ./cpio/init_go/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
     sudo find ./cpio/init_go/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
 
-    # sudo find ./init_build/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
-    # sudo find ./init_build/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
-    # sudo find ./init_build/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
-    # sudo find ./init_build/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
+    # sudo find ./init_apps/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
+    # sudo find ./init_apps/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
+    # sudo find ./init_apps/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
+    # sudo find ./init_apps/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
 
     # sudo find ./cpio/ -type f -exec chmod -v u+rw,g=,o= '{}' \;
     # sudo find ./cpio/ -type d -exec chmod -v u=rwx,g=,o= '{}' \;
     # sudo find ./cpio/ -type f -exec chown -v $(id -unr):$(id -gnr) '{}' \;
     # sudo find ./cpio/ -type d -exec chown -v $(id -unr):$(id -gnr) '{}' \;
 
-    cp -vr ./init_build/init_blobs/init/init ./cpio/init/ ;
-    cp -vr ./init_build/init_blobs/init_go/init ./cpio/init_go/ ;
+    cp -vr ./init_apps/init_blobs/init/init ./cpio/init/ ;
+    cp -vr ./init_apps/init_blobs/init_go/init ./cpio/init_go/ ;
     # mkdir -vp ./eif_build/ ./eif_extract/;
-    # cp -vr ./init_build/init_blobs/eif_build/eif_build ./eif_build/ ;
-    # cp -vr ./init_build/init_blobs/eif_extract/eif_build ./eif_extract/ ;
-    # cp -vr ./init_build/init_blobs/eif_extract/eif_extract ./eif_extract/ ;
+    # cp -vr ./init_apps/init_blobs/eif_build/eif_build ./eif_build/ ;
+    # cp -vr ./init_apps/init_blobs/eif_extract/eif_build ./eif_extract/ ;
+    # cp -vr ./init_apps/init_blobs/eif_extract/eif_extract ./eif_extract/ ;
 }
 
 # Building enclave image (EIF):
@@ -586,13 +692,13 @@ init_and_rootfs_base_images_build() {
     docker run --rm --name eif_build_toolkit --mount type=bind,src="$(pwd)"/cpio/,dst=/eif_builder/cpio/ -i -a stdin -a stdout eif-builder-al2023 bash -cis -- "cd /eif_builder/cpio/; bsdtar -vpcf init_go.mtree --fflags --xattrs --format=mtree --options='mtree:all,mtree:indent' @init_go.cpio 2>&1 ;"
 
     if [[ ${network} -ne 0 ]]; then
-        cp -vrf ./network.init/init_revp+tpp.sh ./network.init/init.sh ;
+        cp -vrf ./enclave.init/init_revp+tpp.sh ./enclave.init/init.sh ;
     elif [[ ${reverse_network} -ne 0 ]]; then
-        cp -vrf ./network.init/init_revp.sh ./network.init/init.sh ;
+        cp -vrf ./enclave.init/init_revp.sh ./enclave.init/init.sh ;
     elif [[ ${forward_network} -ne 0 ]]; then
-        cp -vrf ./network.init/init_tpp.sh ./network.init/init.sh ;
+        cp -vrf ./enclave.init/init_tpp.sh ./enclave.init/init.sh ;
     else
-        cp -vrf ./network.init/init_wo_net.sh ./network.init/init.sh ;
+        cp -vrf ./enclave.init/init_wo_net.sh ./enclave.init/init.sh ;
     fi
 
     mkdir -vp ./cpio/ ./rootfs_base/ ./rootfs_base/dev/ ./rootfs_base/proc/ ./rootfs_base/rootfs/ ./rootfs_base/sys/ ;
@@ -605,7 +711,13 @@ init_and_rootfs_base_images_build() {
     cp -vrf ./secure-enclaves-framework/ra-web-srv ./rootfs_base/rootfs/apps/
     cp -vrf ./secure-enclaves-framework/.config/pipeline.config.toml ./rootfs_base/rootfs/apps/.config/
     cp -vrf ./secure-enclaves-framework/.config/ra_web_srv.config.toml ./rootfs_base/rootfs/apps/.config/
-    cp -vrf ./secure-enclaves-framework/certs/ -T ./rootfs_base/rootfs/apps/certs/ ;
+    cp -vrf ./secure-enclaves-framework/certs/ -T ./rootfs_base/rootfs/apps/certs/
+    cp -vrf ./secure-enclaves-framework/fs-monitor ./rootfs_base/rootfs/apps/
+    cp -vrf ./secure-enclaves-framework/.fs_ignore ./rootfs_base/rootfs/apps/
+
+    mkdir -vp ./rootfs_base/rootfs/apps/nats.db/
+    cp -vrf ./enclave.init/.config/nats.config ./rootfs_base/rootfs/apps/.config/
+    cp -vrf ./enclave.init/nats-server ./rootfs_base/rootfs/apps/
 
     if [[ ${network} -ne 0 || ${reverse_network} -ne 0 || ${forward_network} -ne 0 ]]; then
         mkdir -vp ./rootfs_base/rootfs/apps/pf-proxy/
@@ -614,12 +726,12 @@ init_and_rootfs_base_images_build() {
         cp -vrf ./secure-enclaves-framework/ip-to-vsock-transparent ./rootfs_base/rootfs/apps/pf-proxy/ip2vs-tp
         cp -vrf ./secure-enclaves-framework/vsock-to-ip-transparent ./rootfs_base/rootfs/apps/pf-proxy/vs2ip-tp
         cp -vrf ./secure-enclaves-framework/vsock-to-ip ./rootfs_base/rootfs/apps/pf-proxy/vs2ip
-        cp -vrf ./network.init/pf-rev-guest.sh ./rootfs_base/rootfs/apps/
-        cp -vrf ./network.init/pf-tp-guest.sh ./rootfs_base/rootfs/apps/
-        cp -vrf ./network.init/pf-guest.sh ./rootfs_base/rootfs/apps/
+        cp -vrf ./enclave.init/pf-rev-guest.sh ./rootfs_base/rootfs/apps/
+        cp -vrf ./enclave.init/pf-tp-guest.sh ./rootfs_base/rootfs/apps/
+        cp -vrf ./enclave.init/pf-guest.sh ./rootfs_base/rootfs/apps/
     fi
 
-    cp -vrf ./network.init/init.sh ./rootfs_base/rootfs/apps/
+    cp -vrf ./enclave.init/init.sh ./rootfs_base/rootfs/apps/
 
     cp -vrf ./rootfs_base/ ./cpio/ ;
 
@@ -675,17 +787,17 @@ eif_build_with_initgo() {
 
 run_eif_image_debugmode_cli() {
     if [[ ${network} -ne 0 ]]; then
-        cd ./network.init/;
+        cd ./enclave.init/;
         nohup bash ./pf-rev-host.sh &> /dev/null & disown ; wait
         nohup bash ./pf-tp-host.sh &> /dev/null & disown ; wait
         nohup bash ./pf-host.sh &> /dev/null & disown ; wait
         cd ../ ;
     elif [[ ${reverse_network} -ne 0 ]]; then
-        cd ./network.init/;
+        cd ./enclave.init/;
         nohup bash ./pf-rev-host.sh &> /dev/null & disown ; wait
         cd ../ ;
     elif [[ ${forward_network} -ne 0 ]]; then
-        cd ./network.init/;
+        cd ./enclave.init/;
         nohup bash ./pf-tp-host.sh &> /dev/null & disown ; wait
         nohup bash ./pf-host.sh &> /dev/null & disown ; wait
         cd ../ ;
@@ -696,17 +808,17 @@ run_eif_image_debugmode_cli() {
 
 run_eif_image_debugmode() {
     if [[ ${network} -ne 0 ]]; then
-        cd ./network.init/;
+        cd ./enclave.init/;
         nohup bash ./pf-rev-host.sh &> /dev/null & disown ; wait
         nohup bash ./pf-tp-host.sh &> /dev/null & disown ; wait
         nohup bash ./pf-host.sh &> /dev/null & disown ; wait
         cd ../ ;
     elif [[ ${reverse_network} -ne 0 ]]; then
-        cd ./network.init/;
+        cd ./enclave.init/;
         nohup bash ./pf-rev-host.sh &> /dev/null & disown ; wait
         cd ../ ;
     elif [[ ${forward_network} -ne 0 ]]; then
-        cd ./network.init/;
+        cd ./enclave.init/;
         nohup bash ./pf-tp-host.sh &> /dev/null & disown ; wait
         nohup bash ./pf-host.sh &> /dev/null & disown ; wait
         cd ../ ;
@@ -717,17 +829,17 @@ run_eif_image_debugmode() {
 
 run_eif_image() {
     if [[ ${network} -ne 0 ]]; then
-        cd ./network.init/;
+        cd ./enclave.init/;
         nohup bash ./pf-rev-host.sh &> /dev/null & disown ; wait
         nohup bash ./pf-tp-host.sh &> /dev/null & disown ; wait
         nohup bash ./pf-host.sh &> /dev/null & disown ; wait
         cd ../ ;
     elif [[ ${reverse_network} -ne 0 ]]; then
-        cd ./network.init/;
+        cd ./enclave.init/;
         nohup bash ./pf-rev-host.sh &> /dev/null & disown ; wait
         cd ../ ;
     elif [[ ${forward_network} -ne 0 ]]; then
-        cd ./network.init/;
+        cd ./enclave.init/;
         nohup bash ./pf-tp-host.sh &> /dev/null & disown ; wait
         nohup bash ./pf-host.sh &> /dev/null & disown ; wait
         cd ../ ;
@@ -813,17 +925,36 @@ make_apps() {
     # question=0
 }
 
-# Init system build automated guide
+# Init system and init apps build using Docker build environment, automated guide
 make_init() {
-    echo -e "Init system build automated guide\n"
+    echo -e "Init system and init apps build using Docker build environment, automated guide\n"
 
     # question=0
 
-    runner_fn docker_init_container_clear
+    runner_fn docker_init_apps_container_clear
 
-    runner_fn docker_init_image_clear
+    runner_fn docker_init_apps_image_clear
 
-    runner_fn docker_init_build
+    runner_fn docker_init_apps_image_build
+
+    runner_fn docker_prepare_init_apps_buildenv
+
+    runner_fn docker_init_apps_build
+
+    # question=0
+}
+
+# Init system build using Nix build system, automated guide
+make_init_nix() {
+    echo -e "Init system build using Nix build system, automated guide\n"
+
+    # question=0
+
+    runner_fn docker_init_nix_container_clear
+
+    runner_fn docker_init_nix_image_clear
+
+    runner_fn docker_init_nix_build
 
     # question=0
 }
@@ -889,11 +1020,15 @@ make_all() {
 
     runner_fn docker_apps_rs_build
 
-    runner_fn docker_init_container_clear
+    runner_fn docker_init_apps_container_clear
+    runner_fn docker_init_apps_image_clear
+    runner_fn docker_init_apps_image_build
+    runner_fn docker_prepare_init_apps_buildenv
+    runner_fn docker_init_apps_build
 
-    runner_fn docker_init_image_clear
-
-    runner_fn docker_init_build
+    # runner_fn docker_init_nix_container_clear
+    # runner_fn docker_init_nix_image_clear
+    # runner_fn docker_init_nix_build
 
     runner_fn docker_eif_build_container_clear "${dockerfile}"
 
@@ -967,9 +1102,11 @@ make_clear() {
 
     runner_fn docker_apps_rs_image_clear
 
-    runner_fn docker_init_container_clear
+    runner_fn docker_init_apps_container_clear
+    runner_fn docker_init_apps_image_clear
 
-    runner_fn docker_init_image_clear
+    # runner_fn docker_init_nix_container_clear
+    # runner_fn docker_init_nix_image_clear
 
     runner_fn docker_eif_build_container_clear "${dockerfile}"
 
@@ -1020,13 +1157,25 @@ declare -ra fn_signatures=(
 
     "docker_apps_rs_build"
 
-    # Init system build commands
+    # Init system and init apps build commands for Docker build environment
 
-    "docker_init_container_clear"
+    "docker_init_apps_container_clear"
 
-    "docker_init_image_clear"
+    "docker_init_apps_image_clear"
 
-    "docker_init_build"
+    "docker_init_apps_image_build"
+
+    "docker_prepare_init_apps_buildenv"
+
+    "docker_init_apps_build"
+
+    # Init system build commands for Nix build system
+
+    "docker_init_nix_container_clear"
+
+    "docker_init_nix_image_clear"
+
+    "docker_init_nix_build"
 
     # EIF enclave image build commands
 
@@ -1131,13 +1280,25 @@ declare -rA functions=(
 
     ["docker_apps_rs_build"]="Build all apps for EIF enclave image building and enclave's run-time in 'apps_rs_build' Docker container isolated environment"
 
-    # Init system build commands
+    # Init system and init apps build commands for Docker build environment
 
-    ["docker_init_container_clear"]="Clear previous 'init_build' Docker container first"
+    ["docker_init_apps_container_clear"]="Clear previous 'init_apps_build' Docker container first"
 
-    ["docker_init_image_clear"]="Clear previous 'init_build' Docker container image"
+    ["docker_init_apps_image_clear"]="Clear previous 'init_apps_build' Docker container image"
 
-    ["docker_init_build"]="Build custom init system for enclave image in Docker 'init_build' container isolated environment"
+    ["docker_init_apps_image_build"]="Build new 'init_apps_build' Docker image and create container from it"
+
+    ["docker_prepare_init_apps_buildenv"]="Prepare Init system and Init apps repositories and environment in 'init_apps_build' Docker container"
+
+    ["docker_init_apps_build"]="Build custom Init system and Init apps for EIF enclave image building and enclave's run-time in 'init_apps_build' Docker container isolated environment"
+
+    # Init system build commands for Nix build system
+
+    ["docker_init_nix_container_clear"]="Clear previous 'init_build' Docker container first"
+
+    ["docker_init_nix_image_clear"]="Clear previous 'init_build' Docker container image"
+
+    ["docker_init_nix_build"]="Build custom Init system for EIF enclave image building and enclave's run-time in 'init_build' Docker container isolated environment"
 
     # EIF enclave image build commands
 
