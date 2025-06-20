@@ -1,6 +1,6 @@
 [package]
 name = "inference_server"
-version = "0.7.1"
+version = "0.8.1"
 edition = "2021"
 
 [dependencies]
