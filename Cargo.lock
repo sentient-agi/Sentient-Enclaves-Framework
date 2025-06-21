@@ -1004,7 +1004,7 @@ dependencies = [
 
 [[package]]
 name = "fs-monitor"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "async-nats",
  "bytes",
@@ -2164,7 +2164,7 @@ checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
 name = "pf-proxy"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "clap 4.5.45",
@@ -2209,7 +2209,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pipeline"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "byteorder",
  "clap 3.2.25",
@@ -2330,7 +2330,7 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "ra-web-srv"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "async-nats",
  "async-std",
