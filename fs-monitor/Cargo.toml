@@ -1,0 +1,22 @@
+[package]
+name = "fs-monitor"
+version = "0.8.0"
+edition = "2021"
+
+[dependencies]
+inotify = "0.11.0"
+futures = "0.3.30"
+notify = "7.0.0"
+sha2 = "0.10.0"
+dashmap = "6.1.0"
+glob = "0.3.2"
+tempfile = "3.17.1"
+sha3 = "0.10.8"
+# tokio = { version = "1.36.0", features = ["full"] }
+tokio = { version = "1.44", features = ["full"] }
+clap = { version = "4.5.28", features = ["derive"] }
+uuid = { version = "1.16.0", features = ["v4"] }
+notify-debouncer-full = "0.5.0"
+# async-nats = "0.36.0"
+async-nats = "0.42"
+bytes = "1.10.1"

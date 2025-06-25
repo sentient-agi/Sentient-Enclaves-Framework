@@ -29,3 +29,19 @@
         Providing the control of files and file system integrity via providing per file hashing.
         These file integrity hashes used to generate proofs (based on VRF, for not to rely on enclave or system entropy)
         and per file attestation docs, that include file proofs, based on file integrity hashes.
+
+- **0.7.1** - Remote Attestation Web Server: Implementation of verifier endpoints (verificators) for next generation remote attestation web server,
+              to verify hashes for files (hashes act as a runtime ramdisk FS CoW metadata), verify VRF proofs from file+hash pair,
+              verify attestation document signature itself via attestation document certificate's public key,
+              perform attestation document certificate signature verification and validity checks (validation) by date range,
+              and against CA bundle chain of root and intermediate certificates public keys,
+              and perform exhaustive validity checks for certificates signatures
+              and by date range validity for each certificate in CA bundle chain (for root certificate and intermediate certificates).
+
+- **0.8.0** - file system monitor, for automagic unconditional unattended mass-production of attestation docs,
+            with mt-runtime integration as well. Act as a data provider for attestation server and protocol,
+            tracking FS content via `inotify` kernel FS events and providing hashes for granular changes in enclave's run-time ramdisk file system.
+            Providing CoW layer above the base enclave file system layer in enclave's run-time for immutably tracking the
+            whole file system changes per file and control integrity via providing per file hashing.
+            These file integrity hashes used to generate proofs (based on VRF, for not to rely on enclave or system entropy)
+            and per file attestation docs, that include file proofs, based on file integrity hashes.

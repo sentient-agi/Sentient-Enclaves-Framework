@@ -60,7 +60,7 @@ POST /verify_proof/?json{ doc: byte_hex_string || proof: byte_hex_string, pubkey
 
 // Attestation documents signature verification endpoint.
 // Public key will be retrieved from certificate in attestation doc.
-POST /verify_doc/?json{ doc: byte_hex_string } 
+POST /verify_doc/?json{ doc: byte_hex_string }
 POST /verify_doc_sign/?json{ doc: byte_hex_string }
 
 // Endpoint to verify base image static (build time) PCR hashes against Nitro Enclave's runtime PCR computed parameters.

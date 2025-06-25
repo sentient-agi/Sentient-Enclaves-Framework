@@ -1,0 +1,10 @@
+**/.cache/**
+**/*.~
+**/*.swp
+**/*.lock
+**/*.incomplete
+**/tmp_*
+**/*.swpx
+*.log
+*~
+**/*~

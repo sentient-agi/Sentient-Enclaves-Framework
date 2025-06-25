@@ -3,6 +3,7 @@ members = [
     "pipeline",
     "pf-proxy",
     "ra-web-srv",
+    "fs-monitor",
 ]
 exclude = [
     "cryptography",

@@ -2,13 +2,6 @@
 
 ### WIP (already in development):
 
-- **0.8.0** - file system monitor, for automagic unconditional unattended mass-production of attestation docs,
-            with mt-runtime integration as well.
-            Providing CoW layer above the base enclave file system layer in enclave's run-time for immutably tracking the
-            whole file system changes per file and control integrity via providing per file hashing.
-            These file integrity hashes used to generate proofs (based on VRF, for not to rely on enclave or system entropy)
-            and per file attestation docs, that include file proofs, based on file integrity hashes.
-
 - **0.9.0** - cryptography stack, for buffer level SLC and content encryption.
 
 - **0.10.0** - integration with KMS for key storage, probably TPM module usage for local key storage.

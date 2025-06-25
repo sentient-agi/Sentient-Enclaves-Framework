@@ -70,7 +70,7 @@ The attestation process provides integrity, granularity, and guarantees that com
 
 This way the attestation protocol and web API along with File System Monitor CoW layer covering all aspects of enclave's run-time activities and apps executed inside the enclave.
 
-## Enclave's file system monitor (WIP)
+## Enclave's file system monitor
 
 Enclave's file system monitor (for ramdisk or CoW image) supports unconditional attestation for all outer external additional data that will be appeared in enclave file system and run-time.
 

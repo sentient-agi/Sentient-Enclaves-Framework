@@ -7,8 +7,8 @@
   </a>
   <!-- Github Repo Info -->
     <!-- Release -->
-    <a href="https://github.com/sentient-agi/Sentient-Enclaves-Framework/releases/tag/v0.7.0">
-        <img alt="GitHub release" src="https://img.shields.io/badge/Release-v0.7.0-green">
+    <a href="https://github.com/sentient-agi/Sentient-Enclaves-Framework/releases/tag/v0.7.1">
+        <img alt="GitHub release" src="https://img.shields.io/badge/Release-v0.7.1-green">
     </a>
     <!-- License -->
     <a href="./LICENSE-APACHE">
@@ -19,7 +19,7 @@
         <img alt="GitHub release" src="https://img.shields.io/badge/Release_Status-Beta-yellow">
     </a>
 </p>
-       
+
 <p align="center">
   <img src="docs/png/banner.png"/>
 </p>
@@ -85,12 +85,13 @@ The framework enables the creation of confidential enclaves that are isolated fr
 # Framework Components 🏗️
 To allow for the creation of confidential AI applications set of infrastructure components are needed. The framework abstracts these components away from the developer, providing a simple interface for building confidential AI applications. Framework provides following components:
 
-| Component    | Description                                                                 | Functionality                                                                                                                                                                                                                                                                                                                                                                                      | Documentation                                                                                                                                                            |
-|--------------|-----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `pipeline`   | Implementation of binary protocol over `vsock` for interacting with enclave | Controls enclave execution and enables bi-directional file transfers                                                                                                                                                                                                                                                                                                                               | [![Documentation](https://img.shields.io/badge/Pipeline-Docs-blue)](docs/md/REFERENCE_README.md#pipeline-slc-vsock-communication-protocol)                               |
-| `rbuilds.sh` | Script utilising set of components for building reproducible enclave images | Enables byte-level reproducibility for enclave images and streamlines the build process                                                                                                                                                                                                                                                                                                            | [![Documentation](https://img.shields.io/badge/Build_System-Docs-blue)](docs/md/REFERENCE_README.md#build-system-for-enclaves-reproducible-builds)                       |
-| `pf-proxy`   | Transparent `vsock` proxies for internet-enabled applications               | Provides full networking stack support, enabling outbound TCP connections using forward proxies and inbound TCP connections using reverse proxies for enclaves                                                                                                                                                                                                                                     | [![Documentation](https://img.shields.io/badge/PF_Proxy-Docs-blue)](docs/md/REFERENCE_README.md#transparent-vsock-proxies)                                               |
-| `ra-web-srv` | Remote Attestation Web Server for verifying integrity of applications  | Enables remote attestation of EIF base image and enclave file system, verifying static and run-time integrity via PCR hash comparison and per-file proofs from within the enclave.                                                                                                                                                                                                                                     | [![Documentation](https://img.shields.io/badge/PF_Proxy-Docs-blue)](docs/md/REFERENCE_README.md#web-server-and-web-protocol-for-remote-attestation-of-enclaves-run-time) |
+| Component    | Description                                                                     | Functionality                                                                                                                                                                                                                                                               | Documentation                                                                                                                                                                          |
+|--------------|---------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `pipeline`   | Implementation of binary protocol over `vsock` for interacting with enclave     | Controls enclave execution and enables bi-directional file transfers                                                                                                                                                                                                        | [![Documentation](https://img.shields.io/badge/Pipeline-Docs-blue)](docs/md/REFERENCE_README.md#pipeline-slc-vsock-communication-protocol)                                             |
+| `rbuilds.sh` | Script utilising set of components for building reproducible enclave images     | Enables byte-level reproducibility for enclave images and streamlines the build process                                                                                                                                                                                     | [![Documentation](https://img.shields.io/badge/Reproducible-Builds-System-Docs-blue)](docs/md/REFERENCE_README.md#build-system-for-enclaves-reproducible-builds)                       |
+| `pf-proxy`   | Transparent `vsock` proxies for internet-enabled applications                   | Provides full networking stack support, enabling outbound TCP connections using forward proxies and inbound TCP connections using reverse proxies for enclaves                                                                                                              | [![Documentation](https://img.shields.io/badge/PF-Proxy-Docs-blue)](docs/md/REFERENCE_README.md#transparent-vsock-proxies)                                                             |
+| `ra-web-srv` | Remote Attestation Web Server for verifying integrity of applications           | Enables remote attestation of EIF base image and enclave file system, verifying static and run-time integrity via PCR hash comparison and per-file proofs from within the enclave.                                                                                          | [![Documentation](https://img.shields.io/badge/Attestation-Web-Server-Docs-blue)](docs/md/REFERENCE_README.md#web-server-and-web-protocol-for-remote-attestation-of-enclaves-run-time) |
+| `fs-monitor` | Real-time `inotify` events monitoring server for changes of files & directories | Covering per file (and directory) changes in enclave's ramdisk FS using files hashing. It emulates CoW FS layer for tracking any changes in enclave's run-time file system and acting as a data provider about granular FS changes for attestation web server and protocol. | [![Documentation](https://img.shields.io/badge/FS-Monitor-Docs-blue)](docs/md/REFERENCE_README.md#enclaves-file-system-monitor)                                                        |
 
 
 ### Project Diagram:
@@ -133,7 +134,7 @@ Ensuring the integrity and authenticity of the code and data running within a co
 
 This involves two primary aspects facilitated by the `ra-web-srv` component:
 
-### Verifying External Data Integrity 
+### Verifying External Data Integrity
 Confirming that any configuration or input files loaded by the enclave application have not been tampered with. The `ra-web-srv` component, running inside the enclave, can generate cryptographic hashes and Verifiable Random Function (VRF) proofs for specified files.
 
   > [!IMPORTANT]
@@ -166,7 +167,7 @@ Verifying that the exact expected Enclave Image File (`.eif`) is running. This i
   nitro-cli describe-eif --eif-path /path/to/your/app.eif
   ```
   Amongst the returned data, the `PCR0`, `PCR1`, `PCR2` values contains following measurements:
-  
+
 **`PCR0`**:
 - `PCR0` contains a measurement of all the data influencing the runtime of code in an EIF
 - `PCR0` = `SHA384(KERNEL | Cmdline | Ramdisk(init) | Ramdisk(1:))`
@@ -196,15 +197,15 @@ sentient-enclaves-framework/
 ├── pf-proxy : Source code for transparent vsock proxies for internet-enabled applications
 ├── rbuilds
 │   ├──*.dockerfile : Dockerfile used for different stages while building enclave images
-│   ├── rbuilds.sh: Script for building reproducible enclave images 
+│   ├── rbuilds.sh: Script for building reproducible enclave images
 ├── rbuilds.legacy : Legacy build system for building enclave images. Currently not used.
 ├── reference_apps : Reference applications that utilize the framework
 │   ├── fingerprinting_server : A model fingerprinting server that fingerprints models based on OML fingerprinting library
-│   ├── inference_server : An inference server that uses a local model inference.
-│   ├── X_Agent : A reference agent that interacting with X users.
-├── ra-web-srv : Web Server for remote attestation of enclaves (WIP)
-└── docs : Detailed documentation for the framework and its components  
-
+│   ├── inference_server : An inference server that uses a local model inference
+│   ├── X_Agent : A reference agent that interacting with X users
+├── ra-web-srv : Web Server for remote attestation of enclaves
+├── fs-monitor : Real-time `inotify` events monitoring server for changes of files & directories in enclave's ramdisk FS
+└── docs : Detailed documentation for the framework and its components
 ```
 
 # Contributing 🤝
