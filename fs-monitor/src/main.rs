@@ -29,9 +29,9 @@ struct Args {
     #[arg(short, long, value_name = "FILE", default_value = ".fsignore", help = "Specify the ignore file with patterns to exclude.")]
     ignore_file: String,
 
-    #[arg(long, default_value = "nats://localhost:4222")]
+    #[arg(long, default_value = "nats://127.0.0.1:4222")]
     nats_url: String,
-    #[arg(long, default_value = "file_hashes")]
+    #[arg(long, default_value = "fs_hashes")]
     kv_bucket_name: String,
 }
 
