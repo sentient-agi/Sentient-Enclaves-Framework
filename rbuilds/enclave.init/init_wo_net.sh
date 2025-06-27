@@ -11,6 +11,15 @@ echo -e "Init.sh started";
 
 # mkdir -vp /apps/.logs/;
 
+echo -e "Activating the localhost interface for enclave's service bus";
+
+ip addr add 127.0.0.1/32 dev lo
+ifconfig lo 127.0.0.1
+ip link set dev lo up
+ip route add default dev lo src 127.0.0.1
+echo '127.0.0.1   localhost' | tee /etc/hosts
+echo 'nameserver 127.0.0.1' | tee /etc/resolv.conf
+
 echo -e "Executing Pipeline";
 cd /apps/;
 ./pipeline listen --port 53000 >> /apps/.logs/pipeline.log 2>&1 & disown;
