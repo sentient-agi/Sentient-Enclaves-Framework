@@ -553,6 +553,7 @@ async fn main() -> io::Result<()> {
         .route("/docs/", get(docs))
         .route("/doc/", get(doc_handler))
         .route("/pubkeys/", get(pubkeys).with_state(Arc::clone(&state.app_state)))
+        .route("/pcrs/", get(get_pcrs))
         .route("/verify_pcrs/", post(verify_pcrs).with_state(Arc::clone(&state.app_state)))
         .route("/verify_hash/", post(verify_hash).with_state(Arc::clone(&state.app_state)))
         .route("/verify_proof/", post(verify_proof).with_state(Arc::clone(&state.app_state)))
@@ -1918,7 +1919,46 @@ async fn verify_hash(
     }
 }
 
-/// PCRs verification endpoint to compare base image PCR registers with actual running enclave PCR registers
+/// Endpoint to output actual running enclave (run-time) PCR registers, which should be equal to base EIF image PCR registers/hashes
+async fn get_pcrs(
+    Query(query_params): Query<HashMap<String, String>>,
+    State(server_state): State<Arc<ServerState>>,
+) -> impl IntoResponse {
+    info!("{query_params:?}");
+
+    let fd = server_state.app_state.read().nsm_fd;
+    info!("fd: {fd:?}");
+
+    let cose_doc_bytes = get_attestation_doc(fd, None, None, None);
+
+    let cose_doc = CoseSign1::from_bytes(cose_doc_bytes.as_slice()).unwrap();
+    let (protected_header, attestation_doc_bytes) =
+        cose_doc.get_protected_and_payload::<Openssl>(None).unwrap();
+    info!("Protected header: {:#?}", protected_header);
+    let unprotected_header = cose_doc.get_unprotected();
+    info!("Unprotected header: {:#?}", unprotected_header);
+    let attestation_doc = AttestationDoc::from_binary(&attestation_doc_bytes[..]).unwrap();
+    info!("Attestation document: {:#?}", attestation_doc);
+    let attestation_doc_signature = cose_doc.get_signature();
+    info!("Attestation document signature: {:#?}", hex::encode(attestation_doc_signature.clone()));
+
+    let pcrs_fmt = attestation_doc.pcrs.iter().map(
+        |(key, val)| format!(r#"{}: {}"#, key.to_string(), hex::encode(val.clone().into_vec()))
+    )
+    .collect::<Vec<String>>()
+    .join(",\n");
+
+    (
+        StatusCode::OK,
+        format!(r#"Actual (run-time) PCR registers of running enclave, retrieved from enclave's common attestation document:
+            {:?}
+        "#,
+            pcrs_fmt,
+        ),
+    )
+}
+
+/// PCRs verification endpoint to compare base EIF image PCR registers/hashes with actual running enclave PCR registers
 async fn verify_pcrs(
     State(app_state): State<Arc<RwLock<AppState>>>,
     Json(payload): Json<VerifyPCRsRequest>,
@@ -1951,8 +1991,10 @@ async fn verify_pcrs(
             StatusCode::OK,
             format!(r#"PCRs provided in JSON request are equal to actual PCRs retrieved from enclave's attestation document.
                 PCR registers of base image and running enclave from base image are equal and are VALID!
-                PCRs from JSON request: {:?}
-                PCRs retrieved from enclave's attestation document: {:?}
+                PCRs from JSON request:
+                    {:?}
+                PCRs retrieved from enclave's attestation document:
+                    {:?}
             "#,
                 pcrs_string_req,
                 pcrs_fmt,
@@ -1963,8 +2005,10 @@ async fn verify_pcrs(
             StatusCode::OK,
             format!(r#"PCRs provided in JSON request are NOT equal to actual PCRs retrieved from enclave's attestation document.
                 PCR registers of base image and running enclave from base image are NOT equal and are INVALID!
-                PCRs from JSON request: {:?}
-                PCRs retrieved from enclave's attestation document: {:?}
+                PCRs from JSON request:
+                    {:?}
+                PCRs retrieved from enclave's attestation document:
+                    {:?}
             "#,
                 pcrs_string_req,
                 pcrs_fmt,
