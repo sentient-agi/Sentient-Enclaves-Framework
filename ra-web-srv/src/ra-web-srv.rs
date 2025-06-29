@@ -11,7 +11,7 @@ use axum::{
     Json,
 };
 use axum_extra::extract::Host;
-use axum_server::tls_rustls::RustlsConfig;
+use axum_server::tls_openssl::OpenSSLConfig;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue, to_string, to_string_pretty};
@@ -531,15 +531,14 @@ async fn main() -> io::Result<()> {
     let cert_dir = std::env::var("CERT_DIR")
         .unwrap_or_else(|e| {
             error!("CERT_DIR env var is empty or not set: {:?}", e);
-            "/apps/certs/".to_string()
+            "./certs/".to_string()
         });
-    let tls_config = RustlsConfig::from_pem_file(
+    let tls_config = OpenSSLConfig::from_pem_file(
         PathBuf::from(&cert_dir)
             .join("cert.pem"),
         PathBuf::from(&cert_dir)
             .join("skey.pem"),
     )
-    .await
     .unwrap();
 
     let app = Router::new()
@@ -580,7 +579,7 @@ async fn main() -> io::Result<()> {
         ports.https
     );
     debug!("listening on {listening_address:?}");
-    axum_server::bind_rustls(listening_address, tls_config)
+    axum_server::bind_openssl(listening_address, tls_config)
         .handle(handle)
         .serve(app.into_make_service())
         .await?;

@@ -12,10 +12,10 @@ name = "mt-runtime"
 path = "mt-runtime/mt-runtime.rs"
 
 [dependencies]
-axum = { git = "https://github.com/tokio-rs/axum.git", branch = "main" }
-axum-extra = { git = "https://github.com/tokio-rs/axum.git", branch = "main" }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
-axum-macros = "0.5.0"
+axum = { version = "0.8" }
+axum-extra = { version = "0.10" }
+axum-server = { version = "0.7", features = ["tls-openssl"] }
+axum-macros = "0.5"
 serde = { version = ">=1.0", features = ["derive"] }
 serde_json = { version = ">=1.0" }
 serde_bytes = "0.11"

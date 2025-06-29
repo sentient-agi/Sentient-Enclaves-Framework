@@ -484,8 +484,8 @@ docker_apps_rs_build() {
     cp -vrf ../ra-web-srv/certs/ -T ./secure-enclaves-framework/certs/ ;
     cp -vrf ../ra-web-srv/certs/ -T ./enclave.init/certs/ ;
 
-    cp -vr ../fs-monitor/.fs_ignore ./secure-enclaves-framework/ ;
-    cp -vr ../fs-monitor/.fs_ignore ./enclave.init/ ;
+    cp -vr ../fs-monitor/.fsignore ./secure-enclaves-framework/ ;
+    cp -vr ../fs-monitor/.fsignore ./enclave.init/ ;
 
     cp -vr ../.bin/pipeline-dir ./secure-enclaves-framework/ ;
     cp -vr ../.bin/shell.sh ./secure-enclaves-framework/ ;
@@ -713,7 +713,7 @@ init_and_rootfs_base_images_build() {
     cp -vrf ./secure-enclaves-framework/.config/ra_web_srv.config.toml ./rootfs_base/rootfs/apps/.config/
     cp -vrf ./secure-enclaves-framework/certs/ -T ./rootfs_base/rootfs/apps/certs/
     cp -vrf ./secure-enclaves-framework/fs-monitor ./rootfs_base/rootfs/apps/
-    cp -vrf ./secure-enclaves-framework/.fs_ignore ./rootfs_base/rootfs/apps/
+    cp -vrf ./secure-enclaves-framework/.fsignore ./rootfs_base/rootfs/apps/
 
     mkdir -vp ./rootfs_base/rootfs/apps/nats.db/
     cp -vrf ./enclave.init/.config/nats.config ./rootfs_base/rootfs/apps/.config/
