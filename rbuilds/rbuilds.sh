@@ -541,21 +541,23 @@ docker_init_apps_build() {
 
     docker exec -i init_apps_build bash -cis -- ' \
         cd /app-builder/init/; \
-        mkdir -p ./build/; \
+        mkdir -vp ./build/; \
         gcc -v -Wall -Wextra -Werror -O3 -flto -static -static-libgcc -o ./build/init ./init.c; \
         strip -v --strip-all ./build/init; \
     ' ;
 
-    docker exec -i init_apps_build bash -cis -- " \
+    docker exec -i init_apps_build bash -cis -- ' \
         cd /app-builder/init_go/; \
+        mkdir -vp ./build/; \
         go mod download -x; \
         CGO_ENABLED=0 go build -v -x -a -trimpath -ldflags "-s -w -extldflags=-static \
         -X main.Version=$(VERSION) \
         -X main.version=${VERSION}" -o ./build/init ./init.go; \
-    " ;
+    ' ;
 
     docker exec -i init_apps_build bash -cis -- ' \
         cd /app-builder/nats-server/; \
+        mkdir -vp ./build/; \
         git checkout $(git tag --sort="-version:refname" | grep -iP "^v?[0-9]+\.?[0-9]+?\.?[0-9]*?$" | awk "NR==1{print \$1}"); \
         go mod download -x; \
         CGO_ENABLED=0 go build -v -x -a -trimpath -ldflags "-s -w -extldflags=-static \
