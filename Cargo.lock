@@ -3207,7 +3207,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vrf"
 version = "0.3.0"
-source = "git+https://github.com/andrcmdr/vrf-rs.git?branch=main#c7b61c73113247314cbc92192ea6a7eec77696db"
+source = "git+https://github.com/andrcmdr/vrf-rs.git?tag=0.3.0#ea0cce135063935c93123ba97ec476a974e2cae1"
 dependencies = [
  "hmac-sha256",
  "openssl",

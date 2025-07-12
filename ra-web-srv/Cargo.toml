@@ -34,7 +34,8 @@ aws-nitro-enclaves-cose = { git = "https://github.com/andrcmdr/aws-nitro-enclave
 toml = "0.8"
 parking_lot = "0.12"
 openssl = { version = "0.10", features = ["vendored"] }
-vrf = { git = "https://github.com/andrcmdr/vrf-rs.git", branch = "main", version = "0.3.0" }
+# vrf = { git = "https://github.com/andrcmdr/vrf-rs.git", branch = "main", version = "0.3.0" }
+vrf = { git = "https://github.com/andrcmdr/vrf-rs.git", tag = "0.3.0" }
 # vrf = { path = "../../vrf", version = "0.3.0" }
 async-nats = "0.42"
 bytes = "1.10"
