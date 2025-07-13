@@ -1949,9 +1949,9 @@ async fn get_pcrs(
 
     (
         StatusCode::OK,
-        format!(r#"Actual (run-time) PCR registers of running enclave, retrieved from enclave's common attestation document:
+        format!("Actual (run-time) PCR registers of running enclave, retrieved from enclave's common attestation document:\n
             {:?}
-        "#,
+        ",
             pcrs_fmt,
         ),
     )
@@ -1988,13 +1988,13 @@ async fn verify_pcrs(
     if pcrs_string_req == pcrs_fmt {
         (
             StatusCode::OK,
-            format!(r#"PCRs provided in JSON request are equal to actual PCRs retrieved from enclave's attestation document.
-                PCR registers of base image and running enclave from base image are equal and are VALID!
-                PCRs from JSON request:
-                    {:?}
-                PCRs retrieved from enclave's attestation document:
-                    {:?}
-            "#,
+            format!("PCRs provided in JSON request are equal to actual PCRs retrieved from enclave's attestation document.\n
+                PCR registers of base image and running enclave from base image are equal and are VALID!\n
+                PCRs from JSON request:\n
+                    {:?}\n
+                PCRs retrieved from enclave's attestation document:\n
+                    {:?}\n
+            \n",
                 pcrs_string_req,
                 pcrs_fmt,
             ),
@@ -2002,13 +2002,13 @@ async fn verify_pcrs(
     } else {
         (
             StatusCode::OK,
-            format!(r#"PCRs provided in JSON request are NOT equal to actual PCRs retrieved from enclave's attestation document.
-                PCR registers of base image and running enclave from base image are NOT equal and are INVALID!
-                PCRs from JSON request:
-                    {:?}
-                PCRs retrieved from enclave's attestation document:
-                    {:?}
-            "#,
+            format!("PCRs provided in JSON request are NOT equal to actual PCRs retrieved from enclave's attestation document.\n
+                PCR registers of base image and running enclave from base image are NOT equal and are INVALID!\n
+                PCRs from JSON request:\n
+                    {:?}\n
+                PCRs retrieved from enclave's attestation document:\n
+                    {:?}\n
+            \n",
                 pcrs_string_req,
                 pcrs_fmt,
             ),
