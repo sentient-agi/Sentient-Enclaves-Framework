@@ -20,7 +20,7 @@ Sentient Enclaves Framework built for AWS Nitro Enclaves.
 Thus supported on EC2 instances with enabled `Nitro Enclaves` option.
 Memory requirements should be equal to your application's Docker container image size multiplied by the grade of two (due to the initrd initramfs ramdisk with rootfs exported from app's Docker container + RAM for enclave).
 
-Sentient Enclaves Framework built with portability of components in mind.
+Sentient Enclaves Framework was built with portability of components in mind.
 
 More platforms and cloud based confidential VMs support (including confidential VMs with GPU TEE support) are coming very soon. (WIP)
 
