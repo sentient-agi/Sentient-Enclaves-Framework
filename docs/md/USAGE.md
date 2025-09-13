@@ -53,7 +53,7 @@ For more information about CLI options, interactive shell mode and automation co
 
 ## **Advanced usage:**
 
-Also `rbuild.sh` supporting an interactive shell mode, for interactive builds and commands shell interface mode for interactive automation of builds (and build stages):
+Also `rbuild.sh` supports an interactive shell mode, for interactive builds and commands shell interface mode for interactive automation of builds (and build stages):
 
 ### Interactive mode shell with timings and console dump - you'll see the shell prompt:
 ```bash
