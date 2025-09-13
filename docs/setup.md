@@ -1,6 +1,6 @@
 # A Quickstart guide on getting started with Sentient's Enclave Framework 🚀
 
-We will focus on setting up the framework for running apps distributed in [reference apps](../reference_apps/) directory. We provide [`rbuilds.sh`](../rbuilds/rbuilds.sh) to simplify setting up applications for running them inside enclaves. The following steps utilize the same script for set-up. Issue the following commands in [`rbuilds`](../rbuilds) directory.
+We will focus on setting up the framework for running apps distributed in [reference apps](../reference_apps/) directory. We provide [`rbuilds.sh`](../rbuilds/rbuilds.sh) to simplify setting up applications for running them inside enclaves. The following steps utilize the same script for setup. Issue the following commands in [`rbuilds`](../rbuilds) directory.
 > [!IMPORTANT]
 > The setup steps currently address setting up enclaves on **Amazon Linux 2023** only. For other distributions, the steps might vary. 
 
