@@ -223,7 +223,7 @@ All the data outside the enclave are secured by strong encryption.
 Pipeline supports SLC buffer level encryption for secure data transferring without leaks between enclave and host,
 and content encryption (encryption/decryption protocol and test tools) between host and outer storage (S3 at the moment),
 and multi-hop PRE re-encryption protocol and test tools for data protection between enclave and third-party systems
-during data transferring though many points in the cloud or for content protection between many participants/users
+during data transferring through many points in the cloud or for content protection between many participants/users
 in a network and on Sentient platform.
 
 Keys are stored securely in a KMS service and locally can be stored in TPM devices (on EC2 instance). (WIP)
@@ -244,8 +244,8 @@ It is heavily relying on Linux networking stack and custom reproducible Linux ke
 for enclaves.
 
 The reverse and forward proxying schemes are supported for p2p proxying, transparent port to VSock forwarding
-(many-to-many listeners scheme, with requiring according number of port forwaring proxies to listeners), and fully
-transparent proxying (full-cone NAT and port porwarding, with many-to-many listeners scheme, and requiring only one
+(many-to-many listeners scheme, with requiring according number of port forwarding proxies to listeners), and fully
+transparent proxying (full-cone NAT and port forwarding, with many-to-many listeners scheme, and requiring only one
 proxy instance for each side, host and enclave), to provide networking stack access for enclave apps
 (in case of forward proxy) and provide confidential services hosted in enclave (in case of reverse proxy).
                 </pre>
