@@ -1,7 +1,15 @@
 [package]
 name = "pf-proxy"
 version = "0.8.2"
+authors = ["Sentient Enclaves Team <sentient-enclaves-team@sentient.xyz>"]
 edition = "2021"
+description = "Transparent vsock proxies for internet-enabled applications in AWS Nitro Enclaves"
+homepage = "https://github.com/sentient-agi/Sentient-Enclaves-Framework"
+repository = "https://github.com/sentient-agi/Sentient-Enclaves-Framework"
+license = "Apache-2.0"
+keywords = ["proxy", "vsock", "tee", "enclave", "aws-nitro"]
+categories = ["network-programming", "cryptography"]
+publish = false
 
 [[bin]]
 name = "vsock-to-ip"
