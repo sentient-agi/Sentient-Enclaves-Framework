@@ -10,9 +10,17 @@ exclude = [
     "reference_apps",
 ]
 
-# edition = "2021"
 resolver = "2"
-overflow-checks = true
+
+[workspace.package]
+edition = "2021"
+authors = ["Sentient Enclaves Team <sentient-enclaves-team@sentient.xyz>"]
+license = "Apache-2.0"
+homepage = "https://github.com/sentient-agi/Sentient-Enclaves-Framework"
+repository = "https://github.com/sentient-agi/Sentient-Enclaves-Framework"
+
+[workspace.metadata]
+rust-version = "1.80"
 
 [profile.release]
 strip = true

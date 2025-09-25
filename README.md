@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/png/banner.png"/>
+  <img src="docs/png/banner.png" alt="Sentient Enclaves Framework - Confidential Computing Infrastructure Banner"/>
 </p>
 
 Welcome to the Sentient Enclaves Framework. The framework provides end-to-end infrastructure for building confidential AI applications using TEEs.
