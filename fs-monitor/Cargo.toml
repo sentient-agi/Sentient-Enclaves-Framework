@@ -1,7 +1,15 @@
 [package]
 name = "fs-monitor"
 version = "0.8.2"
+authors = ["Sentient Enclaves Team <sentient-enclaves-team@sentient.xyz>"]
 edition = "2021"
+description = "Real-time inotify events monitoring server for file system changes in AWS Nitro Enclaves"
+homepage = "https://github.com/sentient-agi/Sentient-Enclaves-Framework"
+repository = "https://github.com/sentient-agi/Sentient-Enclaves-Framework"
+license = "Apache-2.0"
+keywords = ["filesystem", "monitoring", "tee", "enclave", "inotify"]
+categories = ["filesystem", "os::unix-apis", "cryptography"]
+publish = false
 
 [dependencies]
 inotify = "0.11.0"
