@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
+use tracing::warn;
 
 pub trait AddrInfo: Debug {
     fn local_addr(&self) -> Result<SocketAddr, io::Error>;
@@ -37,7 +38,7 @@ impl AddrInfo for TcpStream {
 
     #[cfg(not(target_os = "linux"))]
     fn get_original_dst(&self) -> Option<SocketAddr> {
-        println!("Non Linux system, no support for SO_ORIGINAL_DST");
+        warn!("Non-Linux system detected, SO_ORIGINAL_DST not supported");
         None
     }
 }
@@ -61,7 +62,7 @@ mod linux {
         );
         if ret != 0 {
             let e = io::Error::last_os_error();
-            println!("failed to read SO_ORIGINAL_DST: {:?}", e);
+            warn!(error = ?e, "Failed to read SO_ORIGINAL_DST");
             return Err(e);
         }
 

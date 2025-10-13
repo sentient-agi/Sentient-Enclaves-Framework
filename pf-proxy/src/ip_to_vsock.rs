@@ -11,6 +11,7 @@ use tokio::io;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_vsock::{VsockAddr, VsockStream};
+use tracing::{error, info};
 
 use pf_proxy::utils;
 
@@ -27,8 +28,8 @@ struct Cli {
 }
 
 pub async fn proxy(listen_addr: &str, server_addr: VsockAddr) -> Result<()> {
-    println!("Listening on: {:?}", listen_addr);
-    println!("Proxying to: {:?}", server_addr);
+    info!(listen_addr = %listen_addr, "Starting ip-to-vsock proxy");
+    info!(server_addr = ?server_addr, "Forwarding to vsock address");
 
     let listener = TcpListener::bind(listen_addr)
         .await
@@ -37,7 +38,7 @@ pub async fn proxy(listen_addr: &str, server_addr: VsockAddr) -> Result<()> {
     while let Ok((inbound, _)) = listener.accept().await {
         let transfer = transfer(inbound, server_addr).map(|r| {
             if let Err(e) = r {
-                println!("Failed to transfer data: error={:?}", e);
+                error!(error = ?e, "Connection transfer failed");
             }
         });
 
@@ -53,7 +54,7 @@ async fn transfer(mut inbound: TcpStream, proxy_addr: VsockAddr) -> Result<()> {
         .context("could not fetch inbound address from TCP stream")?
         .to_string();
 
-    println!("Proxying to: {:?}", proxy_addr);
+    info!(from = %inbound_addr, to = ?proxy_addr, "New connection established");
 
     let mut outbound = VsockStream::connect(proxy_addr)
         .await
@@ -68,7 +69,7 @@ async fn transfer(mut inbound: TcpStream, proxy_addr: VsockAddr) -> Result<()> {
             .await
             .context("error in ip to vsock copy")
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        println!("ip to vsock IO copy done, from {:?} to {:?}", inbound_addr, proxy_addr);
+        info!(from = %inbound_addr, to = ?proxy_addr, direction = "ip->vsock", "Data transfer completed");
         wo.shutdown().await
     };
 
@@ -78,7 +79,7 @@ async fn transfer(mut inbound: TcpStream, proxy_addr: VsockAddr) -> Result<()> {
             .await
             .context("error in vsock to ip copy")
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        println!("vsock to ip IO copy done, from {:?} to {:?}", proxy_addr, inbound_addr);
+        info!(from = ?proxy_addr, to = %inbound_addr, direction = "vsock->ip", "Data transfer completed");
         wi.shutdown().await
     };
 
@@ -94,6 +95,13 @@ async fn transfer(mut inbound: TcpStream, proxy_addr: VsockAddr) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+        )
+        .init();
+
     let cli = Cli::parse();
     let vsock_addr = utils::split_vsock(&cli.vsock_addr)?;
     proxy(&cli.ip_addr, vsock_addr).await?;

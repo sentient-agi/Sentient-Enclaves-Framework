@@ -11,6 +11,7 @@ use tokio::io;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_vsock::{VsockAddr, VsockStream};
+use tracing::{error, info};
 
 use pf_proxy::addr_info::AddrInfo;
 
@@ -27,8 +28,8 @@ struct Cli {
 }
 
 pub async fn port_to_vsock(listen_addr: &str, cid: u32) -> Result<()> {
-    println!("Listening on: {:?}", listen_addr);
-    println!("Proxying to: {:?}", cid);
+    info!(listen_addr = %listen_addr, "Starting transparent port-to-vsock proxy");
+    info!(cid = %cid, "Forwarding to vsock CID");
 
     let listener = TcpListener::bind(listen_addr)
         .await
@@ -37,7 +38,7 @@ pub async fn port_to_vsock(listen_addr: &str, cid: u32) -> Result<()> {
     while let Ok((inbound, _)) = listener.accept().await {
         let transfer = transfer(inbound, cid).map(|r| {
             if let Err(e) = r {
-                println!("Failed to transfer data: error={:?}", e);
+                error!(error = ?e, "Connection transfer failed");
             }
         });
 
@@ -57,10 +58,10 @@ async fn transfer(mut inbound: TcpStream, cid: u32) -> Result<()> {
     let orig_dst = inbound
         .get_original_dst()
         .ok_or(anyhow!("Failed to retrieve original destination from TCP stream"))?;
-    println!("Original destination: {:?}", orig_dst);
+    info!(orig_dst = ?orig_dst, ip = ?orig_dst.ip(), port = %orig_dst.port(), "Retrieved original destination");
 
     let proxy_addr = VsockAddr::new(cid, orig_dst.port().into());
-    println!("Proxying to: {:?}", proxy_addr);
+    info!(proxy_addr = ?proxy_addr, "Connecting to vsock endpoint");
 
     let mut outbound = VsockStream::connect(proxy_addr)
         .await
@@ -75,8 +76,7 @@ async fn transfer(mut inbound: TcpStream, cid: u32) -> Result<()> {
             .await
             .context("error in port to vsock copy")
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        println!("port to vsock IO copy done, from {:?} to {:?}, with original_dst={:?}, ip={:?}, port={:?}, from inbound TCP stream",
-                 inbound_addr, proxy_addr, orig_dst, orig_dst.ip(), orig_dst.port());
+        info!(from = %inbound_addr, to = ?proxy_addr, orig_dst = ?orig_dst, ip = ?orig_dst.ip(), port = %orig_dst.port(), direction = "port->vsock", "Data transfer completed");
         wo.shutdown().await
     };
 
@@ -86,8 +86,7 @@ async fn transfer(mut inbound: TcpStream, cid: u32) -> Result<()> {
             .await
             .context("error in vsock to port copy")
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        println!("vsock to port IO copy done, from {:?} to {:?}, with original_dst={:?}, ip={:?}, port={:?}, from inbound TCP stream",
-                 proxy_addr, inbound_addr, orig_dst, orig_dst.ip(), orig_dst.port());
+        info!(from = ?proxy_addr, to = %inbound_addr, orig_dst = ?orig_dst, ip = ?orig_dst.ip(), port = %orig_dst.port(), direction = "vsock->port", "Data transfer completed");
         wi.shutdown().await
     };
 
@@ -103,6 +102,13 @@ async fn transfer(mut inbound: TcpStream, cid: u32) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+        )
+        .init();
+
     let cli = Cli::parse();
     port_to_vsock(&cli.ip_addr, cli.vsock).await?;
 
