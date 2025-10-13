@@ -29,26 +29,78 @@ fn main() {
         .get_one("config")
         .unwrap_or(&default_config_path);
 
-    let raw_config_string = std::fs::read_to_string(config_path).expect(format!("Missing '{}' configuration file.", config_path).as_str());
-    let app_config: AppConfig = toml::from_str(raw_config_string.as_str()).expect(format!("Failed to parse '{}' configuration file.", config_path).as_str());
+    let raw_config_string = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to read config file '{}': {}", config_path, e);
+            exit(1);
+        }
+    };
+
+    let app_config: AppConfig = match toml::from_str(raw_config_string.as_str()) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Failed to parse config file '{}': {}", config_path, e);
+            exit(1);
+        }
+    };
 
     match args.subcommand() {
         Some(("listen", args)) => {
-            let listen_args = ListenArgs::new_with(args).unwrap();
-            listen(listen_args, app_config).unwrap();
+            let listen_args = match ListenArgs::new_with(args) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("Invalid listen arguments: {}", e);
+                    exit(1);
+                }
+            };
+            if let Err(e) = listen(listen_args, app_config) {
+                eprintln!("Listen error: {}", e);
+                exit(1);
+            }
         }
         Some(("run", args)) => {
-            let run_args = RunArgs::new_with(args).unwrap();
-            let rc = run(run_args, app_config).unwrap();
+            let run_args = match RunArgs::new_with(args) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("Invalid run arguments: {}", e);
+                    exit(1);
+                }
+            };
+            let rc = match run(run_args, app_config) {
+                Ok(code) => code,
+                Err(e) => {
+                    eprintln!("Command execution failed: {}", e);
+                    exit(1);
+                }
+            };
             std::process::exit(rc);
         }
         Some(("send-file", args)) => {
-            let subcmd_args = FileArgs::new_with(args).unwrap();
-            send_file(subcmd_args, app_config).unwrap();
+            let subcmd_args = match FileArgs::new_with(args) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("Invalid file arguments: {}", e);
+                    exit(1);
+                }
+            };
+            if let Err(e) = send_file(subcmd_args, app_config) {
+                eprintln!("File send failed: {}", e);
+                exit(1);
+            }
         }
         Some(("recv-file", args)) => {
-            let subcmd_args = FileArgs::new_with(args).unwrap();
-            recv_file(subcmd_args, app_config).unwrap();
+            let subcmd_args = match FileArgs::new_with(args) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("Invalid file arguments: {}", e);
+                    exit(1);
+                }
+            };
+            if let Err(e) = recv_file(subcmd_args, app_config) {
+                eprintln!("File receive failed: {}", e);
+                exit(1);
+            }
         }
         Some(_) | None => {}
     }
