@@ -11,7 +11,7 @@ Convert any HuggingFace models to GGUF format with ease for running with [infere
 - **Docker:** Make sure Docker is installed and running.
 - **Access Token:** Create an `access_token.txt` containing your HuggingFace access token.
 
-## **Usage** 📦 
+## **Usage** 📦
 > [!WARNING]
 > Make sure the `access_token.txt` file is in the `model_converter` directory.
 
@@ -29,6 +29,6 @@ Depending on the model size, it may take a while to convert. For example, the 8B
 ## **Output** 📁
 - The converted GGUF model will be available in the `models` directory.
 - The model will be named `<MODEL_NAME>_<QUANT_TYPE>.gguf` .
-  
+
  **Example:**
 `Llama-3.1-8B_tq1_0.gguf`.

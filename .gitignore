@@ -2,6 +2,12 @@
 target/
 */target/
 
+#Python VEnv
+.venv/
+*/.venv/
+venv/
+*/venv/
+
 # Embedded Git repositories
 .git/
 */.git/
@@ -14,11 +20,13 @@ log/
 .vscode/
 */.vscode/
 .run/
+*/.run/
 
 # JetBrains IDEs
 .idea/
 */.idea/
 .run/
+*/.run/
 
 # Editor backup files
 *~
