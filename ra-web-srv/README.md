@@ -98,9 +98,25 @@ Base URL: `https://127.0.0.1:8443`
 }
 ```
 
-**Response**:
-- Status: `202 Accepted`
-- Body: `"Started processing directory"` or `"Started processing file"`
+**Response Format**: `text/plain`
+
+**Success Response**:
+- **Status**: `202 Accepted`
+- **Body**:
+  ```
+  "Started processing directory"
+  ```
+  or
+  ```
+  "Started processing file"
+  ```
+
+**Error Responses**:
+- **Status**: `404 Not Found`
+- **Body**:
+  ```
+  Path not found: <error_details>
+  ```
 
 **cURL Example**:
 ```bash
@@ -122,20 +138,44 @@ curl -k -X POST https://127.0.0.1:8443/generate \
 **Query Parameters**:
 - `path` (required): File path
 
-**Response Example**:
-```json
-{
-  "file_path": "/app/data/file.txt",
-  "sha3_hash": "a1b2c3...",
-  "status": "Ready"
-}
-```
+**Response Format**: `application/json`
 
-**Status Codes**:
-- `200 OK`: File ready
-- `102 Processing`: File being processed
-- `404 Not Found`: File not found
-- `400 Bad Request`: Missing path parameter
+**Success Response (Ready)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```json
+  {
+    "file_path": "/app/data/file.txt",
+    "sha3_hash": "a1b2c3d4e5f6789...",
+    "status": "Ready"
+  }
+  ```
+
+**Success Response (Processing)**:
+- **Status**: `102 Processing`
+- **Body**:
+  ```json
+  {
+    "file_path": "/app/data/file.txt",
+    "status": "Processing"
+  }
+  ```
+
+**Error Responses**:
+- **Status**: `404 Not Found`
+- **Body**:
+  ```json
+  {
+    "file_path": "/app/data/file.txt",
+    "status": "Not found"
+  }
+  ```
+
+- **Status**: `400 Bad Request`
+- **Body**:
+  ```
+  'Path' parameter is missing. Set the requested 'path' first.
+  ```
 
 **cURL Example**:
 ```bash
@@ -155,13 +195,28 @@ curl -k "https://127.0.0.1:8443/ready/?path=/app/data/file.txt"
 **Query Parameters**:
 - `path` (required): File path
 
-**Response Example**:
-```json
-{
-  "file_path": "/app/data/file.txt",
-  "sha3_hash": "a1b2c3d4e5f6..."
-}
-```
+**Response Format**: `application/json` or `text/plain`
+
+**Success Response**:
+- **Status**: `200 OK`
+- **Body**:
+  ```json
+  {
+    "file_path": "/app/data/file.txt",
+    "sha3_hash": "a1b2c3d4e5f6789abcdef0123456789..."
+  }
+  ```
+
+**Processing Response**:
+- **Status**: `202 Accepted`
+- **Body**: `Processing`
+
+**Error Responses**:
+- **Status**: `404 Not Found`
+- **Body**: `Not found`
+
+- **Status**: `400 Bad Request`
+- **Body**: `'Path' parameter is missing. Set the requested 'path' first.`
 
 **cURL Example**:
 ```bash
@@ -181,17 +236,25 @@ curl -k "https://127.0.0.1:8443/hash/?path=/app/data/file.txt"
 **Query Parameters**:
 - `path` (required): Path prefix to filter
 
-**Response Example**:
-```json
-{
-  "file_path": "/app/data/file1.txt",
-  "sha3_hash": "a1b2c3..."
-}
-{
-  "file_path": "/app/data/file2.txt",
-  "sha3_hash": "d4e5f6..."
-}
-```
+**Response Format**: Newline-separated JSON objects
+
+**Success Response**:
+- **Status**: `200 OK`
+- **Body**:
+  ```json
+  {
+    "file_path": "/app/data/file1.txt",
+    "sha3_hash": "a1b2c3d4e5f6..."
+  }
+  {
+    "file_path": "/app/data/file2.txt",
+    "sha3_hash": "d4e5f6789abc..."
+  }
+  ```
+
+**Error Response**:
+- **Status**: `400 Bad Request`
+- **Body**: `'Path' parameter is missing. Set the requested 'path' first.`
 
 **cURL Example**:
 ```bash
@@ -211,15 +274,30 @@ curl -k "https://127.0.0.1:8443/hashes/?path=/app/data"
 **Query Parameters**:
 - `path` (required): File path
 
-**Response Example**:
-```json
-{
-  "file_path": "/app/data/file.txt",
-  "sha3_hash": "a1b2c3...",
-  "vrf_proof": "0123abcd...",
-  "vrf_cipher_suite": "SECP256R1_SHA256_TAI"
-}
-```
+**Response Format**: `application/json` or `text/plain`
+
+**Success Response**:
+- **Status**: `200 OK`
+- **Body**:
+  ```json
+  {
+    "file_path": "/app/data/file.txt",
+    "sha3_hash": "a1b2c3d4e5f6...",
+    "vrf_proof": "0123abcdef456789...",
+    "vrf_cipher_suite": "SECP256R1_SHA256_TAI"
+  }
+  ```
+
+**Processing Response**:
+- **Status**: `202 Accepted`
+- **Body**: `Processing`
+
+**Error Responses**:
+- **Status**: `404 Not Found`
+- **Body**: `Not found`
+
+- **Status**: `400 Bad Request`
+- **Body**: `'Path' parameter is missing. Set the requested 'path' first.`
 
 **cURL Example**:
 ```bash
@@ -243,21 +321,59 @@ curl -k "https://127.0.0.1:8443/proof/?path=/app/data/file.txt"
   - `hex`: Raw hex-encoded COSE document
   - `json_str`: JSON with string values
   - `pcr`/`pcrs`: PCR registers only
+  - `att_doc_user_data`: User data and public key only
+  - `json_debug`, `debug`, `debug_pretty_print`: Various debug formats
 
-**Response Example**:
-```json
-{
-  "file_path": "/app/data/file.txt",
-  "sha3_hash": "a1b2c3...",
-  "vrf_proof": "0123abcd...",
-  "vrf_cipher_suite": "SECP256R1_SHA256_TAI",
-  "att_doc": {
-    "protected_header": {...},
-    "payload": {...},
-    "signature": "..."
+**Response Format**: `application/json` or `text/plain`
+
+**Success Response (json_hex)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```json
+  {
+    "file_path": "/app/data/file.txt",
+    "sha3_hash": "a1b2c3...",
+    "vrf_proof": "0123abcd...",
+    "vrf_cipher_suite": "SECP256R1_SHA256_TAI",
+    "att_doc": {
+      "protected_header": {
+        "01: 26"
+      },
+      "unprotected_header": {...},
+      "payload": {
+        "module_id": "i-1234567890abcdef0-enc01234567890abc",
+        "digest": "SHA384",
+        "timestamp": "1234567890000",
+        "PCRs": {
+          "0: a1b2c3...",
+          "1: d4e5f6..."
+        },
+        "certificate": "308201...",
+        "ca_bundle": [...],
+        "public_key": "3059301...",
+        "user_data": {
+          "file_path": "/app/data/file.txt",
+          "sha3_hash": "a1b2c3...",
+          "vrf_proof": "0123abcd...",
+          "vrf_cipher_suite": "SECP256R1_SHA256_TAI"
+        },
+        "nonce": "0a1b2c3d..."
+      },
+      "signature": "304502..."
+    }
   }
-}
-```
+  ```
+
+**Processing Response**:
+- **Status**: `202 Accepted`
+- **Body**: `Processing`
+
+**Error Responses**:
+- **Status**: `404 Not Found`
+- **Body**: `Not found`
+
+- **Status**: `400 Bad Request`
+- **Body**: `'Path' parameter is missing. Set the requested 'path' first.`
 
 **cURL Example**:
 ```bash
@@ -272,19 +388,38 @@ curl -k "https://127.0.0.1:8443/doc/?path=/app/data/file.txt&view=json_hex"
 
 **Method**: `GET`
 
-**Description**: Retrieve server's public keys.
+**Description**: Retrieve server's public keys for VRF proof verification and document signing.
 
 **Query Parameters**:
-- `view` (optional): Output format (`hex`, `json`, `string`, `text`)
-- `fmt` (optional): Key format (`pem`, `der`)
+- `view` (optional): Output format
+  - `hex` (default): Hex-encoded keys
+  - `json`: Same as hex
+  - `string`/`text`: String format (PEM)
+- `fmt` (optional): Key format
+  - `pem` (default): PEM format
+  - `der`: DER format
 
-**Response Example**:
-```json
-{
-  "pubkey4proofs": "3059301306072a8648ce3d020106082a8648ce3d...",
-  "pubkey4docs": "30819b301006072a8648ce3d020106052b8104..."
-}
-```
+**Response Format**: `application/json` or `text/plain`
+
+**Success Response (hex/json)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```json
+  {
+    "pubkey4proofs": "3059301306072a8648ce3d020106082a8648ce3d030107034200...",
+    "pubkey4docs": "30819b301006072a8648ce3d020106052b810400230381860004..."
+  }
+  ```
+
+**Success Response (string/text)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  {
+    "pubkey4proofs": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0C...\n-----END PUBLIC KEY-----",
+    "pubkey4docs": "-----BEGIN PUBLIC KEY-----\nMIGbMBAGByqGSM49...\n-----END PUBLIC KEY-----"
+  }
+  ```
 
 **cURL Example**:
 ```bash
@@ -301,13 +436,18 @@ curl -k "https://127.0.0.1:8443/pubkeys/?view=hex&fmt=pem"
 
 **Description**: Retrieve actual PCR registers from running enclave.
 
-**Response Example**:
-```
-Actual (run-time) PCR registers of running enclave:
-0: a1b2c3d4e5f6...
-1: 1234567890ab...
-...
-```
+**Response Format**: `text/plain`
+
+**Success Response**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  Actual (run-time) PCR registers of running enclave, retrieved from enclave's common attestation document:
+  0: a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef012345678
+  1: 1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+  2: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+  ...
+  ```
 
 **cURL Example**:
 ```bash
@@ -330,11 +470,38 @@ curl -k "https://127.0.0.1:8443/pcrs/"
 ```json
 {
   "file_path": "/app/data/file.txt",
-  "sha3_hash": "a1b2c3d4e5f6..."
+  "sha3_hash": "a1b2c3d4e5f6789abcdef0123456789..."
 }
 ```
 
-**Response**: Text describing validation result
+**Response Format**: `text/plain`
+
+**Success Response (Valid)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  File present in FS and hash provided in JSON request is equal to actual file hash. Hash is VALID!
+  'file_path' string from JSON request: "/app/data/file.txt"
+  'sha3_hash' string from JSON request: "a1b2c3..."
+  computed actual 'sha3_hash' string for file: "a1b2c3..."
+  ```
+
+**Success Response (Invalid)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  File present in FS, but hash provided in JSON request is NOT equal to actual file hash - hashes are different! Hash is INVALID!
+  'file_path' string from JSON request: "/app/data/file.txt"
+  'sha3_hash' string from JSON request: "a1b2c3..."
+  computed actual 'sha3_hash' string for file: "d4e5f6..."
+  ```
+
+**Error Responses**:
+- **Status**: `404 Not Found`
+- **Body**: `File path not found: <error_details>`
+
+- **Status**: `400 Bad Request`
+- **Body**: `'file_path' field in a JSON request is a directory. Should be a file.`
 
 **cURL Example**:
 ```bash
@@ -358,12 +525,26 @@ curl -k -X POST https://127.0.0.1:8443/verify_hash/ \
 **Request Body**:
 ```json
 {
-  "user_data": "7b2266696c655f70617468223a...",
-  "public_key": "3059301306072a8648ce3d..."
+  "user_data": "7b2266696c655f70617468223a222f6170702f646174612f66696c652e747874222c...",
+  "public_key": "3059301306072a8648ce3d020106082a8648ce3d03010703420004..."
 }
 ```
 
-**Response**: `"VRF proof is valid!"` or error message
+**Note**: Both `user_data` and `public_key` must be hex-encoded strings.
+
+**Response Format**: `text/plain`
+
+**Success Response (Valid)**:
+- **Status**: `200 OK`
+- **Body**: `"VRF proof is valid!"`
+
+**Success Response (Invalid)**:
+- **Status**: `200 OK`
+- **Body**: `"VRF proof is not valid!"` or `"VRF proof is not valid! Error: <error_details>"`
+
+**Error Response**:
+- **Status**: `400 Bad Request`
+- **Body**: `Malformed 'user_data' input as a JSON field: <error_details>`
 
 **cURL Example**:
 ```bash
@@ -387,11 +568,35 @@ curl -k -X POST https://127.0.0.1:8443/verify_proof/ \
 **Request Body**:
 ```json
 {
-  "cose_doc_bytes": "d28443a10126a0..."
+  "cose_doc_bytes": "d28443a10126a05905..."
 }
 ```
 
-**Response**: Text describing verification result
+**Note**: `cose_doc_bytes` must be a hex-encoded string of the COSE document.
+
+**Response Format**: `text/plain`
+
+**Success Response (Valid)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  Attestation document signature verification: "Successful"
+  Attestation document signature is VALID!
+  Attestation document signature verification against attestation document certificate public key is successful!
+  ```
+
+**Success Response (Invalid)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  Attestation document signature verification: "NOT successful"
+  Attestation document signature is INVALID!
+  Attestation document signature verification against attestation document certificate public key is NOT successful!
+  ```
+
+**Error Response**:
+- **Status**: `400 Bad Request`
+- **Body**: `Verification failed. An error returned during attestation document signature verification check: <error_details>`
 
 **cURL Example**:
 ```bash
@@ -410,16 +615,31 @@ curl -k -X POST https://127.0.0.1:8443/verify_doc/ \
 
 **Content-Type**: `application/json`
 
-**Description**: Verify certificate signature and validity period.
+**Description**: Verify certificate signature and validity period (not expired, not yet valid).
 
 **Request Body**:
 ```json
 {
-  "cose_doc_bytes": "d28443a10126a0..."
+  "cose_doc_bytes": "d28443a10126a05905..."
 }
 ```
 
-**Response**: Text describing certificate validation result
+**Response Format**: `text/plain`
+
+**Success Response (Valid)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  Attestation document certificate signature verification result:
+    "Attestation document certificate signature verification against its public key is successful, signature is VALID! Certificate information: <cert_details>"
+
+  Attestation document certificate validity check (validation) result:
+    "Attestation document certificate validity check (validation) is SUCCESSFUL! Certificate is VALID! Certificate information: <cert_details>"
+  ```
+
+**Error Response (Invalid)**:
+- **Status**: `400 Bad Request`
+- **Body**: Similar format with error details explaining why validation failed
 
 **cURL Example**:
 ```bash
@@ -438,16 +658,39 @@ curl -k -X POST https://127.0.0.1:8443/verify_cert_valid/ \
 
 **Content-Type**: `application/json`
 
-**Description**: Verify certificate against root and intermediate certificates.
+**Description**: Verify certificate against root and intermediate certificates in the CA bundle.
 
 **Request Body**:
 ```json
 {
-  "cose_doc_bytes": "d28443a10126a0..."
+  "cose_doc_bytes": "d28443a10126a05905..."
 }
 ```
 
-**Response**: Text describing certificate chain verification result
+**Response Format**: `text/plain`
+
+**Success Response (Valid)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  Attestation document certificate verification: "Successful"
+  Attestation document certificate is VALID!
+  Attestation document certificate verification against attestation document certificates bundle (root certificate and intermediate certificates) is successful!
+  ```
+
+**Success Response (Invalid)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  Attestation document certificate verification: "NOT successful"
+  Attestation document certificate is INVALID!
+  Attestation document certificate verification against attestation document certificates bundle (root certificate and intermediate certificates) is NOT successful!
+  Verification context: "OpenSSL error: <error_details>"
+  ```
+
+**Error Response**:
+- **Status**: `400 Bad Request`
+- **Body**: Detailed error message explaining certificate chain validation failure
 
 **cURL Example**:
 ```bash
@@ -471,11 +714,29 @@ curl -k -X POST https://127.0.0.1:8443/verify_cert_bundle/ \
 **Request Body**:
 ```json
 {
-  "pcrs": "0: a1b2c3...\n1: d4e5f6...\n..."
+  "pcrs": "0: a1b2c3d4e5f6...\n1: d4e5f6789abc...\n2: fedcba987654..."
 }
 ```
 
-**Response**: Text describing PCR comparison result
+**Response Format**: `text/plain`
+
+**Success Response (Valid)**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  PCRs provided in JSON request are equal to actual PCRs retrieved from enclave's attestation document.
+  PCR registers of base image and running enclave from base image are equal and are VALID!
+
+  PCRs from JSON request:
+    "0: a1b2c3...\n1: d4e5f6..."
+
+  PCRs retrieved from enclave's attestation document:
+    "0: a1b2c3...\n1: d4e5f6..."
+  ```
+
+**Success Response (Invalid)**:
+- **Status**: `200 OK`
+- **Body**: Similar format indicating PCRs do not match
 
 **cURL Example**:
 ```bash
@@ -494,10 +755,14 @@ curl -k -X POST https://127.0.0.1:8443/verify_pcrs/ \
 
 **Description**: Retrieve Nitro Security Module description.
 
-**Response Example**:
-```
-NSM description: [ major: 1, minor: 0, patch: 0, module_id: i-1234567890abcdef0-enc01234567890abc, max_pcrs: 32, locked_pcrs: [], digest: SHA384 ]
-```
+**Response Format**: `text/plain`
+
+**Success Response**:
+- **Status**: `200 OK`
+- **Body**:
+  ```
+  NSM description: [ major: 1, minor: 0, patch: 0, module_id: i-1234567890abcdef0-enc01234567890abc, max_pcrs: 32, locked_pcrs: [], digest: SHA384 ]
+  ```
 
 **cURL Example**:
 ```bash
@@ -517,7 +782,11 @@ curl -k "https://127.0.0.1:8443/nsm_desc"
 **Query Parameters**:
 - `length` (optional): Byte length (default: 512)
 
-**Response**: Hex-encoded random bytes
+**Response Format**: `text/plain` (hex-encoded)
+
+**Success Response**:
+- **Status**: `200 OK`
+- **Body**: `a1b2c3d4e5f6789abcdef0123456789abcdef...` (hex string of specified length)
 
 **cURL Example**:
 ```bash
@@ -526,9 +795,11 @@ curl -k "https://127.0.0.1:8443/rng_seq?length=256"
 
 ---
 
-## Error Responses
+## Common HTTP Status Codes
 
-All endpoints may return:
+- `200 OK`: Request successful
+- `202 Accepted`: Request accepted, processing asynchronously
+- `102 Processing`: File is currently being processed
 - `400 Bad Request`: Invalid parameters or malformed request
 - `404 Not Found`: Resource not found
 - `500 Internal Server Error`: Server-side error
@@ -539,3 +810,5 @@ All endpoints may return:
 - For production, use proper CA-signed certificates
 - The server automatically generates keys if not provided in configuration
 - NATS persistence is optional but recommended for production use
+- All hex-encoded values in responses are lowercase
+- Timestamps are Unix timestamps in milliseconds
