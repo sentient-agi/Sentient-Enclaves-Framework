@@ -593,14 +593,13 @@ dependencies = [
 
 [[package]]
 name = "llamacpp_bindings"
-version = "0.6.2"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "bindgen",
  "encoding_rs",
  "hf-hub",
  "llama-cpp-2",
- "once_cell",
 ]
 
 [[package]]

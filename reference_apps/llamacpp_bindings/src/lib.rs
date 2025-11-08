@@ -1,4 +1,4 @@
-use anyhow::{ Context, Result};
+use anyhow::{anyhow, Context, Result};
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::{LlamaModel, params::LlamaModelParams, Special, AddBos};
 use llama_cpp_2::token::data_array::LlamaTokenDataArray;
@@ -7,12 +7,11 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use encoding_rs::UTF_8;
-use hf_hub::api::sync::ApiBuilder;
 use llama_cpp_2::ggml_time_us;
 use std::time::Duration;
-use once_cell::sync::OnceCell;
+use std::sync::OnceLock;
 
-static BACKEND: OnceCell<LlamaBackend> = OnceCell::new();
+static BACKEND: OnceLock<Result<LlamaBackend>> = OnceLock::new();
 
 // Enum for selecting model type
 #[derive(Debug, Clone)]
@@ -102,10 +101,11 @@ impl LLM {
     /// Loads the model based on the provided ModelType
     pub fn load(model_type: ModelType, load_params: LoadParams) -> Result<Self> {
         // Initialize backend only once
-        let backend = BACKEND.get_or_try_init(LlamaBackend::init)?;
+        let backend = BACKEND.get_or_init(|| LlamaBackend::init().map_err(anyhow::Error::from));
+        let backend = backend.as_ref().map_err(|e| anyhow!(e.to_string()))?;
 
         let model_path = match model_type {
-            ModelType::Local { path } => path
+            ModelType::Local { path } => path,
         };
 
         let model_params = LlamaModelParams::from(load_params);
@@ -122,7 +122,11 @@ impl LLM {
     where
         F: FnMut(&str),
     {
-        let backend = BACKEND.get().expect("Backend not initialized");
+        let backend = BACKEND
+            .get()
+            .expect("Backend not initialized")
+            .as_ref()
+            .map_err(|e| anyhow!(e.to_string()))?;
         let t_main_start = ggml_time_us();
         let max_tokens = inference_params.max_tokens;
         let ctx_params = LlamaContextParams::from(inference_params);
