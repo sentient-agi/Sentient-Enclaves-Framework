@@ -140,7 +140,7 @@ curl -k -X POST https://127.0.0.1:8443/generate \
 
 **Response Format**: `application/json`
 
-**Success Response (Ready)**:
+**Success Response (when file processing is complete)**:
 - **Status**: `200 OK`
 - **Body**:
   ```json
@@ -151,7 +151,7 @@ curl -k -X POST https://127.0.0.1:8443/generate \
   }
   ```
 
-**Success Response (Processing)**:
+**Success Response (when file is being processed)**:
 - **Status**: `102 Processing`
 - **Body**:
   ```json
@@ -161,7 +161,7 @@ curl -k -X POST https://127.0.0.1:8443/generate \
   }
   ```
 
-**Error Responses**:
+**Error Response (when file is not found)**:
 - **Status**: `404 Not Found`
 - **Body**:
   ```json
@@ -171,6 +171,7 @@ curl -k -X POST https://127.0.0.1:8443/generate \
   }
   ```
 
+**Error Response (when path parameter is missing)**:
 - **Status**: `400 Bad Request`
 - **Body**:
   ```
@@ -476,7 +477,7 @@ curl -k "https://127.0.0.1:8443/pcrs/"
 
 **Response Format**: `text/plain`
 
-**Success Response (Valid)**:
+**Success Response (for valid hash)**:
 - **Status**: `200 OK`
 - **Body**:
   ```
@@ -486,7 +487,7 @@ curl -k "https://127.0.0.1:8443/pcrs/"
   computed actual 'sha3_hash' string for file: "a1b2c3..."
   ```
 
-**Success Response (Invalid)**:
+**Success Response (for invalid hash)**:
 - **Status**: `200 OK`
 - **Body**:
   ```
@@ -501,7 +502,12 @@ curl -k "https://127.0.0.1:8443/pcrs/"
 - **Body**: `File path not found: <error_details>`
 
 - **Status**: `400 Bad Request`
-- **Body**: `'file_path' field in a JSON request is a directory. Should be a file.`
+- **Body**:
+  ```
+  'file_path' field in a JSON request is a directory. Should be a file.
+  'file_path' string from JSON request: "/app/data"
+  'sha3_hash' string from JSON request: "a1b2c3..."
+  ```
 
 **cURL Example**:
 ```bash
@@ -534,17 +540,21 @@ curl -k -X POST https://127.0.0.1:8443/verify_hash/ \
 
 **Response Format**: `text/plain`
 
-**Success Response (Valid)**:
+**Success Response (for valid proof)**:
 - **Status**: `200 OK`
 - **Body**: `"VRF proof is valid!"`
 
-**Success Response (Invalid)**:
+**Success Response (for invalid proof)**:
 - **Status**: `200 OK`
 - **Body**: `"VRF proof is not valid!"` or `"VRF proof is not valid! Error: <error_details>"`
 
 **Error Response**:
 - **Status**: `400 Bad Request`
-- **Body**: `Malformed 'user_data' input as a JSON field: <error_details>`
+- **Body**:
+  ```
+  Malformed 'user_data' input as a JSON field: <error_details>
+  Please use GET 'att_doc_user_data' endpoint to request correct JSON
+  ```
 
 **cURL Example**:
 ```bash
@@ -576,7 +586,7 @@ curl -k -X POST https://127.0.0.1:8443/verify_proof/ \
 
 **Response Format**: `text/plain`
 
-**Success Response (Valid)**:
+**Success Response (for valid signature)**:
 - **Status**: `200 OK`
 - **Body**:
   ```
@@ -585,7 +595,7 @@ curl -k -X POST https://127.0.0.1:8443/verify_proof/ \
   Attestation document signature verification against attestation document certificate public key is successful!
   ```
 
-**Success Response (Invalid)**:
+**Success Response (for invalid signature)**:
 - **Status**: `200 OK`
 - **Body**:
   ```
@@ -626,7 +636,7 @@ curl -k -X POST https://127.0.0.1:8443/verify_doc/ \
 
 **Response Format**: `text/plain`
 
-**Success Response (Valid)**:
+**Success Response (for valid certificate)**:
 - **Status**: `200 OK`
 - **Body**:
   ```
@@ -637,9 +647,38 @@ curl -k -X POST https://127.0.0.1:8443/verify_doc/ \
     "Attestation document certificate validity check (validation) is SUCCESSFUL! Certificate is VALID! Certificate information: <cert_details>"
   ```
 
-**Error Response (Invalid)**:
+**Error Response (for invalid certificate - signature verification failure)**:
 - **Status**: `400 Bad Request`
-- **Body**: Similar format with error details explaining why validation failed
+- **Body**:
+  ```
+  Attestation document certificate signature verification result:
+    "Attestation document certificate signature verification against its public key is NOT successful, signature is INVALID! Certificate information: <cert_details>"
+
+  Attestation document certificate validity check (validation) result:
+    "Attestation document certificate validity check (validation) is SUCCESSFUL! Certificate is VALID! Certificate information: <cert_details>"
+  ```
+
+**Error Response (for invalid certificate - validity period failure)**:
+- **Status**: `400 Bad Request`
+- **Body**:
+  ```
+  Attestation document certificate signature verification result:
+    "Attestation document certificate signature verification against its public key is successful, signature is VALID! Certificate information: <cert_details>"
+
+  Attestation document certificate validity check (validation) result:
+    "Attestation document certificate is not yet valid or expired. <cert_details>"
+  ```
+
+**Error Response (for invalid certificate - both failures)**:
+- **Status**: `400 Bad Request`
+- **Body**:
+  ```
+  Attestation document certificate signature verification result:
+    "Attestation document certificate signature verification against its public key FAILED! Error returned: <openssl_error>\nCertificate information: <cert_details>"
+
+  Attestation document certificate validity check (validation) result:
+    "Attestation document certificate validity check (validation) FAILED! Error returned: <validation_error>\nCertificate information: <cert_details>"
+  ```
 
 **cURL Example**:
 ```bash
@@ -669,7 +708,7 @@ curl -k -X POST https://127.0.0.1:8443/verify_cert_valid/ \
 
 **Response Format**: `text/plain`
 
-**Success Response (Valid)**:
+**Success Response (for valid certificate chain)**:
 - **Status**: `200 OK`
 - **Body**:
   ```
@@ -678,19 +717,51 @@ curl -k -X POST https://127.0.0.1:8443/verify_cert_valid/ \
   Attestation document certificate verification against attestation document certificates bundle (root certificate and intermediate certificates) is successful!
   ```
 
-**Success Response (Invalid)**:
+**Success Response (for invalid certificate chain)**:
 - **Status**: `200 OK`
 - **Body**:
   ```
   Attestation document certificate verification: "NOT successful"
   Attestation document certificate is INVALID!
   Attestation document certificate verification against attestation document certificates bundle (root certificate and intermediate certificates) is NOT successful!
-  Verification context: "OpenSSL error: <error_details>"
+  Verification context: "OpenSSL error: <error_string>"
   ```
 
-**Error Response**:
+**Error Response (for certificate verification failure - leaf certificate issues)**:
 - **Status**: `400 Bad Request`
-- **Body**: Detailed error message explaining certificate chain validation failure
+- **Body**:
+  ```
+  Attestation document certificate signature verification against its public key is not successful, signature is invalid. Certificate information: <cert_details>
+  ```
+
+**Error Response (for certificate verification failure - root certificate issues)**:
+- **Status**: `400 Bad Request`
+- **Body**:
+  ```
+  Attestation document root certificate from CA bundle chain signature verification against its public key is not successful, signature is invalid. Certificate information: <cert_details>
+  ```
+
+**Error Response (for certificate verification failure - intermediate certificate issues)**:
+- **Status**: `400 Bad Request`
+- **Body**:
+  ```
+  Attestation document intermediate certificate from CA bundle chain signature verification against its public key is not successful, signature is invalid. Certificate information: <cert_details>
+  ```
+
+**Error Response (for certificate validity period failure)**:
+- **Status**: `400 Bad Request`
+- **Body**:
+  ```
+  Attestation document certificate is not yet valid or expired. Error returned: <validation_error>
+  ```
+
+**Error Response (for malformed certificate bundle)**:
+- **Status**: `400 Bad Request`
+- **Body**:
+  ```
+  Malformed 'cabundle' in attestation document, incorrect 'cose_doc_bytes' input as a JSON field:
+  Please use GET 'cose_doc' endpoint to request correct JSON
+  ```
 
 **cURL Example**:
 ```bash
@@ -714,13 +785,13 @@ curl -k -X POST https://127.0.0.1:8443/verify_cert_bundle/ \
 **Request Body**:
 ```json
 {
-  "pcrs": "0: a1b2c3d4e5f6...\n1: d4e5f6789abc...\n2: fedcba987654..."
+  "pcrs": "0: a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef012345678\n1: d4e5f6789abc0123456789abcdef0123456789abcdef0123456789abcdef0123\n2: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 }
 ```
 
 **Response Format**: `text/plain`
 
-**Success Response (Valid)**:
+**Success Response (for matching PCRs)**:
 - **Status**: `200 OK`
 - **Body**:
   ```
@@ -728,21 +799,39 @@ curl -k -X POST https://127.0.0.1:8443/verify_cert_bundle/ \
   PCR registers of base image and running enclave from base image are equal and are VALID!
 
   PCRs from JSON request:
-    "0: a1b2c3...\n1: d4e5f6..."
+    "0: a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef012345678,
+     1: d4e5f6789abc0123456789abcdef0123456789abcdef0123456789abcdef0123,
+     2: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 
   PCRs retrieved from enclave's attestation document:
-    "0: a1b2c3...\n1: d4e5f6..."
+    "0: a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef012345678,
+     1: d4e5f6789abc0123456789abcdef0123456789abcdef0123456789abcdef0123,
+     2: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
   ```
 
-**Success Response (Invalid)**:
+**Success Response (for non-matching PCRs)**:
 - **Status**: `200 OK`
-- **Body**: Similar format indicating PCRs do not match
+- **Body**:
+  ```
+  PCRs provided in JSON request are NOT equal to actual PCRs retrieved from enclave's attestation document.
+  PCR registers of base image and running enclave from base image are NOT equal and are INVALID!
+
+  PCRs from JSON request:
+    "0: a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef012345678,
+     1: d4e5f6789abc0123456789abcdef0123456789abcdef0123456789abcdef0123,
+     2: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+  PCRs retrieved from enclave's attestation document:
+    "0: 1111111111111111111111111111111111111111111111111111111111111111,
+     1: 2222222222222222222222222222222222222222222222222222222222222222,
+     2: 3333333333333333333333333333333333333333333333333333333333333333"
+  ```
 
 **cURL Example**:
 ```bash
 curl -k -X POST https://127.0.0.1:8443/verify_pcrs/ \
   -H "Content-Type: application/json" \
-  -d '{"pcrs": "0: a1b2c3...\n1: d4e5f6..."}'
+  -d '{"pcrs": "0: a1b2c3...\n1: d4e5f6...\n2: fedcba..."}'
 ```
 
 ---
