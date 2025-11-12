@@ -1008,11 +1008,11 @@ deploy-to-enclave:
 
 Pipeline provides a **secure, efficient, and easy-to-use** interface for enclave communication:
 
-✅ **Server Mode (`listen`):** Run inside enclave to accept connections
-✅ **Command Execution (`run`):** Execute commands remotely with or without waiting
-✅ **File Upload (`send-file`):** Securely transfer files to enclave
-✅ **File Download (`recv-file`):** Retrieve files from enclave
-✅ **Configuration:** Flexible TOML-based configuration
-✅ **VSOCK Protocol:** Native enclave communication support
+- **Server Mode (`listen`):** Run inside enclave to accept connections
+- **Command Execution (`run`):** Execute commands remotely with or without waiting
+- **File Upload (`send-file`):** Securely transfer files to enclave
+- **File Download (`recv-file`):** Retrieve files from enclave
+- **Configuration:** Flexible TOML-based configuration
+- **VSOCK Protocol:** Native enclave communication support
 
 ---
