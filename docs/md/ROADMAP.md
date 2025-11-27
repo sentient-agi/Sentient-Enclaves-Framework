@@ -24,3 +24,5 @@
 
 - **0.14.0** - port of framework to QEMU VM with EIF images support for running,
          along with qCoW images, block (disk) devices and PCI (PCI-E NVMe) devices attestation, FS monitoring and attestation for qCoW images.
+
+- **0.15.0** - proxy re-encryption and delegated decryption cryptography scheme for enclaves secure mesh data transferring. Enclave's VPN and multi-hop data transferring with re-encryption.

@@ -1,0 +1,22 @@
+[package]
+name = "enclave-init"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "init"
+path = "src/main.rs"
+
+[dependencies]
+nix = { version = "0.26.4", features = ["signal", "mount", "process", "socket", "fs", "ioctl", "dir"] }
+libc = "0.2.175"
+thiserror = "1.0.69"
+anyhow = "1.0.99"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
+
+[workspace]
