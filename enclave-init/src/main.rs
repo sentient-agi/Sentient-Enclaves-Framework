@@ -3,9 +3,9 @@ use nix::errno::Errno;
 use nix::mount::{mount, MsFlags};
 use nix::sys::signal::{sigprocmask, SigSet, SigmaskHow, Signal};
 use nix::sys::socket::{connect, socket, AddressFamily, SockFlag, SockType, VsockAddr};
-use nix::sys::stat::{makedev, mknod, Mode};
+use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::sys::wait::{wait, WaitStatus};
-use nix::unistd::{chdir, chroot, close, fork, read, setsid, setpgid, symlink, unlink, write, ForkResult, Pid};
+use nix::unistd::{chdir, chroot, close, fork, read, setsid, setpgid, symlinkat, unlink, write, ForkResult, Pid};
 use std::ffi::{CString, OsStr};
 use std::fs::{self, create_dir, File};
 use std::io::{BufRead, BufReader, Write};
@@ -79,7 +79,8 @@ enum InitOp {
 }
 
 // List of initialization operations
-const OPS: &[InitOp] = &[
+// const OPS: std::sync::LazyLock<Vec<InitOp>> = std::sync::LazyLock::new(|| vec![
+static OPS: std::sync::LazyLock<Vec<InitOp>> = std::sync::LazyLock::new(|| vec![
     // mount /proc (which should already exist)
     InitOp::Mount {
         source: "proc",
@@ -158,7 +159,7 @@ const OPS: &[InitOp] = &[
         flags: MsFlags::MS_NODEV | MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
         data: Some("mode=0755"),
     },
-];
+]);
 
 fn init_dev() {
     let result = mount(
@@ -206,7 +207,7 @@ fn init_fs(ops: &[InitOp]) {
             }
             InitOp::Mknod { path, mode, major, minor } => {
                 let dev = makedev(*major, *minor);
-                if let Err(e) = mknod(path, *mode, *mode, dev) {
+                if let Err(e) = mknod(Path::new(path), SFlag::from_bits_truncate(mode.bits()), *mode, dev) {
                     if e != Errno::EEXIST {
                         warn2("mknod", path);
                         process::exit(e as i32);
@@ -214,7 +215,7 @@ fn init_fs(ops: &[InitOp]) {
                 }
             }
             InitOp::Symlink { linkpath, target } => {
-                if let Err(e) = symlink(*target, *linkpath) {
+                if let Err(e) = symlinkat(*target, None, *linkpath) {
                     if e != Errno::EEXIST {
                         warn2("symlink", linkpath);
                         process::exit(e as i32);
@@ -517,7 +518,7 @@ fn main() {
 
     // At this point, we need to make sure the container /dev is initialized as well.
     init_dev();
-    init_fs(OPS);
+    init_fs(&OPS);
     init_cgroups();
 
     let pid = launch(cmd, env);
@@ -540,6 +541,6 @@ trait FromMode {
 impl FromMode for std::fs::Permissions {
     fn from_mode(mode: u32) -> Self {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::Permissions::from_mode(mode)
+        <std::fs::Permissions as PermissionsExt>::from_mode(mode)
     }
 }
