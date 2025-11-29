@@ -18,5 +18,3 @@ opt-level = "z"
 lto = true
 strip = true
 panic = "abort"
-
-[workspace]

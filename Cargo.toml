@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "enclave-init",
     "pipeline",
     "pf-proxy",
     "ra-web-srv",
