@@ -1,6 +1,6 @@
 [package]
 name = "enclave-init"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -12,6 +12,9 @@ nix = { version = "0.26.4", features = ["signal", "mount", "process", "socket", 
 libc = "0.2.175"
 thiserror = "1.0.69"
 anyhow = "1.0.99"
+log = "0.4.27"
+toml = "0.8.23"
+serde = { version = "1.0.219", features = ["derive"] }
 
 [profile.release]
 opt-level = "z"

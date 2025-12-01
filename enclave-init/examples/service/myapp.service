@@ -1,0 +1,8 @@
+ExecStart = "/usr/bin/myapp --config /etc/myapp.conf"
+Environment = [
+    "LOG_LEVEL=info",
+    "DATABASE_URL=postgres://localhost/mydb"
+]
+Restart = "always"
+RestartSec = 5
+WorkingDirectory = "/var/lib/myapp"
