@@ -1,11 +1,15 @@
 [package]
 name = "enclave-init"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [[bin]]
 name = "init"
 path = "src/main.rs"
+
+[[bin]]
+name = "initctl"
+path = "src/initctl.rs"
 
 [dependencies]
 nix = { version = "0.26.4", features = ["signal", "mount", "process", "socket", "fs", "ioctl", "dir"] }
@@ -15,6 +19,8 @@ anyhow = "1.0.99"
 log = "0.4.27"
 toml = "0.8.23"
 serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
+clap = { version = "4.5.45", features = ["derive"] }
 
 [profile.release]
 opt-level = "z"

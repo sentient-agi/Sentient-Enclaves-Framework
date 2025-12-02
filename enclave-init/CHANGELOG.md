@@ -1,6 +1,8 @@
 # Enclave's Init System Changelog
 
-# v0.1.0 - a Rust implementation of Enclave's Init System, rewritten from CLang based `init` for enclaves
+# v0.1.0
+
+Rust implementation of Enclave's Init System, rewritten from CLang based `init` for enclaves.
 
 ## Analysis of the C Code
 
@@ -67,6 +69,8 @@ These changes are introducing a robust init system with proper error handling, s
 
 The init system now runs forever, supervising services and handling all edge cases gracefully!
 
+## Example of service file format:
+
 **Example service file format (`/service/myapp.service`):**
 ```toml
 ExecStart = "/usr/bin/myapp --config /etc/myapp.conf"
@@ -77,5 +81,85 @@ Environment = [
 Restart = "always"
 RestartSec = 5
 WorkingDirectory = "/var/lib/myapp"
+```
+
+# v0.3.0
+
+Creation of a complete init system with a CLI tool for interaction - `initctl`. `initctl` tool uses UNIX domain sockets for IPC between the init process and the CLI tool.
+This change introduce the ability to interact with enclave's init system through CLI (separate tool), i.e. start, stop, restart services, read status and logs of the service, etc.
+And also introducing CLI sub-command to restart/reboot and shutdown system, i.e. enclave.
+
+## Key Features
+
+1. **Complete IPC System**: Unix domain socket for communication between init and initctl
+2. **Service Management**: Full CRUD operations on services
+3. **Process Supervision**: Automatic restarts with configurable policies
+4. **Logging**: Per-service log collection (last 1000 lines in memory)
+5. **System Control**: Reboot and shutdown commands
+6. **Error Handling**: All operations handle errors gracefully without crashing init
+7. **Signal Handling**: Proper signal handling for graceful shutdowns
+8. **CLI Tool**: User-friendly command-line interface with colorized output
+
+The init system now runs continuously, managing services and responding to control requests through the socket interface!
+
+## Example of service files:
+
+**Example service file (`/service/webapp.service`):**
+```toml
+ExecStart = "/usr/bin/python3 /app/server.py"
+Environment = [
+    "PORT=8080",
+    "LOG_LEVEL=info",
+    "DATABASE_URL=sqlite:///data/app.db"
+]
+Restart = "always"
+RestartSec = 5
+WorkingDirectory = "/app"
+```
+
+**Example service file (`/service/worker.service`):**
+```toml
+ExecStart = "/usr/bin/node /app/worker.js"
+Environment = [
+    "NODE_ENV=production",
+    "QUEUE_URL=redis://localhost:6379"
+]
+Restart = "on-failure"
+RestartSec = 10
+WorkingDirectory = "/app"
+```
+
+## Usage Examples
+
+```bash
+# List all services
+initctl list
+
+# Check service status
+initctl status webapp
+
+# Start a service
+initctl start webapp
+
+# Stop a service
+initctl stop webapp
+
+# Restart a service
+initctl restart webapp
+
+# View service logs (last 50 lines by default)
+initctl logs webapp
+
+# View more log lines
+initctl logs webapp -n 100
+
+# Reboot the enclave
+initctl reboot
+
+# Shutdown the enclave
+initctl shutdown
+
+# Ping init system
+initctl ping
 ```
 

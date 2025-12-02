@@ -1,23 +1,32 @@
+mod logger;
+mod protocol;
+
 use anyhow::{Context, Result};
+use logger::{Logger, ServiceLogger};
 use nix::errno::Errno;
 use nix::mount::{mount, MsFlags};
 use nix::sys::signal::{
     kill, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal,
 };
-use nix::sys::socket::{connect, socket, AddressFamily, SockFlag, SockType, VsockAddr};
+use nix::sys::socket::{
+    accept, bind, connect, listen, recv, send, socket, AddressFamily, MsgFlags, SockFlag,
+    SockType, UnixAddr, VsockAddr,
+};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{
     chdir, chroot, close, fork, read, setsid, setpgid, symlinkat, unlink, write, ForkResult, Pid,
 };
+use protocol::{Request, Response, ServiceInfo, ServiceStatus, SOCKET_PATH};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::fs::{self, create_dir, read_dir, File};
+use std::fs::{self, create_dir, read_dir, remove_file, File};
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -29,7 +38,7 @@ const VSOCK_CID: u32 = 3;
 const HEART_BEAT: u8 = 0xB7;
 const SERVICE_DIR: &str = "/service";
 
-// Global flag for signal handling
+// Global flags for signal handling
 static SIGCHLD_RECEIVED: AtomicBool = AtomicBool::new(false);
 static SIGTERM_RECEIVED: AtomicBool = AtomicBool::new(false);
 static SIGINT_RECEIVED: AtomicBool = AtomicBool::new(false);
@@ -57,6 +66,17 @@ enum RestartPolicy {
     Always,
     OnFailure,
     OnSuccess,
+}
+
+impl RestartPolicy {
+    fn as_str(&self) -> &str {
+        match self {
+            RestartPolicy::No => "no",
+            RestartPolicy::Always => "always",
+            RestartPolicy::OnFailure => "on-failure",
+            RestartPolicy::OnSuccess => "on-success",
+        }
+    }
 }
 
 fn default_restart() -> RestartPolicy {
@@ -88,6 +108,8 @@ struct ServiceState {
     restart_count: u32,
     last_restart: Option<Instant>,
     exit_status: Option<i32>,
+    logger: ServiceLogger,
+    manual_stop: bool,
 }
 
 impl ServiceState {
@@ -99,10 +121,16 @@ impl ServiceState {
             restart_count: 0,
             last_restart: None,
             exit_status: None,
+            logger: ServiceLogger::new(),
+            manual_stop: false,
         }
     }
 
     fn should_restart(&self, exit_code: i32) -> bool {
+        if self.manual_stop {
+            return false;
+        }
+
         match self.config.restart {
             RestartPolicy::Always => true,
             RestartPolicy::OnFailure => exit_code != 0,
@@ -118,32 +146,36 @@ impl ServiceState {
             true
         }
     }
+
+    fn is_active(&self) -> bool {
+        self.pid.is_some()
+    }
+
+    fn to_service_info(&self) -> ServiceInfo {
+        ServiceInfo {
+            name: self.name.clone(),
+            active: self.is_active(),
+            restart_policy: self.config.restart.as_str().to_string(),
+            restart_count: self.restart_count,
+        }
+    }
+
+    fn to_service_status(&self) -> ServiceStatus {
+        ServiceStatus {
+            name: self.name.clone(),
+            active: self.is_active(),
+            pid: self.pid.map(|p| p.as_raw()),
+            restart_policy: self.config.restart.as_str().to_string(),
+            restart_count: self.restart_count,
+            restart_sec: self.config.restart_sec,
+            exit_status: self.exit_status,
+            exec_start: self.config.exec_start.clone(),
+            working_directory: self.config.working_directory.clone(),
+        }
+    }
 }
 
-// Logging helpers
-struct Logger;
-
-impl Logger {
-    fn init() {
-        // Simple stderr logger since we're init
-    }
-
-    fn info(msg: &str) {
-        eprintln!("[INFO] {}", msg);
-    }
-
-    fn warn(msg: &str) {
-        eprintln!("[WARN] {}", msg);
-    }
-
-    fn error(msg: &str) {
-        eprintln!("[ERROR] {}", msg);
-    }
-
-    fn debug(msg: &str) {
-        eprintln!("[DEBUG] {}", msg);
-    }
-}
+type ServiceMap = Arc<Mutex<HashMap<String, ServiceState>>>;
 
 // Operation types
 #[derive(Debug)]
@@ -272,7 +304,7 @@ fn init_dev() -> Result<()> {
         }
         Err(e) => {
             Logger::warn(&format!("Failed to mount /dev: {}", e));
-            Ok(()) // Non-fatal
+            Ok(())
         }
     }
 }
@@ -314,7 +346,7 @@ fn init_fs(ops: &[InitOp]) -> Result<()> {
                 minor,
             } => {
                 let dev = makedev(*major, *minor);
-                match mknod(Path::new(path), SFlag::from_bits_truncate(mode.bits()), *mode, dev) {
+                match  mknod(Path::new(path), SFlag::from_bits_truncate(mode.bits()), *mode, dev) {
                     Ok(_) => Logger::info(&format!("Created device node {}", path)),
                     Err(Errno::EEXIST) => Logger::debug(&format!("Device {} already exists", path)),
                     Err(e) => Logger::warn(&format!("Failed to create device {}: {}", path, e)),
@@ -340,14 +372,13 @@ fn init_cgroups() -> Result<()> {
         Ok(f) => f,
         Err(e) => {
             Logger::warn(&format!("Failed to open {}: {}", fpath, e));
-            return Ok(()); // Non-fatal
+            return Ok(());
         }
     };
 
     let reader = BufReader::new(file);
     let mut lines = reader.lines();
 
-    // Skip the first line (header)
     let _ = lines.next();
 
     for line in lines {
@@ -446,7 +477,7 @@ fn enclave_ready() -> Result<()> {
         Ok(fd) => fd,
         Err(e) => {
             Logger::error(&format!("Failed to create vsock socket: {}", e));
-            return Ok(()); // Non-fatal
+            return Ok(());
         }
     };
 
@@ -455,21 +486,21 @@ fn enclave_ready() -> Result<()> {
     if let Err(e) = connect(socket_fd, &addr) {
         Logger::warn(&format!("Failed to connect to vsock: {}", e));
         let _ = close(socket_fd);
-        return Ok(()); // Non-fatal
+        return Ok(());
     }
 
     let buf = [HEART_BEAT];
     if write(socket_fd, &buf).unwrap_or(0) != 1 {
         Logger::warn("Failed to write heartbeat");
         let _ = close(socket_fd);
-        return Ok(()); // Non-fatal
+        return Ok(());
     }
 
     let mut buf_read = [0u8; 1];
     if read(socket_fd, &mut buf_read).unwrap_or(0) != 1 {
         Logger::warn("Failed to read heartbeat");
         let _ = close(socket_fd);
-        return Ok(()); // Non-fatal
+        return Ok(());
     }
 
     if buf_read[0] != HEART_BEAT {
@@ -493,7 +524,7 @@ fn init_nsm_driver() -> Result<()> {
         }
         Err(e) => {
             Logger::warn(&format!("Failed to open NSM driver: {}", e));
-            return Ok(()); // Non-fatal
+            return Ok(());
         }
     };
 
@@ -573,8 +604,10 @@ fn load_services(service_dir: &str) -> Result<HashMap<String, ServiceState>> {
 
 fn launch_service(service: &mut ServiceState) -> Result<()> {
     Logger::info(&format!("Launching service: {}", service.name));
+    service
+        .logger
+        .log(format!("Starting service {}", service.name));
 
-    // Parse command line
     let parts: Vec<String> = shell_words::split(&service.config.exec_start)
         .unwrap_or_else(|_| vec![service.config.exec_start.clone()]);
 
@@ -588,33 +621,28 @@ fn launch_service(service: &mut ServiceState) -> Result<()> {
             service.pid = Some(child);
             service.last_restart = Some(Instant::now());
             service.restart_count += 1;
-            Logger::info(&format!(
-                "Service {} started with PID {}",
-                service.name, child
-            ));
+            service.manual_stop = false;
+            let log_msg = format!("Service {} started with PID {}", service.name, child);
+            Logger::info(&log_msg);
+            service.logger.log(log_msg);
             Ok(())
         }
         Ok(ForkResult::Child) => {
-            // Unblock signals in child
             let set = SigSet::all();
             let _ = sigprocmask(SigmaskHow::SIG_UNBLOCK, Some(&set), None);
 
-            // Create new session
             let _ = setsid();
             let _ = setpgid(Pid::from_raw(0), Pid::from_raw(0));
 
-            // Change working directory if specified
             if let Some(ref wd) = service.config.working_directory {
                 if let Err(e) = chdir(wd.as_str()) {
                     Logger::error(&format!("Failed to chdir to {}: {}", wd, e));
                 }
             }
 
-            // Build environment
             let mut envp = service.config.environment.clone();
             envp.push(DEFAULT_PATH_ENV.to_string());
 
-            // Convert to CStrings
             let argv_c: Vec<CString> = parts
                 .iter()
                 .filter_map(|s| CString::new(s.as_str()).ok())
@@ -624,7 +652,6 @@ fn launch_service(service: &mut ServiceState) -> Result<()> {
                 .filter_map(|s| CString::new(s.as_str()).ok())
                 .collect();
 
-            // Convert to raw pointers
             let mut argv_ptrs: Vec<*const libc::c_char> =
                 argv_c.iter().map(|s| s.as_ptr()).collect();
             argv_ptrs.push(std::ptr::null());
@@ -633,7 +660,6 @@ fn launch_service(service: &mut ServiceState) -> Result<()> {
                 envp_c.iter().map(|s| s.as_ptr()).collect();
             envp_ptrs.push(std::ptr::null());
 
-            // Execute
             unsafe {
                 libc::execvpe(argv_ptrs[0], argv_ptrs.as_ptr(), envp_ptrs.as_ptr());
             }
@@ -705,7 +731,6 @@ fn reap_children(services: &mut HashMap<String, ServiceState>) {
                 break;
             }
             Err(Errno::ECHILD) => {
-                // No more children
                 break;
             }
             Err(e) => {
@@ -718,11 +743,14 @@ fn reap_children(services: &mut HashMap<String, ServiceState>) {
 }
 
 fn handle_process_exit(services: &mut HashMap<String, ServiceState>, pid: Pid, exit_code: i32) {
-    // Find which service this PID belongs to
     for (_, service) in services.iter_mut() {
         if service.pid == Some(pid) {
             service.pid = None;
             service.exit_status = Some(exit_code);
+
+            let log_msg = format!("Service {} exited with code {}", service.name, exit_code);
+            service.logger.log(log_msg.clone());
+            Logger::info(&log_msg);
 
             if service.should_restart(exit_code) {
                 if service.can_restart_now() {
@@ -772,7 +800,6 @@ fn restart_services(services: &mut HashMap<String, ServiceState>) {
 fn shutdown_services(services: &mut HashMap<String, ServiceState>) {
     Logger::info("Shutting down all services...");
 
-    // Send SIGTERM to all running services
     for (name, service) in services.iter() {
         if let Some(pid) = service.pid {
             Logger::info(&format!("Sending SIGTERM to service {} (PID {})", name, pid));
@@ -780,10 +807,8 @@ fn shutdown_services(services: &mut HashMap<String, ServiceState>) {
         }
     }
 
-    // Wait a bit for graceful shutdown
     thread::sleep(Duration::from_secs(5));
 
-    // Send SIGKILL to any remaining processes
     for (name, service) in services.iter() {
         if let Some(pid) = service.pid {
             Logger::warn(&format!("Sending SIGKILL to service {} (PID {})", name, pid));
@@ -791,7 +816,6 @@ fn shutdown_services(services: &mut HashMap<String, ServiceState>) {
         }
     }
 
-    // Reap all children
     loop {
         match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
             Ok(WaitStatus::StillAlive) | Err(Errno::ECHILD) => break,
@@ -805,7 +829,6 @@ fn shutdown_services(services: &mut HashMap<String, ServiceState>) {
 fn perform_pivot_root() -> Result<()> {
     Logger::info("Performing pivot root...");
 
-    // Turn /rootfs into a mount point
     if let Err(e) = mount(
         Some("/rootfs"),
         "/rootfs",
@@ -814,7 +837,7 @@ fn perform_pivot_root() -> Result<()> {
         None::<&str>,
     ) {
         Logger::warn(&format!("Failed to bind mount /rootfs: {}", e));
-        return Ok(()); // Non-fatal, might not need pivot root
+        return Ok(());
     }
 
     if let Err(e) = chdir("/rootfs") {
@@ -822,7 +845,6 @@ fn perform_pivot_root() -> Result<()> {
         return Ok(());
     }
 
-    // Move the root filesystem
     if let Err(e) = mount(Some("."), "/", None::<&str>, MsFlags::MS_MOVE, None::<&str>) {
         Logger::warn(&format!("Failed to move mount: {}", e));
         return Ok(());
@@ -842,78 +864,304 @@ fn perform_pivot_root() -> Result<()> {
     Ok(())
 }
 
+fn handle_client_request(
+    request: Request,
+    services: &ServiceMap,
+) -> Response {
+    match request {
+        Request::Ping => Response::Pong,
+
+        Request::ListServices => {
+            let services = services.lock().unwrap();
+            let service_list: Vec<ServiceInfo> = services
+                .values()
+                .map(|s| s.to_service_info())
+                .collect();
+            Response::ServiceList {
+                services: service_list,
+            }
+        }
+
+        Request::ServiceStatus { name } => {
+            let services = services.lock().unwrap();
+            match services.get(&name) {
+                Some(service) => Response::ServiceStatus {
+                    status: service.to_service_status(),
+                },
+                None => Response::Error {
+                    message: format!("Service '{}' not found", name),
+                },
+            }
+        }
+
+        Request::ServiceStart { name } => {
+            let mut services = services.lock().unwrap();
+            match services.get_mut(&name) {
+                Some(service) => {
+                    if service.is_active() {
+                        Response::Error {
+                            message: format!("Service '{}' is already running", name),
+                        }
+                    } else {
+                        service.manual_stop = false;
+                        match launch_service(service) {
+                            Ok(_) => Response::Success {
+                                message: format!("Service '{}' started", name),
+                            },
+                            Err(e) => Response::Error {
+                                message: format!("Failed to start service '{}': {}", name, e),
+                            },
+                        }
+                    }
+                }
+                None => Response::Error {
+                    message: format!("Service '{}' not found", name),
+                },
+            }
+        }
+
+        Request::ServiceStop { name } => {
+            let mut services = services.lock().unwrap();
+            match services.get_mut(&name) {
+                Some(service) => {
+                    if let Some(pid) = service.pid {
+                        service.manual_stop = true;
+                        if let Err(e) = kill(pid, Signal::SIGTERM) {
+                            Response::Error {
+                                message: format!("Failed to stop service '{}': {}", name, e),
+                            }
+                        } else {
+                            service.logger.log(format!("Service {} stopped manually", name));
+                            Response::Success {
+                                message: format!("Service '{}' stop signal sent", name),
+                            }
+                        }
+                    } else {
+                        Response::Error {
+                            message: format!("Service '{}' is not running", name),
+                        }
+                    }
+                }
+                None => Response::Error {
+                    message: format!("Service '{}' not found", name),
+                },
+            }
+        }
+
+        Request::ServiceRestart { name } => {
+            let mut services = services.lock().unwrap();
+            match services.get_mut(&name) {
+                Some(service) => {
+                    if let Some(pid) = service.pid {
+                        let _ = kill(pid, Signal::SIGTERM);
+                        thread::sleep(Duration::from_millis(500));
+                    }
+                    service.manual_stop = false;
+                    match launch_service(service) {
+                        Ok(_) => Response::Success {
+                            message: format!("Service '{}' restarted", name),
+                        },
+                        Err(e) => Response::Error {
+                            message: format!("Failed to restart service '{}': {}", name, e),
+                        },
+                    }
+                }
+                None => Response::Error {
+                    message: format!("Service '{}' not found", name),
+                },
+            }
+        }
+
+        Request::ServiceLogs { name, lines } => {
+            let services = services.lock().unwrap();
+            match services.get(&name) {
+                Some(service) => Response::ServiceLogs {
+                    logs: service.logger.get_logs(lines),
+                },
+                None => Response::Error {
+                    message: format!("Service '{}' not found", name),
+                },
+            }
+        }
+
+        Request::SystemReboot => {
+            Logger::info("Reboot requested via control socket");
+            SIGTERM_RECEIVED.store(true, Ordering::Relaxed);
+            Response::Success {
+                message: "System reboot initiated".to_string(),
+            }
+        }
+
+        Request::SystemShutdown => {
+            Logger::info("Shutdown requested via control socket");
+            SIGTERM_RECEIVED.store(true, Ordering::Relaxed);
+            Response::Success {
+                message: "System shutdown initiated".to_string(),
+            }
+        }
+    }
+}
+
+fn control_socket_thread(services: ServiceMap) {
+    let _ = remove_file(SOCKET_PATH);
+
+    let socket_fd = match socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    ) {
+        Ok(fd) => fd,
+        Err(e) => {
+            Logger::error(&format!("Failed to create control socket: {}", e));
+            return;
+        }
+    };
+
+    let addr = match UnixAddr::new(SOCKET_PATH) {
+        Ok(addr) => addr,
+        Err(e) => {
+            Logger::error(&format!("Failed to create socket address: {}", e));
+            return;
+        }
+    };
+
+    if let Err(e) = bind(socket_fd, &addr) {
+        Logger::error(&format!("Failed to bind control socket: {}", e));
+        return;
+    }
+
+    if let Err(e) = listen(socket_fd, 5) {
+        Logger::error(&format!("Failed to listen on control socket: {}", e));
+        return;
+    }
+
+    Logger::info(&format!("Control socket listening on {}", SOCKET_PATH));
+
+    loop {
+        match accept(socket_fd) {
+            Ok(client_fd) => {
+                let services = services.clone();
+                thread::spawn(move || {
+                    handle_client_connection(client_fd, services);
+                });
+            }
+            Err(e) => {
+                Logger::warn(&format!("Failed to accept connection: {}", e));
+            }
+        }
+    }
+}
+
+fn handle_client_connection(client_fd: RawFd, services: ServiceMap) {
+    let mut buffer = vec![0u8; 8192];
+
+    match recv(client_fd, &mut buffer, MsgFlags::empty()) {
+        Ok(n) if n > 0 => {
+            buffer.truncate(n);
+            match serde_json::from_slice::<Request>(&buffer) {
+                Ok(request) => {
+                    let response = handle_client_request(request, &services);
+                    let response_data = match serde_json::to_vec(&response) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            Logger::error(&format!("Failed to serialize response: {}", e));
+                            let _ = close(client_fd);
+                            return;
+                        }
+                    };
+
+                    let _ = send(client_fd, &response_data, MsgFlags::empty());
+                }
+                Err(e) => {
+                    Logger::warn(&format!("Failed to parse request: {}", e));
+                    let error_response = Response::Error {
+                        message: format!("Invalid request: {}", e),
+                    };
+                    if let Ok(data) = serde_json::to_vec(&error_response) {
+                        let _ = send(client_fd, &data, MsgFlags::empty());
+                    }
+                }
+            }
+        }
+        Ok(_) => {
+            Logger::debug("Empty request received");
+        }
+        Err(e) => {
+            Logger::warn(&format!("Failed to receive data: {}", e));
+        }
+    }
+
+    let _ = close(client_fd);
+}
+
 fn main() {
     Logger::init();
     Logger::info("Enclave init system starting...");
 
-    // Setup signal handlers
     if let Err(e) = setup_signal_handlers() {
         Logger::error(&format!("Failed to setup signal handlers: {}", e));
     }
 
-    // Initialize /dev first for early debugging
     let _ = init_dev();
     let _ = init_console();
-
-    // Load NSM driver
     let _ = init_nsm_driver();
-
-    // Signal enclave readiness
     let _ = enclave_ready();
-
-    // Perform pivot root if needed
     let _ = perform_pivot_root();
-
-    // Initialize the rest of the filesystem
-    let _ = init_dev(); // Re-initialize /dev in new root
+    let _ = init_dev();
     let _ = init_fs(&OPS);
     let _ = init_cgroups();
 
-    // Load service definitions
-    let mut services = match load_services(SERVICE_DIR) {
-        Ok(s) => s,
+    let services_map = match load_services(SERVICE_DIR) {
+        Ok(s) => Arc::new(Mutex::new(s)),
         Err(e) => {
             Logger::error(&format!("Failed to load services: {}", e));
-            HashMap::new()
+            Arc::new(Mutex::new(HashMap::new()))
         }
     };
 
-    if services.is_empty() {
-        Logger::warn("No services found, init will just reap children");
-    }
+    {
+        let mut services = services_map.lock().unwrap();
+        if services.is_empty() {
+            Logger::warn("No services found, init will just reap children");
+        }
 
-    // Start all services
-    for (_, service) in services.iter_mut() {
-        if let Err(e) = launch_service(service) {
-            Logger::error(&format!("Failed to launch service {}: {}", service.name, e));
+        for (_, service) in services.iter_mut() {
+            if let Err(e) = launch_service(service) {
+                Logger::error(&format!("Failed to launch service {}: {}", service.name, e));
+            }
         }
     }
 
-    // Main event loop
+    let services_for_socket = services_map.clone();
+    thread::spawn(move || {
+        control_socket_thread(services_for_socket);
+    });
+
     Logger::info("Entering main loop");
     loop {
-        // Check for shutdown signals
         if SIGTERM_RECEIVED.load(Ordering::Relaxed) || SIGINT_RECEIVED.load(Ordering::Relaxed) {
             Logger::info("Shutdown signal received");
+            let mut services = services_map.lock().unwrap();
             shutdown_services(&mut services);
             break;
         }
 
-        // Handle SIGCHLD
         if SIGCHLD_RECEIVED.swap(false, Ordering::Relaxed) {
+            let mut services = services_map.lock().unwrap();
             reap_children(&mut services);
         }
 
-        // Restart services that need restarting
-        restart_services(&mut services);
+        {
+            let mut services = services_map.lock().unwrap();
+            restart_services(&mut services);
+        }
 
-        // Sleep briefly to avoid busy-waiting
         thread::sleep(Duration::from_millis(100));
     }
 
     Logger::info("Init system shutting down");
 
-    // Reboot the system
     unsafe {
         libc::reboot(libc::RB_AUTOBOOT);
     }
@@ -921,7 +1169,6 @@ fn main() {
     std::process::exit(0);
 }
 
-// Helper trait for setting file permissions from mode
 trait FromMode {
     fn from_mode(mode: u32) -> Self;
 }
@@ -933,7 +1180,6 @@ impl FromMode for std::fs::Permissions {
     }
 }
 
-// Simple shell word splitting helper
 mod shell_words {
     pub fn split(input: &str) -> Result<Vec<String>, ()> {
         let mut words = Vec::new();

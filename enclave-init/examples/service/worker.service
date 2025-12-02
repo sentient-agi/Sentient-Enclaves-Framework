@@ -1,0 +1,8 @@
+ExecStart = "/usr/bin/node /app/worker.js"
+Environment = [
+    "NODE_ENV=production",
+    "QUEUE_URL=redis://localhost:6379"
+]
+Restart = "on-failure"
+RestartSec = 10
+WorkingDirectory = "/app"

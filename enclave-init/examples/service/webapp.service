@@ -1,0 +1,9 @@
+ExecStart = "/usr/bin/python3 /app/server.py"
+Environment = [
+    "PORT=8080",
+    "LOG_LEVEL=info",
+    "DATABASE_URL=sqlite:///data/app.db"
+]
+Restart = "always"
+RestartSec = 5
+WorkingDirectory = "/app"

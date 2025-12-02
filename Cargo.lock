@@ -760,13 +760,15 @@ dependencies = [
 
 [[package]]
 name = "enclave-init"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
+ "clap 4.5.53",
  "libc",
  "log",
  "nix 0.26.4",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
  "toml",
 ]
