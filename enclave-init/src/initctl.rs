@@ -4,12 +4,19 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use nix::sys::socket::{connect, recv, send, socket, AddressFamily, MsgFlags, SockFlag, SockType, UnixAddr};
 use nix::unistd::close;
-use protocol::{Request, Response, SOCKET_PATH};
+use protocol::{Request, Response};
+use std::env;
+
+const DEFAULT_SOCKET_PATH: &str = "/run/init.sock";
 
 #[derive(Parser)]
 #[command(name = "initctl")]
 #[command(about = "Control tool for enclave init system", long_about = None)]
 struct Cli {
+    /// Path to init control socket
+    #[arg(short = 's', long, env = "INIT_SOCKET", default_value = DEFAULT_SOCKET_PATH)]
+    socket: String,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -58,6 +65,16 @@ enum Commands {
         lines: usize,
     },
 
+    /// Clear logs of a service
+    LogsClear {
+        /// Service name
+        #[arg(value_name = "SERVICE")]
+        name: String,
+    },
+
+    /// Show system status
+    SystemStatus,
+
     /// Reboot the system
     Reboot,
 
@@ -68,7 +85,7 @@ enum Commands {
     Ping,
 }
 
-fn send_request(request: Request) -> Result<Response> {
+fn send_request(socket_path: &str, request: Request) -> Result<Response> {
     let socket_fd = socket(
         AddressFamily::Unix,
         SockType::Stream,
@@ -77,7 +94,7 @@ fn send_request(request: Request) -> Result<Response> {
     )
     .context("Failed to create socket")?;
 
-    let addr = UnixAddr::new(SOCKET_PATH).context("Failed to create socket address")?;
+    let addr = UnixAddr::new(socket_path).context("Failed to create socket address")?;
 
     connect(socket_fd, &addr).context("Failed to connect to init socket")?;
 
@@ -100,22 +117,41 @@ fn send_request(request: Request) -> Result<Response> {
     Ok(response)
 }
 
+fn format_uptime(secs: u64) -> String {
+    let days = secs / 86400;
+    let hours = (secs % 86400) / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+
+    if days > 0 {
+        format!("{}d {}h {}m {}s", days, hours, minutes, seconds)
+    } else if hours > 0 {
+        format!("{}h {}m {}s", hours, minutes, seconds)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        format!("{}s", seconds)
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let request = match cli.command {
+    let request = match &cli.command {
         Commands::List => Request::ListServices,
-        Commands::Status { name } => Request::ServiceStatus { name },
-        Commands::Start { name } => Request::ServiceStart { name },
-        Commands::Stop { name } => Request::ServiceStop { name },
-        Commands::Restart { name } => Request::ServiceRestart { name },
-        Commands::Logs { name, lines } => Request::ServiceLogs { name, lines },
+        Commands::Status { name } => Request::ServiceStatus { name: name.clone() },
+        Commands::Start { name } => Request::ServiceStart { name: name.clone() },
+        Commands::Stop { name } => Request::ServiceStop { name: name.clone() },
+        Commands::Restart { name } => Request::ServiceRestart { name: name.clone() },
+        Commands::Logs { name, lines } => Request::ServiceLogs { name: name.clone(), lines: *lines },
+        Commands::LogsClear { name } => Request::ServiceLogsClear { name: name.clone() },
+        Commands::SystemStatus => Request::SystemStatus,
         Commands::Reboot => Request::SystemReboot,
         Commands::Shutdown => Request::SystemShutdown,
         Commands::Ping => Request::Ping,
     };
 
-    let response = send_request(request)?;
+    let response = send_request(&cli.socket, request)?;
 
     match response {
         Response::Success { message } => {
@@ -129,11 +165,11 @@ fn main() -> Result<()> {
             if services.is_empty() {
                 println!("No services found");
             } else {
-                println!("{:<20} {:<10} {:<15} {:<10}", "NAME", "ACTIVE", "RESTART", "RESTARTS");
-                println!("{}", "-".repeat(60));
+                println!("{:<25} {:<10} {:<15} {:<10}", "NAME", "ACTIVE", "RESTART", "RESTARTS");
+                println!("{}", "-".repeat(65));
                 for service in services {
                     println!(
-                        "{:<20} {:<10} {:<15} {:<10}",
+                        "{:<25} {:<10} {:<15} {:<10}",
                         service.name,
                         if service.active { "active" } else { "inactive" },
                         service.restart_policy,
@@ -144,7 +180,7 @@ fn main() -> Result<()> {
         }
         Response::ServiceStatus { status } => {
             println!("Service: {}", status.name);
-            println!("  Status: {}", if status.active { "active" } else { "inactive" });
+            println!("  Status: {}", if status.active { "active (running)" } else { "inactive (dead)" });
             if let Some(pid) = status.pid {
                 println!("  PID: {}", pid);
             }
@@ -168,8 +204,15 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Response::SystemStatus { status } => {
+            println!("System Status");
+            println!("  Uptime: {}", format_uptime(status.uptime_secs));
+            println!("  Services: {} total, {} active", status.total_services, status.active_services);
+            println!("  Service Directory: {}", status.service_dir);
+            println!("  Log Directory: {}", status.log_dir);
+        }
         Response::Pong => {
-            println!("Pong - init system is responsive");
+            println!("✓ Pong - init system is responsive");
         }
     }
 

@@ -1,6 +1,6 @@
 [package]
 name = "enclave-init"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 [[bin]]
@@ -20,7 +20,8 @@ log = "0.4.27"
 toml = "0.8.23"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.143"
-clap = { version = "4.5.45", features = ["derive"] }
+clap = { version = "4.5.53", features = ["derive", "env"] }
+serde_yaml = "0.9"
 
 [profile.release]
 opt-level = "z"

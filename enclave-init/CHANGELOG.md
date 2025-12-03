@@ -163,3 +163,105 @@ initctl shutdown
 initctl ping
 ```
 
+# v0.4.0
+
+Added configuration support for the init system and implement file-based logging for services:
+   - Added support for configuration of init system itself (environment variables for init system can be set via config YAML file, `/service` services directory can be set in configuration file as well).
+   - Made services logging into files in logs directory (for example, `/log` directory, set in the configuration file as well).
+
+## Key Features
+
+1. **Configuration File Support**: YAML configuration for all init settings
+2. **Environment Variables**: Set init environment variables via config
+3. **Configurable Paths**: Service directory, log directory, socket path, all configurable
+4. **File-Based Logging**: Services log to individual files with automatic rotation
+5. **Log Rotation**: Configurable max log size and number of rotated files
+6. **VSOCK Configuration**: Enable/disable and configure VSOCK heartbeat
+7. **Pivot Root Control**: Enable/disable pivot root via configuration
+8. **System Status**: View uptime, service counts, and configuration
+9. **Log Management**: View and clear service logs via CLI
+
+The init system is now fully configurable and logs to persistent files!
+
+## Example of init system configuration YAML file:
+
+**Example configuration file (`/etc/init.yaml`):**
+```yaml
+# Service directory
+service_dir: /service
+
+# Log directory
+log_dir: /log
+
+# Control socket path
+socket_path: /run/init.sock
+
+# Maximum log file size (10 MB)
+max_log_size: 10485760
+
+# Maximum number of rotated log files to keep
+max_log_files: 5
+
+# Environment variables for init system
+environment:
+  TZ: UTC
+  LANG: en_US.UTF-8
+  HOME: /root
+
+# VSOCK configuration
+vsock:
+  enabled: true
+  cid: 3
+  port: 9000
+
+# NSM driver path (optional)
+nsm_driver_path: nsm.ko
+
+# Pivot root configuration
+pivot_root: true
+pivot_root_dir: /rootfs
+```
+
+## Usage Examples
+
+```bash
+# List all services
+initctl list
+
+# Check service status
+initctl status webapp
+
+# Start a service
+initctl start webapp
+
+# Stop a service
+initctl stop webapp
+
+# Restart a service
+initctl restart webapp
+
+# View service logs (last 50 lines by default)
+initctl logs webapp
+
+# View more log lines
+initctl logs webapp -n 200
+
+# Clear service logs
+initctl logs-clear webapp
+
+# Show system status
+initctl system-status
+
+# Reboot the enclave
+initctl reboot
+
+# Shutdown the enclave
+initctl shutdown
+
+# Ping init system
+initctl ping
+
+# Use custom socket path
+initctl -s /custom/path/init.sock list
+```
+

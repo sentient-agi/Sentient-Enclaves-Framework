@@ -10,8 +10,10 @@ pub enum Request {
     ServiceStop { name: String },
     ServiceRestart { name: String },
     ServiceLogs { name: String, lines: usize },
+    ServiceLogsClear { name: String },
     SystemReboot,
     SystemShutdown,
+    SystemStatus,
     Ping,
 }
 
@@ -22,6 +24,7 @@ pub enum Response {
     ServiceList { services: Vec<ServiceInfo> },
     ServiceStatus { status: ServiceStatus },
     ServiceLogs { logs: Vec<String> },
+    SystemStatus { status: SystemStatus },
     Pong,
 }
 
@@ -44,4 +47,13 @@ pub struct ServiceStatus {
     pub exit_status: Option<i32>,
     pub exec_start: String,
     pub working_directory: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemStatus {
+    pub uptime_secs: u64,
+    pub total_services: usize,
+    pub active_services: usize,
+    pub log_dir: String,
+    pub service_dir: String,
 }

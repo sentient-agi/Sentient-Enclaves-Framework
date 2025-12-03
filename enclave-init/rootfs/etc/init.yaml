@@ -1,0 +1,33 @@
+# Service directory
+service_dir: /service
+
+# Log directory
+log_dir: /log
+
+# Control socket path
+socket_path: /run/init.sock
+
+# Maximum log file size (10 MB)
+max_log_size: 10485760
+
+# Maximum number of rotated log files to keep
+max_log_files: 5
+
+# Environment variables for init system
+environment:
+  TZ: UTC
+  LANG: en_US.UTF-8
+  HOME: /root
+
+# VSOCK configuration
+vsock:
+  enabled: true
+  cid: 3
+  port: 9000
+
+# NSM driver path (optional)
+nsm_driver_path: nsm.ko
+
+# Pivot root configuration
+pivot_root: true
+pivot_root_dir: /rootfs

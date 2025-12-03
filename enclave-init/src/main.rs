@@ -1,7 +1,9 @@
+mod config;
 mod logger;
 mod protocol;
 
 use anyhow::{Context, Result};
+use config::InitConfig;
 use logger::{Logger, ServiceLogger};
 use nix::errno::Errno;
 use nix::mount::{mount, MsFlags};
@@ -17,13 +19,13 @@ use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{
     chdir, chroot, close, fork, read, setsid, setpgid, symlinkat, unlink, write, ForkResult, Pid,
 };
-use protocol::{Request, Response, ServiceInfo, ServiceStatus, SOCKET_PATH};
+use protocol::{Request, Response, ServiceInfo, ServiceStatus, SystemStatus};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::{self, create_dir, read_dir, remove_file, File};
 use std::io::{BufRead, BufReader};
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::RawFd;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -32,16 +34,15 @@ use std::time::{Duration, Instant};
 
 // Constants
 const DEFAULT_PATH_ENV: &str = "PATH=/sbin:/usr/sbin:/bin:/usr/bin";
-const NSM_PATH: &str = "nsm.ko";
-const VSOCK_PORT: u32 = 9000;
-const VSOCK_CID: u32 = 3;
 const HEART_BEAT: u8 = 0xB7;
-const SERVICE_DIR: &str = "/service";
 
 // Global flags for signal handling
 static SIGCHLD_RECEIVED: AtomicBool = AtomicBool::new(false);
 static SIGTERM_RECEIVED: AtomicBool = AtomicBool::new(false);
 static SIGINT_RECEIVED: AtomicBool = AtomicBool::new(false);
+
+// System start time for uptime calculation
+static mut SYSTEM_START_TIME: Option<Instant> = None;
 
 // Service configuration
 #[derive(Debug, Clone, Deserialize)]
@@ -113,17 +114,25 @@ struct ServiceState {
 }
 
 impl ServiceState {
-    fn new(name: String, config: ServiceConfig) -> Self {
-        Self {
+    fn new(
+        name: String,
+        config: ServiceConfig,
+        log_dir: &str,
+        max_log_size: u64,
+        max_log_files: usize,
+    ) -> Result<Self> {
+        let logger = ServiceLogger::new(log_dir, &name, max_log_size, max_log_files)?;
+
+        Ok(Self {
             config,
             pid: None,
             name,
             restart_count: 0,
             last_restart: None,
             exit_status: None,
-            logger: ServiceLogger::new(),
+            logger,
             manual_stop: false,
-        }
+        })
     }
 
     fn should_restart(&self, exit_code: i32) -> bool {
@@ -346,7 +355,7 @@ fn init_fs(ops: &[InitOp]) -> Result<()> {
                 minor,
             } => {
                 let dev = makedev(*major, *minor);
-                match  mknod(Path::new(path), SFlag::from_bits_truncate(mode.bits()), *mode, dev) {
+                match mknod(Path::new(path), SFlag::from_bits_truncate(mode.bits()), *mode, dev) {
                     Ok(_) => Logger::info(&format!("Created device node {}", path)),
                     Err(Errno::EEXIST) => Logger::debug(&format!("Device {} already exists", path)),
                     Err(e) => Logger::warn(&format!("Failed to create device {}: {}", path, e)),
@@ -465,7 +474,12 @@ mod libc_stdhandle {
     }
 }
 
-fn enclave_ready() -> Result<()> {
+fn enclave_ready(config: &InitConfig) -> Result<()> {
+    if !config.vsock.enabled {
+        Logger::info("VSOCK heartbeat disabled in config");
+        return Ok(());
+    }
+
     Logger::info("Signaling enclave readiness...");
 
     let socket_fd = match socket(
@@ -481,7 +495,7 @@ fn enclave_ready() -> Result<()> {
         }
     };
 
-    let addr = VsockAddr::new(VSOCK_CID, VSOCK_PORT);
+    let addr = VsockAddr::new(config.vsock.cid, config.vsock.port);
 
     if let Err(e) = connect(socket_fd, &addr) {
         Logger::warn(&format!("Failed to connect to vsock: {}", e));
@@ -513,10 +527,18 @@ fn enclave_ready() -> Result<()> {
     Ok(())
 }
 
-fn init_nsm_driver() -> Result<()> {
+fn init_nsm_driver(config: &InitConfig) -> Result<()> {
     use std::os::unix::io::IntoRawFd;
 
-    let fd = match File::open(NSM_PATH) {
+    let nsm_path = match &config.nsm_driver_path {
+        Some(path) => path,
+        None => {
+            Logger::info("NSM driver path not configured, skipping");
+            return Ok(());
+        }
+    };
+
+    let fd = match File::open(nsm_path) {
         Ok(f) => f.into_raw_fd(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             Logger::info("NSM driver not found, skipping");
@@ -539,8 +561,8 @@ fn init_nsm_driver() -> Result<()> {
 
     let _ = unsafe { libc::close(fd) };
 
-    if let Err(e) = unlink(NSM_PATH) {
-        Logger::debug(&format!("Could not unlink {}: {}", NSM_PATH, e));
+    if let Err(e) = unlink(nsm_path.as_str()) {
+        Logger::debug(&format!("Could not unlink {}: {}", nsm_path, e));
     }
 
     Ok(())
@@ -556,13 +578,16 @@ fn parse_service_file(path: &Path) -> Result<ServiceConfig> {
     Ok(config)
 }
 
-fn load_services(service_dir: &str) -> Result<HashMap<String, ServiceState>> {
+fn load_services(config: &InitConfig) -> Result<HashMap<String, ServiceState>> {
     let mut services = HashMap::new();
 
-    let entries = match read_dir(service_dir) {
+    let entries = match read_dir(&config.service_dir) {
         Ok(e) => e,
         Err(e) => {
-            Logger::warn(&format!("Failed to read service directory {}: {}", service_dir, e));
+            Logger::warn(&format!(
+                "Failed to read service directory {}: {}",
+                config.service_dir, e
+            ));
             return Ok(services);
         }
     };
@@ -585,13 +610,27 @@ fn load_services(service_dir: &str) -> Result<HashMap<String, ServiceState>> {
             .to_string();
 
         match parse_service_file(&path) {
-            Ok(config) => {
-                if config.exec_start.is_empty() {
+            Ok(service_config) => {
+                if service_config.exec_start.is_empty() {
                     Logger::warn(&format!("Service {} has no ExecStart, skipping", name));
                     continue;
                 }
-                Logger::info(&format!("Loaded service: {}", name));
-                services.insert(name.clone(), ServiceState::new(name, config));
+
+                match ServiceState::new(
+                    name.clone(),
+                    service_config,
+                    &config.log_dir,
+                    config.max_log_size,
+                    config.max_log_files,
+                ) {
+                    Ok(state) => {
+                        Logger::info(&format!("Loaded service: {}", name));
+                        services.insert(name.clone(), state);
+                    }
+                    Err(e) => {
+                        Logger::error(&format!("Failed to create logger for service {}: {}", name, e));
+                    }
+                }
             }
             Err(e) => {
                 Logger::error(&format!("Failed to parse service {}: {}", name, e));
@@ -826,22 +865,29 @@ fn shutdown_services(services: &mut HashMap<String, ServiceState>) {
     Logger::info("All services stopped");
 }
 
-fn perform_pivot_root() -> Result<()> {
+fn perform_pivot_root(config: &InitConfig) -> Result<()> {
+    if !config.pivot_root {
+        Logger::info("Pivot root disabled in config");
+        return Ok(());
+    }
+
     Logger::info("Performing pivot root...");
 
+    let pivot_dir = &config.pivot_root_dir;
+
     if let Err(e) = mount(
-        Some("/rootfs"),
-        "/rootfs",
+        Some(pivot_dir.as_str()),
+        pivot_dir.as_str(),
         None::<&str>,
         MsFlags::MS_BIND,
         None::<&str>,
     ) {
-        Logger::warn(&format!("Failed to bind mount /rootfs: {}", e));
+        Logger::warn(&format!("Failed to bind mount {}: {}", pivot_dir, e));
         return Ok(());
     }
 
-    if let Err(e) = chdir("/rootfs") {
-        Logger::error(&format!("Failed to chdir to /rootfs: {}", e));
+    if let Err(e) = chdir(pivot_dir.as_str()) {
+        Logger::error(&format!("Failed to chdir to {}: {}", pivot_dir, e));
         return Ok(());
     }
 
@@ -864,9 +910,28 @@ fn perform_pivot_root() -> Result<()> {
     Ok(())
 }
 
+fn get_system_status(config: &InitConfig, services: &HashMap<String, ServiceState>) -> SystemStatus {
+    let uptime = unsafe {
+        SYSTEM_START_TIME
+            .map(|start| start.elapsed().as_secs())
+            .unwrap_or(0)
+    };
+
+    let active_services = services.values().filter(|s| s.is_active()).count();
+
+    SystemStatus {
+        uptime_secs: uptime,
+        total_services: services.len(),
+        active_services,
+        log_dir: config.log_dir.clone(),
+        service_dir: config.service_dir.clone(),
+    }
+}
+
 fn handle_client_request(
     request: Request,
     services: &ServiceMap,
+    config: &InitConfig,
 ) -> Response {
     match request {
         Request::Ping => Response::Pong,
@@ -984,6 +1049,30 @@ fn handle_client_request(
             }
         }
 
+        Request::ServiceLogsClear { name } => {
+            let services = services.lock().unwrap();
+            match services.get(&name) {
+                Some(service) => match service.logger.clear() {
+                    Ok(_) => Response::Success {
+                        message: format!("Logs cleared for service '{}'", name),
+                    },
+                    Err(e) => Response::Error {
+                        message: format!("Failed to clear logs: {}", e),
+                    },
+                },
+                None => Response::Error {
+                    message: format!("Service '{}' not found", name),
+                },
+            }
+        }
+
+        Request::SystemStatus => {
+            let services = services.lock().unwrap();
+            Response::SystemStatus {
+                status: get_system_status(config, &services),
+            }
+        }
+
         Request::SystemReboot => {
             Logger::info("Reboot requested via control socket");
             SIGTERM_RECEIVED.store(true, Ordering::Relaxed);
@@ -1002,8 +1091,9 @@ fn handle_client_request(
     }
 }
 
-fn control_socket_thread(services: ServiceMap) {
-    let _ = remove_file(SOCKET_PATH);
+fn control_socket_thread(services: ServiceMap, config: InitConfig) {
+    let socket_path = &config.socket_path;
+    let _ = remove_file(socket_path);
 
     let socket_fd = match socket(
         AddressFamily::Unix,
@@ -1018,7 +1108,7 @@ fn control_socket_thread(services: ServiceMap) {
         }
     };
 
-    let addr = match UnixAddr::new(SOCKET_PATH) {
+    let addr = match UnixAddr::new(socket_path.as_str()) {
         Ok(addr) => addr,
         Err(e) => {
             Logger::error(&format!("Failed to create socket address: {}", e));
@@ -1036,14 +1126,15 @@ fn control_socket_thread(services: ServiceMap) {
         return;
     }
 
-    Logger::info(&format!("Control socket listening on {}", SOCKET_PATH));
+    Logger::info(&format!("Control socket listening on {}", socket_path));
 
     loop {
         match accept(socket_fd) {
             Ok(client_fd) => {
                 let services = services.clone();
+                let config = config.clone();
                 thread::spawn(move || {
-                    handle_client_connection(client_fd, services);
+                    handle_client_connection(client_fd, services, config);
                 });
             }
             Err(e) => {
@@ -1053,7 +1144,7 @@ fn control_socket_thread(services: ServiceMap) {
     }
 }
 
-fn handle_client_connection(client_fd: RawFd, services: ServiceMap) {
+fn handle_client_connection(client_fd: RawFd, services: ServiceMap, config: InitConfig) {
     let mut buffer = vec![0u8; 8192];
 
     match recv(client_fd, &mut buffer, MsgFlags::empty()) {
@@ -1061,7 +1152,7 @@ fn handle_client_connection(client_fd: RawFd, services: ServiceMap) {
             buffer.truncate(n);
             match serde_json::from_slice::<Request>(&buffer) {
                 Ok(request) => {
-                    let response = handle_client_request(request, &services);
+                    let response = handle_client_request(request, &services, &config);
                     let response_data = match serde_json::to_vec(&response) {
                         Ok(data) => data,
                         Err(e) => {
@@ -1099,20 +1190,52 @@ fn main() {
     Logger::init();
     Logger::info("Enclave init system starting...");
 
+    // Record start time
+    unsafe {
+        SYSTEM_START_TIME = Some(Instant::now());
+    }
+
+    // Load configuration
+    let config = match InitConfig::load() {
+        Ok(c) => {
+            Logger::info("Configuration loaded successfully");
+            c
+        }
+        Err(e) => {
+            Logger::error(&format!("Failed to load config: {}, using defaults", e));
+            InitConfig::default()
+        }
+    };
+
+    // Apply environment variables from config
+    config.apply_environment();
+    Logger::info(&format!("Service directory: {}", config.service_dir));
+    Logger::info(&format!("Log directory: {}", config.log_dir));
+
+    // Create log directory
+    if let Err(e) = fs::create_dir_all(&config.log_dir) {
+        Logger::warn(&format!("Failed to create log directory: {}", e));
+    }
+
     if let Err(e) = setup_signal_handlers() {
         Logger::error(&format!("Failed to setup signal handlers: {}", e));
     }
 
     let _ = init_dev();
     let _ = init_console();
-    let _ = init_nsm_driver();
-    let _ = enclave_ready();
-    let _ = perform_pivot_root();
+    let _ = init_nsm_driver(&config);
+    let _ = enclave_ready(&config);
+    let _ = perform_pivot_root(&config);
     let _ = init_dev();
     let _ = init_fs(&OPS);
     let _ = init_cgroups();
 
-    let services_map = match load_services(SERVICE_DIR) {
+    // Create log directory again after pivot root
+    if let Err(e) = fs::create_dir_all(&config.log_dir) {
+        Logger::warn(&format!("Failed to create log directory after pivot root: {}", e));
+    }
+
+    let services_map = match load_services(&config) {
         Ok(s) => Arc::new(Mutex::new(s)),
         Err(e) => {
             Logger::error(&format!("Failed to load services: {}", e));
@@ -1134,8 +1257,9 @@ fn main() {
     }
 
     let services_for_socket = services_map.clone();
+    let config_for_socket = config.clone();
     thread::spawn(move || {
-        control_socket_thread(services_for_socket);
+        control_socket_thread(services_for_socket, config_for_socket);
     });
 
     Logger::info("Entering main loop");
