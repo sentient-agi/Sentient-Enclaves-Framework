@@ -81,9 +81,10 @@ impl Default for InitConfig {
 }
 
 impl InitConfig {
-    /// Load configuration from file, or use defaults if file doesn't exist
+    /// Load configuration from default path or environment variable
     pub fn load() -> Result<Self> {
-        Self::load_from(DEFAULT_CONFIG_PATH)
+        let config_path = std::env::var("INIT_CONFIG").unwrap_or_else(|_| DEFAULT_CONFIG_PATH.to_string());
+        Self::load_from(&config_path)
     }
 
     /// Load configuration from specific path

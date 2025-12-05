@@ -1,9 +1,12 @@
 mod config;
+mod dependencies;
 mod logger;
 mod protocol;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use config::InitConfig;
+use dependencies::{DependencyResolver, ServiceDependencies};
 use logger::{Logger, ServiceLogger};
 use nix::errno::Errno;
 use nix::mount::{mount, MsFlags};
@@ -19,14 +22,14 @@ use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{
     chdir, chroot, close, fork, read, setsid, setpgid, symlinkat, unlink, write, ForkResult, Pid,
 };
-use protocol::{Request, Response, ServiceInfo, ServiceStatus, SystemStatus};
+use protocol::{Request, Response, ServiceDependencyInfo, ServiceInfo, ServiceStatus, SystemStatus};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::fs::{self, create_dir, read_dir, remove_file, File};
+use std::fs::{self, create_dir, read_dir, remove_file, rename, File};
 use std::io::{BufRead, BufReader};
 use std::os::unix::io::RawFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -40,9 +43,20 @@ const HEART_BEAT: u8 = 0xB7;
 static SIGCHLD_RECEIVED: AtomicBool = AtomicBool::new(false);
 static SIGTERM_RECEIVED: AtomicBool = AtomicBool::new(false);
 static SIGINT_RECEIVED: AtomicBool = AtomicBool::new(false);
+static SIGHUP_RECEIVED: AtomicBool = AtomicBool::new(false);
 
 // System start time for uptime calculation
 static mut SYSTEM_START_TIME: Option<Instant> = None;
+
+// CLI arguments
+#[derive(Parser)]
+#[command(name = "init")]
+#[command(about = "Enclave init system", long_about = None)]
+struct Args {
+    /// Path to configuration file
+    #[arg(short, long, env = "INIT_CONFIG", default_value = "/etc/init.yaml")]
+    config: String,
+}
 
 // Service configuration
 #[derive(Debug, Clone, Deserialize)]
@@ -58,6 +72,16 @@ struct ServiceConfig {
     restart_sec: u64,
     #[serde(default)]
     working_directory: Option<String>,
+    #[serde(default = "default_true")]
+    service_enable: bool,
+    #[serde(default)]
+    before: Vec<String>,
+    #[serde(default)]
+    after: Vec<String>,
+    #[serde(default)]
+    requires: Vec<String>,
+    #[serde(default)]
+    required_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -88,6 +112,10 @@ fn default_restart_sec() -> u64 {
     5
 }
 
+fn default_true() -> bool {
+    true
+}
+
 impl Default for ServiceConfig {
     fn default() -> Self {
         Self {
@@ -96,6 +124,11 @@ impl Default for ServiceConfig {
             restart: RestartPolicy::No,
             restart_sec: 5,
             working_directory: None,
+            service_enable: true,
+            before: Vec::new(),
+            after: Vec::new(),
+            requires: Vec::new(),
+            required_by: Vec::new(),
         }
     }
 }
@@ -111,6 +144,7 @@ struct ServiceState {
     exit_status: Option<i32>,
     logger: ServiceLogger,
     manual_stop: bool,
+    enabled: bool,
 }
 
 impl ServiceState {
@@ -122,6 +156,7 @@ impl ServiceState {
         max_log_files: usize,
     ) -> Result<Self> {
         let logger = ServiceLogger::new(log_dir, &name, max_log_size, max_log_files)?;
+        let enabled = config.service_enable;
 
         Ok(Self {
             config,
@@ -132,11 +167,12 @@ impl ServiceState {
             exit_status: None,
             logger,
             manual_stop: false,
+            enabled,
         })
     }
 
     fn should_restart(&self, exit_code: i32) -> bool {
-        if self.manual_stop {
+        if self.manual_stop || !self.enabled {
             return false;
         }
 
@@ -163,6 +199,7 @@ impl ServiceState {
     fn to_service_info(&self) -> ServiceInfo {
         ServiceInfo {
             name: self.name.clone(),
+            enabled: self.enabled,
             active: self.is_active(),
             restart_policy: self.config.restart.as_str().to_string(),
             restart_count: self.restart_count,
@@ -172,6 +209,7 @@ impl ServiceState {
     fn to_service_status(&self) -> ServiceStatus {
         ServiceStatus {
             name: self.name.clone(),
+            enabled: self.enabled,
             active: self.is_active(),
             pid: self.pid.map(|p| p.as_raw()),
             restart_policy: self.config.restart.as_str().to_string(),
@@ -180,6 +218,21 @@ impl ServiceState {
             exit_status: self.exit_status,
             exec_start: self.config.exec_start.clone(),
             working_directory: self.config.working_directory.clone(),
+            dependencies: ServiceDependencyInfo {
+                before: self.config.before.clone(),
+                after: self.config.after.clone(),
+                requires: self.config.requires.clone(),
+                required_by: self.config.required_by.clone(),
+            },
+        }
+    }
+
+    fn get_dependencies(&self) -> ServiceDependencies {
+        ServiceDependencies {
+            before: self.config.before.clone(),
+            after: self.config.after.clone(),
+            requires: self.config.requires.clone(),
+            required_by: self.config.required_by.clone(),
         }
     }
 }
@@ -578,6 +631,10 @@ fn parse_service_file(path: &Path) -> Result<ServiceConfig> {
     Ok(config)
 }
 
+fn is_service_disabled(path: &Path) -> bool {
+    path.extension().and_then(|s| s.to_str()) == Some("disabled")
+}
+
 fn load_services(config: &InitConfig) -> Result<HashMap<String, ServiceState>> {
     let mut services = HashMap::new();
 
@@ -599,6 +656,13 @@ fn load_services(config: &InitConfig) -> Result<HashMap<String, ServiceState>> {
         };
 
         let path = entry.path();
+
+        // Skip .disabled files
+        if is_service_disabled(&path) {
+            Logger::info(&format!("Skipping disabled service: {:?}", path));
+            continue;
+        }
+
         if path.extension().and_then(|s| s.to_str()) != Some("service") {
             continue;
         }
@@ -624,7 +688,10 @@ fn load_services(config: &InitConfig) -> Result<HashMap<String, ServiceState>> {
                     config.max_log_files,
                 ) {
                     Ok(state) => {
-                        Logger::info(&format!("Loaded service: {}", name));
+                        Logger::info(&format!(
+                            "Loaded service: {} (enabled: {})",
+                            name, state.enabled
+                        ));
                         services.insert(name.clone(), state);
                     }
                     Err(e) => {
@@ -641,7 +708,41 @@ fn load_services(config: &InitConfig) -> Result<HashMap<String, ServiceState>> {
     Ok(services)
 }
 
+fn compute_startup_order(services: &HashMap<String, ServiceState>) -> Vec<String> {
+    let mut resolver = DependencyResolver::new();
+
+    for (name, service) in services {
+        if service.enabled {
+            resolver.add_service(name.clone(), service.get_dependencies());
+        }
+    }
+
+    match resolver.validate_dependencies() {
+        Ok(_) => Logger::info("Service dependencies validated"),
+        Err(e) => {
+            Logger::error(&format!("Dependency validation failed: {}", e));
+            return services.keys().cloned().collect();
+        }
+    }
+
+    match resolver.compute_startup_order() {
+        Ok(order) => {
+            Logger::info(&format!("Computed startup order: {:?}", order));
+            order
+        }
+        Err(e) => {
+            Logger::error(&format!("Failed to compute startup order: {}", e));
+            services.keys().cloned().collect()
+        }
+    }
+}
+
 fn launch_service(service: &mut ServiceState) -> Result<()> {
+    if !service.enabled {
+        Logger::warn(&format!("Service {} is disabled, not starting", service.name));
+        return Ok(());
+    }
+
     Logger::info(&format!("Launching service: {}", service.name));
     service
         .logger
@@ -725,6 +826,10 @@ extern "C" fn handle_sigint(_: libc::c_int) {
     SIGINT_RECEIVED.store(true, Ordering::Relaxed);
 }
 
+extern "C" fn handle_sighup(_: libc::c_int) {
+    SIGHUP_RECEIVED.store(true, Ordering::Relaxed);
+}
+
 fn setup_signal_handlers() -> Result<()> {
     let sa_chld = SigAction::new(
         SigHandler::Handler(handle_sigchld),
@@ -744,10 +849,17 @@ fn setup_signal_handlers() -> Result<()> {
         SigSet::empty(),
     );
 
+    let sa_hup = SigAction::new(
+        SigHandler::Handler(handle_sighup),
+        SaFlags::SA_RESTART,
+        SigSet::empty(),
+    );
+
     unsafe {
         sigaction(Signal::SIGCHLD, &sa_chld)?;
         sigaction(Signal::SIGTERM, &sa_term)?;
         sigaction(Signal::SIGINT, &sa_int)?;
+        sigaction(Signal::SIGHUP, &sa_hup)?;
     }
 
     Logger::info("Signal handlers installed");
@@ -818,7 +930,7 @@ fn restart_services(services: &mut HashMap<String, ServiceState>) {
     let mut to_restart = Vec::new();
 
     for (name, service) in services.iter() {
-        if service.pid.is_none() {
+        if service.pid.is_none() && service.enabled {
             if let Some(exit_code) = service.exit_status {
                 if service.should_restart(exit_code) && service.can_restart_now() {
                     to_restart.push(name.clone());
@@ -918,14 +1030,59 @@ fn get_system_status(config: &InitConfig, services: &HashMap<String, ServiceStat
     };
 
     let active_services = services.values().filter(|s| s.is_active()).count();
+    let enabled_services = services.values().filter(|s| s.enabled).count();
 
     SystemStatus {
         uptime_secs: uptime,
         total_services: services.len(),
         active_services,
+        enabled_services,
         log_dir: config.log_dir.clone(),
         service_dir: config.service_dir.clone(),
     }
+}
+
+fn enable_service(config: &InitConfig, name: &str) -> Result<(), String> {
+    let disabled_path = PathBuf::from(&config.service_dir)
+        .join(format!("{}.service.disabled", name));
+    let enabled_path = PathBuf::from(&config.service_dir)
+        .join(format!("{}.service", name));
+
+    if disabled_path.exists() {
+        // Rename .disabled to .service
+        rename(&disabled_path, &enabled_path)
+            .map_err(|e| format!("Failed to rename service file: {}", e))?;
+        Ok(())
+    } else if enabled_path.exists() {
+        // Already enabled
+        Ok(())
+    } else {
+        Err(format!("Service file not found"))
+    }
+}
+
+fn disable_service(config: &InitConfig, name: &str) -> Result<(), String> {
+    let enabled_path = PathBuf::from(&config.service_dir)
+        .join(format!("{}.service", name));
+    let disabled_path = PathBuf::from(&config.service_dir)
+        .join(format!("{}.service.disabled", name));
+
+    if enabled_path.exists() {
+        // Rename .service to .disabled
+        rename(&enabled_path, &disabled_path)
+            .map_err(|e| format!("Failed to rename service file: {}", e))?;
+        Ok(())
+    } else if disabled_path.exists() {
+        // Already disabled
+        Ok(())
+    } else {
+        Err(format!("Service file not found"))
+    }
+}
+
+fn reload_services(config: &InitConfig) -> Result<HashMap<String, ServiceState>, String> {
+    Logger::info("Reloading service configurations...");
+    load_services(config).map_err(|e| e.to_string())
 }
 
 fn handle_client_request(
@@ -963,7 +1120,11 @@ fn handle_client_request(
             let mut services = services.lock().unwrap();
             match services.get_mut(&name) {
                 Some(service) => {
-                    if service.is_active() {
+                    if !service.enabled {
+                        Response::Error {
+                            message: format!("Service '{}' is disabled", name),
+                        }
+                    } else if service.is_active() {
                         Response::Error {
                             message: format!("Service '{}' is already running", name),
                         }
@@ -1017,22 +1178,65 @@ fn handle_client_request(
             let mut services = services.lock().unwrap();
             match services.get_mut(&name) {
                 Some(service) => {
-                    if let Some(pid) = service.pid {
-                        let _ = kill(pid, Signal::SIGTERM);
-                        thread::sleep(Duration::from_millis(500));
-                    }
-                    service.manual_stop = false;
-                    match launch_service(service) {
-                        Ok(_) => Response::Success {
-                            message: format!("Service '{}' restarted", name),
-                        },
-                        Err(e) => Response::Error {
-                            message: format!("Failed to restart service '{}': {}", name, e),
-                        },
+                    if !service.enabled {
+                        Response::Error {
+                            message: format!("Service '{}' is disabled", name),
+                        }
+                    } else {
+                        if let Some(pid) = service.pid {
+                            let _ = kill(pid, Signal::SIGTERM);
+                            thread::sleep(Duration::from_millis(500));
+                        }
+                        service.manual_stop = false;
+                        match launch_service(service) {
+                            Ok(_) => Response::Success {
+                                message: format!("Service '{}' restarted", name),
+                            },
+                            Err(e) => Response::Error {
+                                message: format!("Failed to restart service '{}': {}", name, e),
+                            },
+                        }
                     }
                 }
                 None => Response::Error {
                     message: format!("Service '{}' not found", name),
+                },
+            }
+        }
+
+        Request::ServiceEnable { name } => {
+            match enable_service(config, &name) {
+                Ok(_) => {
+                    SIGHUP_RECEIVED.store(true, Ordering::Relaxed);
+                    Response::Success {
+                        message: format!("Service '{}' enabled", name),
+                    }
+                }
+                Err(e) => Response::Error {
+                    message: format!("Failed to enable service '{}': {}", name, e),
+                },
+            }
+        }
+
+        Request::ServiceDisable { name } => {
+            // First stop the service if running
+            let mut services = services.lock().unwrap();
+            if let Some(service) = services.get_mut(&name) {
+                if let Some(pid) = service.pid {
+                    let _ = kill(pid, Signal::SIGTERM);
+                }
+            }
+            drop(services);
+
+            match disable_service(config, &name) {
+                Ok(_) => {
+                    SIGHUP_RECEIVED.store(true, Ordering::Relaxed);
+                    Response::Success {
+                        message: format!("Service '{}' disabled", name),
+                    }
+                }
+                Err(e) => Response::Error {
+                    message: format!("Failed to disable service '{}': {}", name, e),
                 },
             }
         }
@@ -1070,6 +1274,14 @@ fn handle_client_request(
             let services = services.lock().unwrap();
             Response::SystemStatus {
                 status: get_system_status(config, &services),
+            }
+        }
+
+        Request::SystemReload => {
+            Logger::info("Reload requested via control socket");
+            SIGHUP_RECEIVED.store(true, Ordering::Relaxed);
+            Response::Success {
+                message: "System reload initiated".to_string(),
             }
         }
 
@@ -1187,8 +1399,11 @@ fn handle_client_connection(client_fd: RawFd, services: ServiceMap, config: Init
 }
 
 fn main() {
+    let args = Args::parse();
+
     Logger::init();
     Logger::info("Enclave init system starting...");
+    Logger::info(&format!("Loading configuration from: {}", args.config));
 
     // Record start time
     unsafe {
@@ -1196,7 +1411,7 @@ fn main() {
     }
 
     // Load configuration
-    let config = match InitConfig::load() {
+    let config = match InitConfig::load_from(&args.config) {
         Ok(c) => {
             Logger::info("Configuration loaded successfully");
             c
@@ -1235,7 +1450,7 @@ fn main() {
         Logger::warn(&format!("Failed to create log directory after pivot root: {}", e));
     }
 
-    let services_map = match load_services(&config) {
+    let mut services_map = match load_services(&config) {
         Ok(s) => Arc::new(Mutex::new(s)),
         Err(e) => {
             Logger::error(&format!("Failed to load services: {}", e));
@@ -1243,15 +1458,27 @@ fn main() {
         }
     };
 
+    // Compute startup order and launch services
     {
-        let mut services = services_map.lock().unwrap();
+        let services = services_map.lock().unwrap();
         if services.is_empty() {
             Logger::warn("No services found, init will just reap children");
-        }
+        } else {
+            let startup_order = compute_startup_order(&services);
+            drop(services);
 
-        for (_, service) in services.iter_mut() {
-            if let Err(e) = launch_service(service) {
-                Logger::error(&format!("Failed to launch service {}: {}", service.name, e));
+            for service_name in startup_order {
+                let mut services = services_map.lock().unwrap();
+                if let Some(service) = services.get_mut(&service_name) {
+                    if service.enabled {
+                        if let Err(e) = launch_service(service) {
+                            Logger::error(&format!("Failed to launch service {}: {}", service_name, e));
+                        }
+                        // Small delay between service starts
+                        drop(services);
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                }
             }
         }
     }
@@ -1269,6 +1496,43 @@ fn main() {
             let mut services = services_map.lock().unwrap();
             shutdown_services(&mut services);
             break;
+        }
+
+        if SIGHUP_RECEIVED.swap(false, Ordering::Relaxed) {
+            Logger::info("Reload signal received");
+            match reload_services(&config) {
+                Ok(new_services) => {
+                    let mut services = services_map.lock().unwrap();
+
+                    // Stop services that no longer exist or are now disabled
+                    for (name, service) in services.iter_mut() {
+                        if !new_services.contains_key(name) || !new_services[name].enabled {
+                            if let Some(pid) = service.pid {
+                                Logger::info(&format!("Stopping removed/disabled service: {}", name));
+                                let _ = kill(pid, Signal::SIGTERM);
+                            }
+                        }
+                    }
+
+                    *services = new_services;
+                    Logger::info("Services reloaded successfully");
+
+                    // Start new enabled services
+                    let startup_order = compute_startup_order(&services);
+                    for service_name in startup_order {
+                        if let Some(service) = services.get_mut(&service_name) {
+                            if service.enabled && !service.is_active() {
+                                if let Err(e) = launch_service(service) {
+                                    Logger::error(&format!("Failed to start service {}: {}", service_name, e));
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    Logger::error(&format!("Failed to reload services: {}", e));
+                }
+            }
         }
 
         if SIGCHLD_RECEIVED.swap(false, Ordering::Relaxed) {

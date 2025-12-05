@@ -265,3 +265,85 @@ initctl ping
 initctl -s /custom/path/init.sock list
 ```
 
+# v0.5.0
+
+## Changes
+
+Implementation of configuration file path options, service dependencies and services startup ordering, and enable/disable functionality for `initctl`, services, and service file configurations:
+   - Passing the Init system actual configuration file path (`/etc/init.yaml` by default) via CLI options and environment variable.
+   - Made possible to define service dependencies in service files and define services starting order in service files (as systemd options `Before=`, `After=`, `Requires=`, `RequiredBy=` in service files).
+   - For `initctl` made CLI subcommands to enable/disable services (via `.disabled` file extension, when init does not handle `.disabled` services, and via `ServiceEnable=true/false` option in service file), and enable service and start it immediately (`enable --now`).
+
+## Key Features
+
+The Enclave's Init System implementation now includes:
+1. CLI options for config file path (`--config` and `INIT_CONFIG` env var)
+2. Service dependencies (`Before`, `After`, `Requires`, `RequiredBy`)
+3. Topological sort for startup order
+4. Enable/disable services via `.disabled` extension and `ServiceEnable` option
+5. `enable --now` to enable and start immediately
+6. `reload` command to reload configurations via SIGHUP
+
+## Example of service files with dependencies and startup ordering:
+
+**Example service file with dependencies (`/service/webapp.service`):**
+```toml
+ExecStart = "/usr/bin/python3 /app/server.py"
+Environment = [
+    "PORT=8080",
+    "DATABASE_URL=postgresql://localhost/myapp"
+]
+Restart = "always"
+RestartSec = 5
+WorkingDirectory = "/app"
+ServiceEnable = true
+
+# Start after database is ready
+After = ["database"]
+
+# Required dependencies
+Requires = ["database"]
+```
+
+**Example database service (`/service/database.service`):**
+```toml
+ExecStart = "/usr/bin/postgres -D /var/lib/postgresql/data"
+Environment = [
+    "POSTGRES_PASSWORD=secret"
+]
+Restart = "always"
+RestartSec = 10
+WorkingDirectory = "/var/lib/postgresql"
+ServiceEnable = true
+
+# Start before webapp
+Before = ["webapp"]
+```
+
+## Usage Examples
+
+```bash
+# Start init with custom config
+init --config /etc/my-init.yaml
+# or
+INIT_CONFIG=/etc/my-init.yaml init
+
+# List services (shows enabled/disabled status)
+initctl list
+
+# Enable a service
+initctl enable myapp
+
+# Enable and start immediately
+initctl enable --now myapp
+
+# Disable a service (stops it first)
+initctl disable myapp
+
+# Reload service configurations
+initctl reload
+
+# Check service with dependencies
+initctl status webapp
+```
+

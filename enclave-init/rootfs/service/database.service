@@ -1,0 +1,11 @@
+ExecStart = "/usr/bin/postgres -D /var/lib/postgresql/data"
+Environment = [
+    "POSTGRES_PASSWORD=secret"
+]
+Restart = "always"
+RestartSec = 10
+WorkingDirectory = "/var/lib/postgresql"
+ServiceEnable = true
+
+# Start before webapp
+Before = ["webapp"]

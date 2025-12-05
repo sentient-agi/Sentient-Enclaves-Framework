@@ -5,7 +5,6 @@ use clap::{Parser, Subcommand};
 use nix::sys::socket::{connect, recv, send, socket, AddressFamily, MsgFlags, SockFlag, SockType, UnixAddr};
 use nix::unistd::close;
 use protocol::{Request, Response};
-use std::env;
 
 const DEFAULT_SOCKET_PATH: &str = "/run/init.sock";
 
@@ -54,6 +53,24 @@ enum Commands {
         name: String,
     },
 
+    /// Enable a service
+    Enable {
+        /// Service name
+        #[arg(value_name = "SERVICE")]
+        name: String,
+
+        /// Start the service immediately after enabling
+        #[arg(long)]
+        now: bool,
+    },
+
+    /// Disable a service
+    Disable {
+        /// Service name
+        #[arg(value_name = "SERVICE")]
+        name: String,
+    },
+
     /// Show logs of a service
     Logs {
         /// Service name
@@ -74,6 +91,9 @@ enum Commands {
 
     /// Show system status
     SystemStatus,
+
+    /// Reload service configurations
+    Reload,
 
     /// Reboot the system
     Reboot,
@@ -137,15 +157,55 @@ fn format_uptime(secs: u64) -> String {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Handle enable --now specially
+    if let Commands::Enable { ref name, now } = cli.command {
+        // First enable the service
+        let enable_request = Request::ServiceEnable { name: name.clone() };
+        let response = send_request(&cli.socket, enable_request)?;
+
+        match response {
+            Response::Success { message } => {
+                println!("✓ {}", message);
+
+                if now {
+                    // Then start it
+                    let start_request = Request::ServiceStart { name: name.clone() };
+                    let start_response = send_request(&cli.socket, start_request)?;
+
+                    match start_response {
+                        Response::Success { message } => {
+                            println!("✓ {}", message);
+                        }
+                        Response::Error { message } => {
+                            eprintln!("✗ Error starting service: {}", message);
+                            std::process::exit(1);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Response::Error { message } => {
+                eprintln!("✗ Error: {}", message);
+                std::process::exit(1);
+            }
+            _ => {}
+        }
+
+        return Ok(());
+    }
+
     let request = match &cli.command {
         Commands::List => Request::ListServices,
         Commands::Status { name } => Request::ServiceStatus { name: name.clone() },
         Commands::Start { name } => Request::ServiceStart { name: name.clone() },
         Commands::Stop { name } => Request::ServiceStop { name: name.clone() },
         Commands::Restart { name } => Request::ServiceRestart { name: name.clone() },
+        Commands::Enable { name, .. } => Request::ServiceEnable { name: name.clone() },
+        Commands::Disable { name } => Request::ServiceDisable { name: name.clone() },
         Commands::Logs { name, lines } => Request::ServiceLogs { name: name.clone(), lines: *lines },
         Commands::LogsClear { name } => Request::ServiceLogsClear { name: name.clone() },
         Commands::SystemStatus => Request::SystemStatus,
+        Commands::Reload => Request::SystemReload,
         Commands::Reboot => Request::SystemReboot,
         Commands::Shutdown => Request::SystemShutdown,
         Commands::Ping => Request::Ping,
@@ -165,12 +225,13 @@ fn main() -> Result<()> {
             if services.is_empty() {
                 println!("No services found");
             } else {
-                println!("{:<25} {:<10} {:<15} {:<10}", "NAME", "ACTIVE", "RESTART", "RESTARTS");
-                println!("{}", "-".repeat(65));
+                println!("{:<25} {:<10} {:<10} {:<15} {:<10}", "NAME", "ENABLED", "ACTIVE", "RESTART", "RESTARTS");
+                println!("{}", "-".repeat(75));
                 for service in services {
                     println!(
-                        "{:<25} {:<10} {:<15} {:<10}",
+                        "{:<25} {:<10} {:<10} {:<15} {:<10}",
                         service.name,
+                        if service.enabled { "enabled" } else { "disabled" },
                         if service.active { "active" } else { "inactive" },
                         service.restart_policy,
                         service.restart_count
@@ -180,6 +241,7 @@ fn main() -> Result<()> {
         }
         Response::ServiceStatus { status } => {
             println!("Service: {}", status.name);
+            println!("  Enabled: {}", if status.enabled { "yes" } else { "no" });
             println!("  Status: {}", if status.active { "active (running)" } else { "inactive (dead)" });
             if let Some(pid) = status.pid {
                 println!("  PID: {}", pid);
@@ -194,6 +256,20 @@ fn main() -> Result<()> {
             if let Some(exit_code) = status.exit_status {
                 println!("  Last Exit Code: {}", exit_code);
             }
+
+            // Show dependencies
+            if !status.dependencies.before.is_empty() {
+                println!("  Before: {}", status.dependencies.before.join(", "));
+            }
+            if !status.dependencies.after.is_empty() {
+                println!("  After: {}", status.dependencies.after.join(", "));
+            }
+            if !status.dependencies.requires.is_empty() {
+                println!("  Requires: {}", status.dependencies.requires.join(", "));
+            }
+            if !status.dependencies.required_by.is_empty() {
+                println!("  Required By: {}", status.dependencies.required_by.join(", "));
+            }
         }
         Response::ServiceLogs { logs } => {
             if logs.is_empty() {
@@ -207,7 +283,8 @@ fn main() -> Result<()> {
         Response::SystemStatus { status } => {
             println!("System Status");
             println!("  Uptime: {}", format_uptime(status.uptime_secs));
-            println!("  Services: {} total, {} active", status.total_services, status.active_services);
+            println!("  Services: {} total, {} enabled, {} active",
+                     status.total_services, status.enabled_services, status.active_services);
             println!("  Service Directory: {}", status.service_dir);
             println!("  Log Directory: {}", status.log_dir);
         }
