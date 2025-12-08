@@ -11,19 +11,20 @@ A robust, systemd-inspired init system designed specifically for AWS Nitro Encla
 - [Quick Start](#quick-start)
 - [Configuration Reference](#configuration-reference)
 - [Service Files](#service-files)
+- [Service Dependencies](#service-dependencies)
 - [CLI Reference](#cli-reference)
 - [Usage Guide](#usage-guide)
 - [Advanced Topics](#advanced-topics)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [FAQ](#faq)
-- [License](#license)
+- [Appendix](#appendix)
 
 ---
 
 ## Overview
 
-The Enclave Init System is a minimal, production-ready init system (PID 1) designed to run inside secure enclaves. It provides process supervision, automatic service restarts, comprehensive logging, and a control interface for managing services at runtime.
+The Enclave Init System is a minimal, production-ready init system (PID 1) designed to run inside secure enclaves. It provides process supervision, automatic service restarts, service dependency management, comprehensive logging, and a control interface for managing services at runtime.
 
 ### Key Characteristics
 
@@ -31,9 +32,12 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
 - **Reliable**: Written in Rust with comprehensive error handling
 - **Non-crashing**: All errors are logged but never crash the init system
 - **Service supervision**: Automatic process monitoring and restart policies
+- **Dependency management**: Systemd-style service dependencies with startup ordering
 - **Runtime control**: Manage services without restarting the enclave
+- **Enable/Disable**: Dynamic service activation control
 - **Persistent logging**: Per-service log files with automatic rotation
 - **Configurable**: YAML-based configuration for all aspects of the system
+- **Flexible**: Configuration file path configurable via CLI and environment
 
 ---
 
@@ -46,6 +50,7 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
   - Process supervision and monitoring
   - Automatic service restarts based on policy
   - Graceful shutdown handling
+  - Signal handling (SIGTERM, SIGINT, SIGHUP, SIGCHLD)
 
 - **Service Management**
   - Systemd-style service file format (TOML)
@@ -54,6 +59,16 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
   - Working directory configuration
   - Restart policies: `no`, `always`, `on-failure`, `on-success`
   - Configurable restart delays
+  - Enable/disable services at runtime
+  - Service dependencies and ordering
+
+- **Dependency Management**
+  - `Before`: Specify services that should start after this one
+  - `After`: Specify services that should start before this one
+  - `Requires`: Hard dependencies (must exist and start first)
+  - `RequiredBy`: Reverse dependency specification
+  - Automatic topological sorting for startup order
+  - Circular dependency detection
 
 - **Logging**
   - Per-service log files
@@ -61,13 +76,16 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
   - Configurable retention (number of rotated files)
   - Timestamp prefixes
   - In-memory log cache for quick access
+  - View and clear logs via CLI
 
 - **Runtime Control**
   - Unix domain socket-based IPC
   - CLI tool (`initctl`) for service management
   - Start, stop, restart services
+  - Enable, disable services
+  - Reload configurations without restart
   - View service status and logs
-  - System-wide operations (reboot, shutdown)
+  - System-wide operations (reload, reboot, shutdown)
 
 - **Enclave Integration**
   - VSOCK heartbeat support for AWS Nitro Enclaves
@@ -94,33 +112,36 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
                          │
                     [VSOCK 9000]
                          │
-┌─────────────────────────────────────────────────────┐
-│                 Enclave Environment                 │
-│                                                     │
-│  ┌───────────────────────────────────────────┐      │
-│  │              init (PID 1)                 │      │
-│  │                                           │      │
-│  │  - Signal Handling                        │      │
-│  │  - Process Supervision                    │      │
-│  │  - Filesystem Initialization              │      │
-│  │  - Service Management                     │      │
-│  │  - Control Socket (/run/init.sock)        │      │
-│  └───────────────────────────────────────────┘      │
-│           │              │              │           │
-│     ┌─────┴─────┐  ┌─────┴─────┐  ┌─────┴─────┐     │
-│     │ Service A │  │ Service B │  │ Service C │     │
-│     └───────────┘  └───────────┘  └───────────┘     │
-│                                                     │
-│  ┌───────────────────────────────────────────┐      │
-│  │              initctl                      │      │
-│  │  (CLI tool for runtime control)           │      │
-│  └───────────────────────────────────────────┘      │
-│                                                     │
-│  Filesystem Layout:                                 │
-│  /etc/init.yaml        - Init configuration         │
-│  /service/*.service    - Service definitions        │
-│  /log/*.log            - Service logs               │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────┐
+│                 Enclave Environment               │
+│                                                   │
+│  ┌───────────────────────────────────────────┐    │
+│  │              init (PID 1)                 │    │
+│  │                                           │    │
+│  │  - Signal Handling (TERM/INT/HUP/CHLD)    │    │
+│  │  - Process Supervision                    │    │
+│  │  - Filesystem Initialization              │    │
+│  │  - Service Management                     │    │
+│  │  - Dependency Resolution                  │    │
+│  │  - Control Socket (/run/init.sock)        │    │
+│  └───────────────────────────────────────────┘    │
+│           │              │              │         │
+│     ┌─────┴─────┐  ┌─────┴─────┐  ┌─────┴─────┐   │
+│     │ Service A │  │ Service B │  │ Service C │   │
+│     │(depends B)│  │           │  │(after A,B)│   │
+│     └───────────┘  └───────────┘  └───────────┘   │
+│                                                   │
+│  ┌───────────────────────────────────────────┐    │
+│  │              initctl                      │    │
+│  │  (CLI tool for runtime control)           │    │
+│  └───────────────────────────────────────────┘    │
+│                                                   │
+│  Filesystem Layout:                               │
+│  /etc/init.yaml              - Init configuration │
+│  /service/*.service          - Service files      │
+│  /service/*.service.disabled - Disabled services  │
+│  /log/*.log                  - Service logs       │
+└───────────────────────────────────────────────────┘
 ```
 
 ### Process Flow
@@ -130,14 +151,17 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
 │ Init Startup │
 └──────┬───────┘
        │
-       ├─> Load Configuration (/etc/init.yaml)
-       ├─> Setup Signal Handlers
+       ├─> Parse CLI Arguments (--config)
+       ├─> Load Configuration (from file or env)
+       ├─> Setup Signal Handlers (TERM/INT/HUP/CHLD)
        ├─> Initialize Filesystems
        ├─> Load NSM Driver (optional)
        ├─> Send VSOCK Heartbeat (optional)
        ├─> Perform Pivot Root (optional)
        ├─> Load Service Definitions
-       ├─> Start All Services
+       ├─> Compute Dependency Order
+       ├─> Validate Dependencies
+       ├─> Start Enabled Services (in order)
        ├─> Start Control Socket Server
        │
        └─> ┌────────────────┐
@@ -146,10 +170,54 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
                     │
                     ├─> Check SIGCHLD → Reap Children
                     ├─> Check SIGTERM/SIGINT → Shutdown
+                    ├─> Check SIGHUP → Reload Services
                     ├─> Restart Dead Services (per policy)
                     ├─> Handle Control Socket Requests
                     │
                     └─> [Loop continues]
+```
+
+### Dependency Resolution Flow
+
+```
+Service Definitions
+        │
+        ▼
+┌────────────────┐
+│  Parse Before  │
+│  Parse After   │
+│  Parse Requires│
+└────────┬───────┘
+         │
+         ▼
+┌────────────────────┐
+│ Build Dependency   │
+│ Graph              │
+└────────┬───────────┘
+         │
+         ▼
+┌────────────────────┐
+│ Validate           │
+│ Dependencies       │
+│ (check existence)  │
+└────────┬───────────┘
+         │
+         ▼
+┌────────────────────┐
+│ Detect Circular    │
+│ Dependencies       │
+└────────┬───────────┘
+         │
+         ▼
+┌────────────────────┐
+│ Topological Sort   │
+│ (Kahn's Algorithm) │
+└────────┬───────────┘
+         │
+         ▼
+┌────────────────────┐
+│ Startup Order List │
+└────────────────────┘
 ```
 
 ---
@@ -238,7 +306,24 @@ pivot_root: true
 pivot_root_dir: /rootfs
 ```
 
-### 2. Create Service Files
+### 2. Create Service Files with Dependencies
+
+Create `/service/database.service`:
+
+```toml
+ExecStart = "/usr/bin/postgres -D /var/lib/postgresql/data"
+Environment = [
+    "POSTGRES_PASSWORD=secret",
+    "POSTGRES_DB=myapp"
+]
+Restart = "always"
+RestartSec = 10
+WorkingDirectory = "/var/lib/postgresql"
+ServiceEnable = true
+
+# This service should start before webapp
+Before = ["webapp"]
+```
 
 Create `/service/webapp.service`:
 
@@ -246,22 +331,32 @@ Create `/service/webapp.service`:
 ExecStart = "/usr/bin/python3 /app/server.py"
 Environment = [
     "PORT=8080",
+    "DATABASE_URL=postgresql://localhost/myapp",
     "LOG_LEVEL=info"
 ]
 Restart = "always"
 RestartSec = 5
 WorkingDirectory = "/app"
+ServiceEnable = true
+
+# Start after database and require it
+After = ["database"]
+Requires = ["database"]
 ```
 
-Create `/service/worker.service`:
+Create `/service/monitor.service`:
 
 ```toml
-ExecStart = "/usr/bin/node /app/worker.js"
+ExecStart = "/usr/bin/monitor --interval 60"
 Environment = [
-    "NODE_ENV=production"
+    "TARGETS=webapp,database"
 ]
-Restart = "on-failure"
-RestartSec = 10
+Restart = "always"
+RestartSec = 30
+ServiceEnable = true
+
+# Monitor should start after other services
+After = ["database", "webapp"]
 ```
 
 ### 3. Start Init System
@@ -272,15 +367,20 @@ The init system starts automatically as PID 1 when the enclave boots:
 # Inside the enclave, init is already running as PID 1
 ps aux | grep init
 # root         1  0.0  0.1  12345  6789 ?        Ss   00:00   0:00 /sbin/init
+
+# With custom config path
+/sbin/init --config /etc/my-init.yaml
+# or via environment
+INIT_CONFIG=/etc/my-init.yaml /sbin/init
 ```
 
 ### 4. Manage Services
 
 ```bash
-# List all services
+# List all services (shows enabled/disabled and active status)
 initctl list
 
-# Check service status
+# Check service status (includes dependency information)
 initctl status webapp
 
 # View logs
@@ -289,24 +389,31 @@ initctl logs webapp -n 100
 # Restart a service
 initctl restart webapp
 
-# Stop a service
-initctl stop worker
+# Enable a service
+initctl enable myapp
 
-# Start a service
-initctl start worker
+# Enable and start immediately
+initctl enable --now myapp
+
+# Disable a service (stops it first)
+initctl disable myapp
+
+# Reload all service configurations
+initctl reload
 ```
 
 ---
 
 ## Configuration Reference
 
-### Init Configuration File (`/etc/init.yaml`)
+### Init Configuration File
 
 The main configuration file for the init system.
 
 #### Location
 
 - Default: `/etc/init.yaml`
+- Configurable via: `--config` flag or `INIT_CONFIG` environment variable
 - If not found, uses built-in defaults
 
 #### Complete Example
@@ -334,6 +441,7 @@ environment:
   LANG: en_US.UTF-8
   HOME: /root
   TERM: linux
+  CUSTOM_VAR: value
 
 # VSOCK configuration for AWS Nitro Enclaves
 vsock:
@@ -372,12 +480,28 @@ pivot_root_dir: /rootfs
 | `pivot_root` | boolean | `true` | Perform pivot root operation on startup |
 | `pivot_root_dir` | string | `/rootfs` | Source directory for pivot root |
 
+#### Configuration Loading Priority
+
+1. **CLI argument**: `init --config /path/to/config.yaml` (highest priority)
+2. **Environment variable**: `INIT_CONFIG=/path/to/config.yaml`
+3. **Default path**: `/etc/init.yaml`
+4. **Built-in defaults**: If no file found
+
 #### Environment Variables
 
 Environment variables defined in the configuration are:
 1. Set for the init process itself
 2. Inherited by all child processes (services)
 3. Can be overridden by per-service environment variables
+
+Example usage:
+```yaml
+environment:
+  TZ: UTC
+  LANG: en_US.UTF-8
+  APP_ENV: production
+  LOG_LEVEL: info
+```
 
 ---
 
@@ -388,7 +512,7 @@ Service files define how individual services should be run and managed.
 ### File Format
 
 - **Format**: TOML
-- **Extension**: `.service`
+- **Extension**: `.service` (active) or `.service.disabled` (disabled)
 - **Location**: Directory specified by `service_dir` in init configuration (default: `/service`)
 
 ### Complete Example
@@ -414,6 +538,21 @@ RestartSec = 10
 
 # Working directory for the service (optional)
 WorkingDirectory = "/var/lib/myapp"
+
+# Enable the service (optional, default: true)
+ServiceEnable = true
+
+# Dependencies: Services that should start before this one
+After = ["database", "cache"]
+
+# Dependencies: Services that should start after this one
+Before = ["monitor"]
+
+# Hard dependencies: Required services (must exist and start)
+Requires = ["database"]
+
+# Reverse dependency specification
+RequiredBy = ["monitor"]
 ```
 
 ### Service Configuration Options
@@ -425,6 +564,11 @@ WorkingDirectory = "/var/lib/myapp"
 | `Restart` | string | No | `"no"` | Restart policy |
 | `RestartSec` | integer | No | `5` | Seconds to wait before restart |
 | `WorkingDirectory` | string | No | - | Working directory for the process |
+| `ServiceEnable` | boolean | No | `true` | Enable service at startup |
+| `Before` | array | No | `[]` | Services that should start after this |
+| `After` | array | No | `[]` | Services that should start before this |
+| `Requires` | array | No | `[]` | Required dependencies |
+| `RequiredBy` | array | No | `[]` | Services that require this one |
 
 ### Restart Policies
 
@@ -467,6 +611,37 @@ RestartSec = 5
 
 **Use case**: Periodic tasks that need to run continuously when successful
 
+### Enable/Disable Mechanism
+
+Services can be enabled or disabled in two ways:
+
+#### 1. File Extension Method
+
+- **Enabled**: File named `myservice.service`
+- **Disabled**: File named `myservice.service.disabled`
+
+```bash
+# Disable by renaming
+mv /service/myapp.service /service/myapp.service.disabled
+
+# Enable by renaming back
+mv /service/myapp.service.disabled /service/myapp.service
+
+# Or use initctl
+initctl enable myapp
+initctl disable myapp
+```
+
+#### 2. ServiceEnable Option
+
+```toml
+# In service file
+ServiceEnable = true   # Enabled
+ServiceEnable = false  # Disabled
+```
+
+**Note**: File extension takes precedence. A `.service.disabled` file will not be loaded regardless of `ServiceEnable` setting.
+
 ### Environment Variables
 
 Services inherit environment variables in this order (later sources override earlier):
@@ -483,7 +658,8 @@ Environment = [
     "LOG_LEVEL=info",
     "DATABASE_URL=postgres://db:5432/myapp",
     "REDIS_URL=redis://cache:6379",
-    "API_TIMEOUT=30"
+    "API_TIMEOUT=30",
+    "DEBUG=false"
 ]
 ```
 
@@ -493,6 +669,7 @@ The `ExecStart` command supports:
 - Simple commands: `"/usr/bin/app"`
 - Arguments: `"/usr/bin/app --config /etc/app.conf"`
 - Quoted arguments: `"/usr/bin/app --name \"My App\""`
+- Escaped characters: `"/usr/bin/app --path \\"/tmp/file\\\""`
 
 **Note**: Does not support shell features like pipes, redirects, or variable expansion. Use a shell wrapper script if needed:
 
@@ -514,7 +691,7 @@ RestartSec = 5
 WorkingDirectory = "/var/www"
 ```
 
-#### Database
+#### Database with Dependencies
 
 ```toml
 ExecStart = "/usr/bin/postgres -D /var/lib/postgresql/data"
@@ -525,6 +702,25 @@ Environment = [
 Restart = "always"
 RestartSec = 10
 WorkingDirectory = "/var/lib/postgresql"
+
+# Other services depend on this
+Before = ["webapp", "api"]
+```
+
+#### Application with Database Dependency
+
+```toml
+ExecStart = "/usr/bin/myapp"
+Environment = [
+    "DATABASE_URL=postgres://localhost/myapp"
+]
+Restart = "on-failure"
+RestartSec = 15
+WorkingDirectory = "/app"
+
+# Wait for database to start
+After = ["database"]
+Requires = ["database"]
 ```
 
 #### Background Worker
@@ -538,6 +734,9 @@ Environment = [
 Restart = "on-failure"
 RestartSec = 15
 WorkingDirectory = "/app"
+
+# Start after main app
+After = ["webapp"]
 ```
 
 #### Monitoring Agent
@@ -549,11 +748,308 @@ Environment = [
 ]
 Restart = "always"
 RestartSec = 5
+
+# Start after all monitored services
+After = ["webapp", "database", "cache"]
 ```
 
 ---
 
+## Service Dependencies
+
+The init system supports systemd-style dependency management with automatic ordering.
+
+### Dependency Types
+
+#### `After`
+
+Specifies services that should start **before** this service.
+
+```toml
+# webapp starts after database
+[webapp.service]
+After = ["database"]
+```
+
+**Behavior**:
+- Soft dependency (database doesn't need to exist)
+- If database exists, it starts first
+- If database fails, webapp still starts
+- Ordering only, not a hard requirement
+
+#### `Before`
+
+Specifies services that should start **after** this service.
+
+```toml
+# database starts before webapp
+[database.service]
+Before = ["webapp"]
+```
+
+**Behavior**:
+- Equivalent to webapp having `After = ["database"]`
+- Reverse of `After`
+- Multiple services can be specified
+
+#### `Requires`
+
+Hard dependency. The required service must exist and start successfully.
+
+```toml
+# webapp requires database
+[webapp.service]
+Requires = ["database"]
+After = ["database"]  # Usually combined with After
+```
+
+**Behavior**:
+- Database must exist (error if not)
+- Database starts first (implies `After`)
+- If database fails to start, webapp won't start
+- Strong dependency relationship
+
+#### `RequiredBy`
+
+Reverse of `Requires`. This service is required by others.
+
+```toml
+# database is required by webapp
+[database.service]
+RequiredBy = ["webapp"]
+```
+
+**Behavior**:
+- Informational/documentation purpose
+- Doesn't affect startup order directly
+- Useful for tracking reverse dependencies
+
+### Dependency Resolution
+
+#### Algorithm
+
+The init system uses **Topological Sort (Kahn's Algorithm)** to determine startup order:
+
+1. **Build dependency graph** from service files
+2. **Validate** that all required dependencies exist
+3. **Detect circular dependencies**
+4. **Compute ordering** using topological sort
+5. **Start services** in computed order
+
+#### Example Dependency Chain
+
+```toml
+# redis.service
+[redis.service]
+ExecStart = "/usr/bin/redis-server"
+Before = ["cache-warmer", "webapp"]
+
+# cache-warmer.service
+[cache-warmer.service]
+ExecStart = "/usr/bin/cache-warmer"
+After = ["redis"]
+Before = ["webapp"]
+Requires = ["redis"]
+
+# database.service
+[database.service]
+ExecStart = "/usr/bin/postgres"
+Before = ["webapp"]
+
+# webapp.service
+[webapp.service]
+ExecStart = "/usr/bin/webapp"
+After = ["database", "cache-warmer"]
+Requires = ["database"]
+```
+
+**Computed startup order**:
+1. `redis` (no dependencies)
+2. `database` (no dependencies)
+3. `cache-warmer` (after redis)
+4. `webapp` (after database and cache-warmer)
+
+### Circular Dependency Detection
+
+The init system detects and reports circular dependencies:
+
+```toml
+# service-a.service
+After = ["service-b"]
+
+# service-b.service
+After = ["service-a"]
+```
+
+**Result**: Error logged, services start in arbitrary order.
+
+```
+[ERROR] Failed to compute startup order: Circular dependency detected in service definitions
+```
+
+### Dependency Best Practices
+
+#### 1. Use `After` for Soft Dependencies
+
+```toml
+# Good: Service can start even if logger fails
+After = ["logger"]
+```
+
+#### 2. Use `Requires` for Critical Dependencies
+
+```toml
+# Good: Won't start without database
+Requires = ["database"]
+After = ["database"]  # Always combine with After
+```
+
+#### 3. Avoid Circular Dependencies
+
+```toml
+# Bad: Creates a circle
+[a.service]
+After = ["b"]
+
+[b.service]
+After = ["a"]
+```
+
+#### 4. Use `Before` for Reverse Ordering
+
+```toml
+# Infrastructure services specify what comes after
+[database.service]
+Before = ["webapp", "api", "worker"]
+```
+
+#### 5. Document Reverse Dependencies
+
+```toml
+# Helps understand service relationships
+[database.service]
+RequiredBy = ["webapp", "api"]
+Before = ["webapp", "api"]
+```
+
+### Dependency Validation
+
+At startup, the init system:
+
+1. **Validates `Requires`**: Errors if required service doesn't exist
+2. **Warns about `After`/`Before`**: Non-fatal warning if service doesn't exist
+3. **Checks for cycles**: Errors if circular dependencies detected
+
+```
+[ERROR] Service 'webapp' requires 'database' which does not exist
+[WARN] Service 'webapp' has After='cache' which does not exist (non-fatal)
+[INFO] Computed startup order: [database, redis, webapp, monitor]
+```
+
+### Complex Dependency Example
+
+```toml
+# infrastructure.service - Base services
+[infrastructure.service]
+ExecStart = "/usr/bin/setup-infra"
+Before = ["database", "cache", "queue"]
+
+# database.service
+[database.service]
+ExecStart = "/usr/bin/postgres"
+After = ["infrastructure"]
+Before = ["api", "webapp", "worker"]
+RequiredBy = ["api", "webapp"]
+
+# cache.service
+[cache.service]
+ExecStart = "/usr/bin/redis-server"
+After = ["infrastructure"]
+Before = ["api", "webapp"]
+
+# queue.service
+[queue.service]
+ExecStart = "/usr/bin/rabbitmq-server"
+After = ["infrastructure"]
+Before = ["worker"]
+RequiredBy = ["worker"]
+
+# api.service
+[api.service]
+ExecStart = "/usr/bin/api-server"
+After = ["database", "cache"]
+Requires = ["database"]
+Before = ["webapp"]
+
+# webapp.service
+[webapp.service]
+ExecStart = "/usr/bin/webapp"
+After = ["api", "database", "cache"]
+Requires = ["database", "api"]
+
+# worker.service
+[worker.service]
+ExecStart = "/usr/bin/worker"
+After = ["database", "queue"]
+Requires = ["database", "queue"]
+
+# monitor.service - Monitors everything
+[monitor.service]
+ExecStart = "/usr/bin/monitor"
+After = ["database", "cache", "queue", "api", "webapp", "worker"]
+```
+
+**Startup order**:
+1. infrastructure
+2. database, cache, queue (parallel, all after infrastructure)
+3. api (after database, cache)
+4. webapp (after api, database, cache)
+5. worker (after database, queue)
+6. monitor (after everything)
+
+---
+
 ## CLI Reference
+
+### `init` - Init System
+
+Main init system binary that runs as PID 1.
+
+#### Synopsis
+
+```bash
+init [OPTIONS]
+```
+
+#### Options
+
+| Option | Short | Environment Variable | Default | Description |
+|--------|-------|---------------------|---------|-------------|
+| `--config <PATH>` | `-c` | `INIT_CONFIG` | `/etc/init.yaml` | Path to configuration file |
+| `--help` | `-h` | - | - | Show help information |
+| `--version` | `-V` | - | - | Show version information |
+
+#### Examples
+
+```bash
+# Start with default config
+init
+
+# Start with custom config
+init --config /etc/my-init.yaml
+init -c /etc/my-init.yaml
+
+# Use environment variable
+INIT_CONFIG=/etc/my-init.yaml init
+
+# Show help
+init --help
+
+# Show version
+init --version
+```
+
+---
 
 ### `initctl` - Init Control Tool
 
@@ -586,15 +1082,18 @@ initctl list
 
 **Output:**
 ```
-NAME                      ACTIVE     RESTART         RESTARTS
--------------------------------------------------------------
-webapp                    active     always          3
-worker                    inactive   on-failure      0
-monitor                   active     always          1
+NAME                      ENABLED    ACTIVE     RESTART         RESTARTS
+---------------------------------------------------------------------------
+webapp                    enabled    active     always          3
+database                  enabled    active     always          1
+worker                    enabled    inactive   on-failure      0
+monitor                   enabled    active     always          2
+cache                     disabled   inactive   always          0
 ```
 
 **Columns:**
 - `NAME`: Service name (from filename without .service extension)
+- `ENABLED`: `enabled` or `disabled`
 - `ACTIVE`: `active` (running) or `inactive` (not running)
 - `RESTART`: Restart policy
 - `RESTARTS`: Number of times the service has been restarted
@@ -618,6 +1117,7 @@ initctl status webapp
 **Output:**
 ```
 Service: webapp
+  Enabled: yes
   Status: active (running)
   PID: 1234
   Command: /usr/bin/python3 /app/server.py
@@ -626,6 +1126,9 @@ Service: webapp
   Restart Delay: 5s
   Restart Count: 3
   Last Exit Code: 0
+  After: database, cache
+  Requires: database
+  Before: monitor
 ```
 
 **Exit Codes:**
@@ -654,9 +1157,17 @@ initctl start webapp
 ```
 
 **Notes:**
+- Service must be enabled
 - Service must be in stopped state
 - Error if service is already running
 - Clears manual stop flag (allows automatic restarts)
+
+**Error Cases:**
+```
+✗ Error: Service 'webapp' is disabled
+✗ Error: Service 'webapp' is already running
+✗ Error: Service 'webapp' not found
+```
 
 ---
 
@@ -685,6 +1196,12 @@ initctl stop webapp
 - Process has up to 5 seconds to shutdown gracefully
 - After 5 seconds, SIGKILL is sent during system shutdown
 
+**Error Cases:**
+```
+✗ Error: Service 'webapp' is not running
+✗ Error: Service 'webapp' not found
+```
+
 ---
 
 ### `restart`
@@ -710,6 +1227,86 @@ initctl restart webapp
 - If running: sends SIGTERM, waits 500ms, then starts
 - If stopped: just starts the service
 - Clears manual stop flag
+- Service must be enabled
+
+**Error Cases:**
+```
+✗ Error: Service 'webapp' is disabled
+✗ Error: Service 'webapp' not found
+```
+
+---
+
+### `enable`
+
+Enable a disabled service.
+
+**Syntax:**
+```bash
+initctl enable [OPTIONS] <SERVICE>
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--now` | Start the service immediately after enabling |
+
+**Examples:**
+```bash
+# Enable service (requires reload or restart to start)
+initctl enable webapp
+
+# Enable and start immediately
+initctl enable --now webapp
+```
+
+**Output:**
+```
+✓ Service 'webapp' enabled
+✓ Service 'webapp' started
+```
+
+**Behavior:**
+- Renames `.service.disabled` to `.service`
+- Triggers SIGHUP (reload) signal to init
+- With `--now`: Also starts the service immediately
+
+**Error Cases:**
+```
+✗ Error: Failed to enable service 'webapp': Service file not found
+```
+
+---
+
+### `disable`
+
+Disable a service.
+
+**Syntax:**
+```bash
+initctl disable <SERVICE>
+```
+
+**Example:**
+```bash
+initctl disable webapp
+```
+
+**Output:**
+```
+✓ Service 'webapp' disabled
+```
+
+**Behavior:**
+- Stops the service if running (sends SIGTERM)
+- Renames `.service` to `.service.disabled`
+- Triggers SIGHUP (reload) signal to init
+- Service won't start on next boot
+
+**Error Cases:**
+```
+✗ Error: Failed to disable service 'webapp': Service file not found
+```
 
 ---
 
@@ -776,7 +1373,7 @@ initctl logs-clear webapp
 
 **Behavior:**
 - Removes current log file
-- Removes all rotated log files
+- Removes all rotated log files (`.log.1`, `.log.2`, etc.)
 - Creates new empty log file
 - Service continues logging to new file
 
@@ -795,7 +1392,7 @@ initctl system-status
 ```
 System Status
   Uptime: 2d 5h 32m 15s
-  Services: 12 total, 10 active
+  Services: 12 total, 10 enabled, 9 active
   Service Directory: /service
   Log Directory: /log
 ```
@@ -803,9 +1400,42 @@ System Status
 **Information Displayed:**
 - System uptime since init started
 - Total number of services configured
+- Number of enabled services
 - Number of currently active (running) services
 - Configured service directory
 - Configured log directory
+
+---
+
+### `reload`
+
+Reload service configurations without restarting the system.
+
+**Syntax:**
+```bash
+initctl reload
+```
+
+**Output:**
+```
+✓ System reload initiated
+```
+
+**Behavior:**
+1. Sends SIGHUP signal to init process
+2. Init rescans service directory
+3. Loads new service files
+4. Stops removed/disabled services
+5. Starts new enabled services
+6. Respects dependency ordering
+
+**Use Cases:**
+- Added new service files
+- Modified existing service files
+- Enabled/disabled services manually
+- Want to apply changes without full restart
+
+**Note**: Running services are not restarted. To apply changes to a running service, use `initctl restart <service>`.
 
 ---
 
@@ -872,6 +1502,7 @@ initctl ping
 - Health checking
 - Verify init system is running
 - Test control socket connectivity
+- Monitoring and alerting
 
 ---
 
@@ -881,11 +1512,21 @@ initctl ping
 
 #### Starting the Init System
 
-The init system is designed to run as PID 1 and starts automatically when the enclave boots. It's typically configured in your enclave's boot process:
+The init system is designed to run as PID 1 and starts automatically when the enclave boots.
 
 ```bash
-# In enclave's init script or kernel command line
+# Standard startup (uses default config)
 exec /sbin/init
+
+# With custom config path
+exec /sbin/init --config /etc/my-init.yaml
+
+# Using environment variable
+export INIT_CONFIG=/etc/my-init.yaml
+exec /sbin/init
+
+# In kernel command line
+init=/sbin/init
 ```
 
 #### Checking Service Status
@@ -899,6 +1540,9 @@ initctl status myapp
 
 # Check if init is responsive
 initctl ping
+
+# Show system status
+initctl system-status
 ```
 
 #### Managing Services
@@ -912,6 +1556,15 @@ initctl stop myapp
 
 # Restart a service
 initctl restart myapp
+
+# Enable a service
+initctl enable myapp
+
+# Enable and start immediately
+initctl enable --now myapp
+
+# Disable a service (stops it first)
+initctl disable myapp
 ```
 
 #### Viewing Logs
@@ -940,27 +1593,81 @@ To update a service configuration without restarting the enclave:
 # 1. Update the service file
 vim /service/myapp.service
 
-# 2. Restart the service to apply changes
+# 2. Reload configurations
+initctl reload
+
+# 3. Restart the service to apply changes
 initctl restart myapp
 ```
 
-**Note:** Init system does not automatically reload service files. Services must be restarted to apply configuration changes.
+**Alternative: Restart only one service**
+```bash
+# Edit service file
+vim /service/myapp.service
+
+# Just restart the service
+initctl restart myapp
+```
+
+**Note:** `reload` rescans all services. For single service changes, `restart` is faster.
 
 #### Adding New Services at Runtime
 
 ```bash
 # 1. Create new service file
-cat > /service/newapp.service << EOF
+cat > /service/newapp.service << 'EOF'
 ExecStart = "/usr/bin/newapp"
 Restart = "always"
 RestartSec = 5
+ServiceEnable = true
+After = ["database"]
 EOF
 
-# 2. Restart init system (requires enclave restart)
-initctl reboot
+# 2. Reload service configurations
+initctl reload
+
+# 3. Verify service is loaded
+initctl status newapp
+
+# 4. Service should start automatically if enabled
+# Or start manually
+initctl start newapp
 ```
 
-**Note:** New service files are only loaded at init startup. Adding a new service requires an enclave restart.
+#### Removing Services at Runtime
+
+```bash
+# 1. Stop the service
+initctl stop myapp
+
+# 2. Remove or disable the service file
+rm /service/myapp.service
+# or
+mv /service/myapp.service /service/myapp.service.disabled
+
+# 3. Reload configurations
+initctl reload
+```
+
+#### Managing Service Dependencies
+
+When working with services that have dependencies:
+
+```bash
+# 1. Check service dependencies
+initctl status webapp
+# Look for: After, Before, Requires
+
+# 2. Verify dependency startup order
+# Check init logs for startup order
+grep "Computed startup order" /var/log/init.log
+
+# 3. Start services in correct order (automatic)
+# Init handles ordering automatically
+
+# 4. If dependency fails, check required services
+initctl status database  # Required by webapp
+```
 
 #### Debugging Service Issues
 
@@ -974,7 +1681,10 @@ initctl logs myapp -n 100
 # 3. Check exit code
 # Look for "Last Exit Code" in status output
 
-# 4. Try starting manually for debugging
+# 4. Check dependencies
+# Look for "Requires", "After" in status
+
+# 5. Try starting manually for debugging
 # Stop the service first
 initctl stop myapp
 
@@ -983,6 +1693,30 @@ initctl stop myapp
 
 # Once fixed, restart via init
 initctl start myapp
+```
+
+#### Handling Circular Dependencies
+
+If you encounter circular dependency errors:
+
+```bash
+# Error message
+[ERROR] Failed to compute startup order: Circular dependency detected
+
+# 1. Check service dependencies
+initctl status service-a
+initctl status service-b
+
+# 2. Identify the cycle
+# service-a After=[service-b]
+# service-b After=[service-a]
+
+# 3. Fix by removing one dependency
+vim /service/service-a.service
+# Remove or modify After directive
+
+# 4. Reload
+initctl reload
 ```
 
 #### Log Rotation Management
@@ -995,67 +1729,64 @@ du -h /log/*.log
 
 # View rotated logs
 ls -lh /log/myapp.log*
+# myapp.log      - current
+# myapp.log.1    - previous
+# myapp.log.2    - older
 
 # Clear logs if needed
 initctl logs-clear myapp
 
 # Or manually remove old rotations
 rm /log/myapp.log.{3,4,5}
+
+# Compress old logs
+find /log -name "*.log.*" -exec gzip {} \;
 ```
 
-#### Service Dependencies
-
-The init system does not have built-in dependency management. To handle service dependencies:
-
-**Option 1: Use a wrapper script**
+#### Testing Service Dependencies
 
 ```bash
-#!/bin/sh
-# /opt/myapp/start-with-deps.sh
+# 1. Create test services with dependencies
+cat > /service/test-db.service << 'EOF'
+ExecStart = "/bin/sleep infinity"
+Before = ["test-app"]
+EOF
 
-# Wait for database to be ready
-until pg_isready -h localhost; do
-    sleep 1
-done
+cat > /service/test-app.service << 'EOF'
+ExecStart = "/bin/sleep infinity"
+After = ["test-db"]
+Requires = ["test-db"]
+EOF
 
-# Start the application
-exec /usr/bin/myapp
+# 2. Reload and check startup order
+initctl reload
+
+# 3. Verify order in logs
+# test-db should start before test-app
+
+# 4. Test failure handling
+# Stop test-db and see if test-app complains
+initctl stop test-db
 ```
 
-Service file:
-```toml
-ExecStart = "/opt/myapp/start-with-deps.sh"
-Restart = "always"
-```
-
-**Option 2: Use different restart delays**
-
-```toml
-# database.service - starts first
-Restart = "always"
-RestartSec = 5
-
-# app.service - waits longer to start
-Restart = "always"
-RestartSec = 15
-```
-
-#### Resource Management
-
-Monitor service resource usage:
+#### Using Custom Configuration Paths
 
 ```bash
-# View all processes
-ps aux
+# Development environment
+init --config /opt/dev-init.yaml
 
-# View service PID
-initctl status myapp | grep PID
+# Production environment
+init --config /etc/prod-init.yaml
 
-# Monitor specific service
-top -p $(initctl status myapp | grep PID | awk '{print $2}')
+# Testing environment
+INIT_CONFIG=/tmp/test-init.yaml init
 
-# Check memory usage
-cat /proc/$(initctl status myapp | grep PID | awk '{print $2}')/status
+# Multiple environments with initctl
+export INIT_SOCKET=/run/init-dev.sock
+initctl list
+
+export INIT_SOCKET=/run/init-prod.sock
+initctl list
 ```
 
 ### System Administration
@@ -1065,19 +1796,25 @@ cat /proc/$(initctl status myapp | grep PID | awk '{print $2}')/status
 **Backup service configurations:**
 ```bash
 # Backup all service files
-tar -czf services-backup.tar.gz /service/
+tar -czf services-backup-$(date +%Y%m%d).tar.gz /service/
 
 # Backup init configuration
-cp /etc/init.yaml /backup/init.yaml
+cp /etc/init.yaml /backup/init.yaml.$(date +%Y%m%d)
+
+# Backup logs (optional)
+tar -czf logs-backup-$(date +%Y%m%d).tar.gz /log/
 ```
 
 **Restore service configurations:**
 ```bash
 # Restore service files
-tar -xzf services-backup.tar.gz -C /
+tar -xzf services-backup-20240115.tar.gz -C /
 
-# Restart init to load services
-initctl reboot
+# Restore init configuration
+cp /backup/init.yaml.20240115 /etc/init.yaml
+
+# Reload to apply restored services
+initctl reload
 ```
 
 #### Log Management Strategy
@@ -1093,14 +1830,25 @@ max_log_files: 10       # Keep 10 rotations
 2. **Periodically archive old logs**:
 ```bash
 #!/bin/sh
-# archive-logs.sh
-tar -czf /archive/logs-$(date +%Y%m%d).tar.gz /log/*.log.*
+# /opt/scripts/archive-logs.sh
+DATE=$(date +%Y%m%d)
+tar -czf /archive/logs-${DATE}.tar.gz /log/*.log.*
 find /log -name "*.log.*" -delete
+echo "Logs archived to /archive/logs-${DATE}.tar.gz"
 ```
 
-3. **Monitor log directory size**:
+3. **Schedule archival** (create a service for it):
+```toml
+# /service/log-archiver.service
+ExecStart = "/bin/sh -c 'sleep 86400 && /opt/scripts/archive-logs.sh'"
+Restart = "always"
+```
+
+4. **Monitor log directory size**:
 ```bash
+# Add to monitoring service
 du -sh /log
+df -h /log
 ```
 
 #### Graceful Shutdown
@@ -1108,7 +1856,7 @@ du -sh /log
 To safely shutdown the enclave:
 
 ```bash
-# Option 1: Using initctl
+# Option 1: Using initctl (recommended)
 initctl shutdown
 
 # Option 2: Send signal to init
@@ -1116,6 +1864,9 @@ kill -TERM 1
 
 # Option 3: System command (if available)
 shutdown -h now
+
+# Option 4: Reboot instead
+initctl reboot
 ```
 
 All methods will:
@@ -1123,6 +1874,36 @@ All methods will:
 2. Wait 5 seconds
 3. Force kill remaining processes (SIGKILL)
 4. Shutdown the system
+
+#### Service Health Monitoring
+
+Create a monitoring service:
+
+```toml
+# /service/health-monitor.service
+ExecStart = "/opt/scripts/health-monitor.sh"
+Restart = "always"
+RestartSec = 60
+After = ["webapp", "database", "cache"]
+```
+
+```bash
+#!/bin/sh
+# /opt/scripts/health-monitor.sh
+
+while true; do
+    # Check if services are running
+    if ! initctl status webapp | grep -q "active"; then
+        echo "WARNING: webapp is not active"
+    fi
+
+    if ! initctl status database | grep -q "active"; then
+        echo "CRITICAL: database is not active"
+    fi
+
+    sleep 60
+done
+```
 
 ---
 
@@ -1134,15 +1915,37 @@ The init system handles signals as follows:
 
 | Signal | Behavior |
 |--------|----------|
-| `SIGCHLD` | Reap zombie processes, check for service exits |
+| `SIGCHLD` | Reap zombie processes, check for service exits, trigger restarts |
 | `SIGTERM` | Initiate graceful shutdown |
-| `SIGINT` | Initiate graceful shutdown |
+| `SIGINT` | Initiate graceful shutdown (Ctrl+C) |
+| `SIGHUP` | Reload service configurations |
 | Others | Blocked in init process |
 
 **Child Process Signals:**
 - All signals are unblocked in child processes
 - Services receive signals directly
 - Services can handle signals for graceful shutdown
+
+**Example: Service handling SIGTERM**
+```bash
+#!/bin/sh
+# Service that handles SIGTERM gracefully
+
+trap 'echo "Shutting down..."; cleanup; exit 0' TERM
+
+cleanup() {
+    # Save state
+    echo "Saving state..."
+    # Close connections
+    echo "Closing connections..."
+}
+
+# Main loop
+while true; do
+    # Do work
+    sleep 1
+done
+```
 
 ### Process Lifecycle
 
@@ -1160,11 +1963,16 @@ Service Start:
     │ Parent  │ Child
     │         │
     │    ┌────▼────┐
+    │    │ Unblock │
+    │    │ Signals │
+    │    ├─────────┤
     │    │ Setsid  │
     │    ├─────────┤
     │    │ Setpgid │
     │    ├─────────┤
     │    │ Chdir   │
+    │    ├─────────┤
+    │    │ Set Env │
     │    ├─────────┤
     │    │ Exec    │
     │    └────┬────┘
@@ -1191,10 +1999,14 @@ Service Start:
   │ Check Policy│
   └──────┬──────┘
          │
+  ┌──────▼──────┐
+  │  Enabled?   │
+  └──────┬──────┘
+         │
     Restart?
     Yes ├─┐
     No  │ │
-        │ └──> [Wait RestartSec] ──> [Start Cmd]
+        │ └──> [Wait RestartSec] ──> [Check Deps] ──> [Start Cmd]
         │
   ┌─────▼─────┐
   │    Done   │
@@ -1255,6 +2067,12 @@ vsock:
 - Health checking from host
 - Synchronization point for enclave startup
 
+**Disabling:**
+```yaml
+vsock:
+  enabled: false
+```
+
 ### NSM Driver Loading
 
 For AWS Nitro Enclaves with NSM (Nitro Secure Module):
@@ -1298,6 +2116,11 @@ pivot_root_dir: /rootfs
 - Switching from initramfs to real root filesystem
 - Filesystem isolation
 
+**Disabling:**
+```yaml
+pivot_root: false
+```
+
 ### IPC Protocol
 
 Communication between `initctl` and `init` uses JSON over Unix domain sockets.
@@ -1317,6 +2140,7 @@ Communication between `initctl` and `init` uses JSON over Unix domain sockets.
   "ServiceStatus": {
     "status": {
       "name": "webapp",
+      "enabled": true,
       "active": true,
       "pid": 1234,
       "restart_policy": "always",
@@ -1324,7 +2148,13 @@ Communication between `initctl` and `init` uses JSON over Unix domain sockets.
       "restart_sec": 5,
       "exit_status": null,
       "exec_start": "/usr/bin/python3 /app/server.py",
-      "working_directory": "/app"
+      "working_directory": "/app",
+      "dependencies": {
+        "before": ["monitor"],
+        "after": ["database", "cache"],
+        "requires": ["database"],
+        "required_by": []
+      }
     }
   }
 }
@@ -1336,12 +2166,97 @@ Communication between `initctl` and `init` uses JSON over Unix domain sockets.
 - `ServiceStart { name }`
 - `ServiceStop { name }`
 - `ServiceRestart { name }`
+- `ServiceEnable { name }`
+- `ServiceDisable { name }`
 - `ServiceLogs { name, lines }`
 - `ServiceLogsClear { name }`
 - `SystemStatus`
+- `SystemReload`
 - `SystemReboot`
 - `SystemShutdown`
 - `Ping`
+
+### Dependency Resolution Algorithm
+
+**Kahn's Algorithm for Topological Sort:**
+
+```rust
+fn compute_startup_order(services: &HashMap<String, ServiceDependencies>) -> Result<Vec<String>> {
+    // 1. Initialize in-degree for each service
+    let mut in_degree: HashMap<String, usize> = HashMap::new();
+    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+
+    for service_name in services.keys() {
+        in_degree.insert(service_name.clone(), 0);
+        graph.insert(service_name.clone(), Vec::new());
+    }
+
+    // 2. Build dependency graph
+    for (service_name, deps) in services {
+        // After: service starts after these
+        for after in &deps.after {
+            if services.contains_key(after) {
+                graph.get_mut(after).unwrap().push(service_name.clone());
+                *in_degree.get_mut(service_name).unwrap() += 1;
+            }
+        }
+
+        // Before: service starts before these
+        for before in &deps.before {
+            if services.contains_key(before) {
+                graph.get_mut(service_name).unwrap().push(before.clone());
+                *in_degree.get_mut(before).unwrap() += 1;
+            }
+        }
+
+        // Requires: must start after required services
+        for required in &deps.requires {
+            if services.contains_key(required) {
+                graph.get_mut(required).unwrap().push(service_name.clone());
+                *in_degree.get_mut(service_name).unwrap() += 1;
+            }
+        }
+    }
+
+    // 3. Topological sort
+    let mut queue: VecDeque<String> = VecDeque::new();
+    let mut result: Vec<String> = Vec::new();
+
+    // Find nodes with no incoming edges
+    for (service, &degree) in &in_degree {
+        if degree == 0 {
+            queue.push_back(service.clone());
+        }
+    }
+
+    // Process nodes
+    while let Some(service) = queue.pop_front() {
+        result.push(service.clone());
+
+        if let Some(neighbors) = graph.get(&service) {
+            for neighbor in neighbors {
+                if let Some(degree) = in_degree.get_mut(neighbor) {
+                    *degree -= 1;
+                    if *degree == 0 {
+                        queue.push_back(neighbor.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Check for cycles
+    if result.len() != services.len() {
+        return Err("Circular dependency detected".to_string());
+    }
+
+    Ok(result)
+}
+```
+
+**Time Complexity**: O(V + E) where V is number of services and E is number of dependencies
+
+**Space Complexity**: O(V + E)
 
 ---
 
@@ -1354,6 +2269,7 @@ Communication between `initctl` and `init` uses JSON over Unix domain sockets.
 **Symptom:** Enclave fails to boot or hangs
 
 **Solutions:**
+
 1. Check if init binary is executable:
    ```bash
    ls -l /sbin/init
@@ -1372,6 +2288,24 @@ Communication between `initctl` and `init` uses JSON over Unix domain sockets.
    # Should have: init=/sbin/init
    ```
 
+4. Check configuration file:
+   ```bash
+   # Verify config exists
+   ls -l /etc/init.yaml
+
+   # Test with default config
+   init  # Uses /etc/init.yaml
+
+   # Test with custom config
+   init --config /tmp/test.yaml
+   ```
+
+5. Check environment variable:
+   ```bash
+   echo $INIT_CONFIG
+   # If set, init uses this path
+   ```
+
 #### Service Won't Start
 
 **Symptom:** Service shows as inactive, won't start
@@ -1381,20 +2315,27 @@ Communication between `initctl` and `init` uses JSON over Unix domain sockets.
 # Check service status
 initctl status myapp
 
+# Check if service is enabled
+initctl list | grep myapp
+
 # View logs
 initctl logs myapp
 
 # Check service file syntax
 cat /service/myapp.service
 
+# Check for .disabled extension
+ls -l /service/myapp.service*
+
 # Try running command manually
 /usr/bin/myapp
 ```
 
 **Common Causes:**
+- Service is disabled (`.service.disabled` or `ServiceEnable = false`)
 - Incorrect `ExecStart` path
 - Missing executable permissions
-- Missing dependencies
+- Missing dependencies (`Requires` not satisfied)
 - Invalid working directory
 - Environment variable issues
 
@@ -1412,22 +2353,83 @@ initctl logs myapp -n 200
 
 # Check exit codes
 initctl status myapp | grep "Last Exit Code"
+
+# Check restart count
+initctl status myapp | grep "Restart Count"
 ```
 
 **Solutions:**
+
 1. Fix application errors causing crashes
+
 2. Adjust restart policy:
    ```toml
    Restart = "on-failure"
    RestartSec = 30  # Longer delay
    ```
-3. Check for port conflicts or resource issues
+
+3. Check for port conflicts:
+   ```bash
+   netstat -tulpn | grep :8080
+   ```
+
+4. Check resource issues:
+   ```bash
+   free -h  # Memory
+   df -h    # Disk space
+   ```
+
+5. Temporarily disable restart to debug:
+   ```toml
+   Restart = "no"
+   ```
+
+#### Dependency Resolution Failures
+
+**Symptom:** Services start in wrong order or not at all
+
+**Debugging:**
+```bash
+# Check dependencies
+initctl status myapp
+
+# Look for errors in init logs
+dmesg | grep -i "dependency\|circular"
+
+# Check startup order
+grep "Computed startup order" /var/log/messages
+```
+
+**Common Issues:**
+
+1. **Circular dependencies:**
+   ```toml
+   # service-a.service
+   After = ["service-b"]
+
+   # service-b.service
+   After = ["service-a"]
+   ```
+   **Fix:** Remove one of the dependencies
+
+2. **Missing required service:**
+   ```toml
+   Requires = ["nonexistent-service"]
+   ```
+   **Fix:** Create the required service or remove dependency
+
+3. **Typo in service name:**
+   ```toml
+   After = ["databse"]  # Should be "database"
+   ```
+   **Fix:** Correct the spelling
 
 #### Cannot Connect to Control Socket
 
 **Symptom:** `initctl: Failed to connect to init socket`
 
 **Solutions:**
+
 ```bash
 # Check if socket exists
 ls -l /run/init.sock
@@ -1440,6 +2442,14 @@ cat /etc/init.yaml | grep socket_path
 
 # Use correct socket path
 initctl -s /run/init.sock list
+
+# Set environment variable
+export INIT_SOCKET=/run/init.sock
+initctl list
+
+# Check socket permissions
+ls -l /run/init.sock
+# Should be: srwxr-xr-x
 ```
 
 #### Logs Not Appearing
@@ -1459,12 +2469,27 @@ ls -l /log
 
 # View log file directly
 cat /log/myapp.log
+
+# Check disk space
+df -h /log
 ```
 
 **Solutions:**
-1. Ensure log directory exists and is writable
-2. Check `log_dir` in `/etc/init.yaml`
+
+1. Ensure log directory exists and is writable:
+   ```bash
+   mkdir -p /log
+   chmod 755 /log
+   ```
+
+2. Check `log_dir` in `/etc/init.yaml`:
+   ```yaml
+   log_dir: /log
+   ```
+
 3. Verify service is actually writing to stdout/stderr
+
+4. Check if service redirects output elsewhere
 
 #### Service Shows Wrong Status
 
@@ -1480,29 +2505,73 @@ initctl status myapp | grep PID
 
 # Verify process exists
 kill -0 <PID>
+echo $?  # 0 if exists, 1 if not
+
+# Force reload
+initctl reload
 ```
 
 **Solutions:**
 - Wait a moment for status to update
 - Service may have just crashed (check logs)
-- Restart init system if status is stale
+- Reload service configurations: `initctl reload`
+
+#### Enable/Disable Not Working
+
+**Symptom:** `enable` or `disable` commands fail
+
+**Debugging:**
+```bash
+# Check service file exists
+ls -l /service/myapp.service*
+
+# Check file permissions
+ls -l /service/
+
+# Try manual rename
+mv /service/myapp.service /service/myapp.service.disabled
+
+# Check for errors
+initctl enable myapp 2>&1
+```
+
+**Solutions:**
+
+1. Ensure service directory is writable:
+   ```bash
+   chmod 755 /service
+   ```
+
+2. Check for file locks:
+   ```bash
+   lsof | grep myapp.service
+   ```
+
+3. Reload after manual changes:
+   ```bash
+   initctl reload
+   ```
 
 ### Debug Mode
 
-To enable debug logging, add to your init configuration:
+Enable debug logging in init system:
 
 ```yaml
+# /etc/init.yaml
 environment:
   RUST_LOG: debug
 ```
 
-Then check logs:
+Check debug output:
 ```bash
-# View all init system logs
+# View init logs
 journalctl -u init
 
 # Or check console output
 dmesg | grep init
+
+# Or stderr if redirected
+cat /var/log/init.log
 ```
 
 ### Performance Issues
@@ -1519,6 +2588,9 @@ ps aux --sort=-%cpu | head
 # Reduce restart frequency if service is crash-looping
 # Edit service file:
 RestartSec = 60  # Wait longer between restarts
+
+# Check for infinite loops in services
+strace -p <PID>
 ```
 
 #### High Memory Usage
@@ -1533,6 +2605,9 @@ ps aux --sort=-%mem | head
 # Check for memory leaks in services
 # Monitor over time:
 watch -n 5 'ps aux | grep myapp'
+
+# Check init memory usage
+ps aux | grep "^root.*init$"
 ```
 
 #### Too Many Log Files
@@ -1541,12 +2616,34 @@ watch -n 5 'ps aux | grep myapp'
 # Check log directory size
 du -sh /log
 
+# List largest log files
+du -h /log/* | sort -rh | head
+
 # Adjust rotation settings in /etc/init.yaml:
 max_log_size: 5242880    # 5 MB (smaller files)
 max_log_files: 3         # Fewer rotations
 
 # Or clear old logs
 initctl logs-clear myapp
+
+# Or remove old rotations
+find /log -name "*.log.*" -delete
+```
+
+#### Slow Service Startup
+
+```bash
+# Check dependency chain length
+initctl status myapp | grep -E "After|Requires"
+
+# Reduce dependencies if possible
+# Or adjust startup delays
+
+# Check for services waiting unnecessarily
+# Remove unused After directives
+
+# Parallel startup not supported
+# Services start sequentially per dependency order
 ```
 
 ---
@@ -1569,6 +2666,9 @@ cargo build --release
 # Run tests
 cargo test
 
+# Run specific tests
+cargo test test_dependencies
+
 # Check code
 cargo clippy
 
@@ -1580,19 +2680,26 @@ cargo fmt
 
 ```
 enclave-init/
-├── Cargo.toml              # Rust dependencies and build config
+├── Cargo.toml                  # Rust dependencies and build config
 ├── src/
-│   ├── main.rs            # Init system (PID 1)
-│   ├── initctl.rs         # CLI control tool
-│   ├── protocol.rs        # IPC protocol definitions
-│   ├── config.rs          # Configuration loading
-│   └── logger.rs          # Logging implementation
+│   ├── main.rs                # Init system (PID 1)
+│   ├── initctl.rs             # CLI control tool
+│   ├── protocol.rs            # IPC protocol definitions
+│   ├── config.rs              # Configuration loading
+│   ├── logger.rs              # Logging implementation
+│   └── dependencies.rs        # Dependency resolution
 ├── examples/
-│   ├── init.yaml          # Example init configuration
-│   └── services/          # Example service files
+│   ├── init.yaml              # Example init configuration
+│   └── services/              # Example service files
+│       ├── webapp.service
+│       ├── database.service
+│       └── monitor.service
 ├── tests/
-│   └── integration/       # Integration tests
-└── README.md              # This file
+│   ├── integration/           # Integration tests
+│   └── dependencies_test.rs   # Dependency resolution tests
+├── docs/
+│   └── README.md              # This file
+└── README.md                  # Project overview
 ```
 
 ### Testing
@@ -1606,9 +2713,23 @@ cargo test --test '*'
 
 # Test specific module
 cargo test config
+cargo test dependencies
 
 # Test with output
 cargo test -- --nocapture
+
+# Test dependency resolution
+cargo test test_simple_order
+cargo test test_circular_dependency
+cargo test test_requires
+```
+
+### Running Tests
+
+**Dependency Resolution Tests:**
+```bash
+cd enclave-init
+cargo test -p enclave-init --lib dependencies
 ```
 
 ### Contributing
@@ -1616,7 +2737,7 @@ cargo test -- --nocapture
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests
+4. Add tests for new features
 5. Run `cargo fmt` and `cargo clippy`
 6. Submit a pull request
 
@@ -1626,6 +2747,8 @@ cargo test -- --nocapture
 - Use `clippy` for linting
 - Add documentation comments for public APIs
 - Write tests for new features
+- Use meaningful variable names
+- Keep functions focused and small
 
 ---
 
@@ -1645,7 +2768,7 @@ pivot_root: false
 
 **Q: Does it support systemd service files?**
 
-A: No, it uses TOML format which is simpler to parse. However, basic directives (`ExecStart`, `Restart`, etc.) are similar to systemd.
+A: No, it uses TOML format which is simpler to parse. However, basic directives (`ExecStart`, `Restart`, `After`, `Before`, `Requires`) are similar to systemd.
 
 **Q: Can services run as different users?**
 
@@ -1654,7 +2777,7 @@ A: Not currently. All services run as the same user as init (typically root). Th
 **Q: How do I run multiple instances of the same service?**
 
 A: Create separate service files:
-```
+```bash
 /service/worker-1.service
 /service/worker-2.service
 /service/worker-3.service
@@ -1662,16 +2785,38 @@ A: Create separate service files:
 
 **Q: Can I reload configuration without restarting?**
 
-A: Service file changes require restarting the specific service. Init configuration changes require an enclave reboot.
+A: Yes! Use `initctl reload` to reload service configurations. Running services are not automatically restarted; use `initctl restart <service>` to apply changes.
+
+**Q: How do I specify the config file location?**
+
+A: Three ways:
+```bash
+# CLI argument (highest priority)
+init --config /etc/my-config.yaml
+
+# Environment variable
+export INIT_CONFIG=/etc/my-config.yaml
+init
+
+# Default location
+# init looks for /etc/init.yaml
+```
 
 ### Service Management
 
 **Q: How do I prevent a service from starting at boot?**
 
-A: Remove or rename the service file:
-```bash
-mv /service/myapp.service /service/myapp.service.disabled
-```
+A: Two methods:
+
+1. Disable via initctl:
+   ```bash
+   initctl disable myapp
+   ```
+
+2. Set in service file:
+   ```toml
+   ServiceEnable = false
+   ```
 
 **Q: Can services communicate with each other?**
 
@@ -1679,11 +2824,74 @@ A: Yes, through normal IPC mechanisms (sockets, pipes, shared memory, etc.). The
 
 **Q: How do I ensure one service starts before another?**
 
-A: Use wrapper scripts or delays. See [Service Dependencies](#service-dependencies) section.
+A: Use dependency directives:
+```toml
+# In service-a.service
+After = ["service-b"]
+
+# Or in service-b.service
+Before = ["service-a"]
+```
 
 **Q: What happens if all services exit?**
 
 A: Init continues running, waiting for commands via control socket. It will never exit voluntarily.
+
+**Q: How do I handle optional dependencies?**
+
+A: Use `After` without `Requires`:
+```toml
+# Start after logger if it exists, but don't fail if it doesn't
+After = ["logger"]
+```
+
+**Q: Can I have multiple services depend on one service?**
+
+A: Yes:
+```toml
+# In database.service
+Before = ["webapp", "api", "worker"]
+
+# Or in each dependent service
+After = ["database"]
+```
+
+### Dependencies
+
+**Q: What's the difference between `After` and `Requires`?**
+
+A:
+- `After`: Soft dependency, ordering only. Service starts even if dependency fails.
+- `Requires`: Hard dependency. Service won't start if dependency is missing or fails.
+
+**Q: Can I have circular dependencies?**
+
+A: No, the init system detects and rejects circular dependencies:
+```
+[ERROR] Circular dependency detected in service definitions
+```
+
+**Q: What happens if a required service fails?**
+
+A: The dependent service won't start. Check logs:
+```bash
+initctl status webapp
+# Shows: Service 'webapp' requires 'database' which is not running
+```
+
+**Q: How do I debug dependency issues?**
+
+A:
+```bash
+# Check service dependencies
+initctl status myapp
+
+# Check startup order
+grep "Computed startup order" /var/log/messages
+
+# Validate dependencies
+initctl reload  # Will show errors
+```
 
 ### Logging
 
@@ -1693,7 +2901,7 @@ A: Services can log to syslog if configured. Init system logs to files only.
 
 **Q: How long are logs kept?**
 
-A: Based on rotation settings. With default config (10MB × 5 files), up to 50MB per service.
+A: Based on rotation settings. With defaults (10MB × 5 files), up to 50MB per service.
 
 **Q: Can I export logs to external storage?**
 
@@ -1702,6 +2910,20 @@ A: Yes, periodically copy `/log/` directory or setup a service that forwards log
 **Q: Are logs persistent across reboots?**
 
 A: Only if `/log` is on persistent storage. In enclaves, usually stored in memory and lost on reboot.
+
+**Q: How do I view all rotated logs?**
+
+A:
+```bash
+# View current log
+cat /log/myapp.log
+
+# View all logs (current + rotated)
+cat /log/myapp.log*
+
+# Or use tail
+tail -f /log/myapp.log
+```
 
 ### Performance
 
@@ -1717,6 +2939,14 @@ A: Tested with 100+ services. No hard limit, but consider resource constraints.
 
 A: Init mounts cgroups but doesn't configure limits. You can configure limits manually or via service wrapper scripts.
 
+**Q: Can services start in parallel?**
+
+A: No, services start sequentially based on dependency order. This ensures correct ordering but may be slower than parallel startup.
+
+**Q: How fast is dependency resolution?**
+
+A: O(V + E) complexity using topological sort. Very fast even with complex dependency graphs.
+
 ### Security
 
 **Q: Is the control socket secured?**
@@ -1730,6 +2960,10 @@ A: No, enclave isolation is enforced by the hypervisor, not init.
 **Q: Does it validate service files?**
 
 A: Basic validation only. Malformed files are logged and skipped.
+
+**Q: Can I restrict which services can be controlled?**
+
+A: Not currently. Any user with socket access can control all services.
 
 ---
 
@@ -1761,6 +2995,7 @@ environment:
   LANG: en_US.UTF-8
   HOME: /root
   PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  ENVIRONMENT: production
 
 vsock:
   enabled: true
@@ -1787,6 +3022,7 @@ environment:
   TZ: America/New_York
   DEBUG: "true"
   RUST_LOG: debug
+  ENVIRONMENT: development
 
 vsock:
   enabled: false
@@ -1811,6 +3047,11 @@ Environment = [
 Restart = "always"
 RestartSec = 5
 WorkingDirectory = "/app"
+ServiceEnable = true
+
+After = ["database", "cache"]
+Requires = ["database"]
+Before = ["monitor"]
 ```
 
 #### Node.js Microservice
@@ -1827,6 +3068,10 @@ Environment = [
 Restart = "always"
 RestartSec = 10
 WorkingDirectory = "/opt/api"
+ServiceEnable = true
+
+After = ["cache"]
+Before = ["webapp"]
 ```
 
 #### Rust Binary Service
@@ -1841,6 +3086,9 @@ Environment = [
 Restart = "on-failure"
 RestartSec = 15
 WorkingDirectory = "/var/lib/processor"
+ServiceEnable = true
+
+After = ["database"]
 ```
 
 #### Shell Script Service
@@ -1854,6 +3102,9 @@ Environment = [
 ]
 Restart = "always"
 RestartSec = 5
+ServiceEnable = true
+
+After = ["webapp", "database", "cache"]
 ```
 
 #### Java Application
@@ -1869,6 +3120,28 @@ Environment = [
 Restart = "always"
 RestartSec = 20
 WorkingDirectory = "/opt/backend"
+ServiceEnable = true
+
+After = ["database"]
+Requires = ["database"]
+```
+
+#### Database Service
+
+```toml
+# /service/database.service
+ExecStart = "/usr/bin/postgres -D /var/lib/postgresql/data"
+Environment = [
+    "POSTGRES_PASSWORD=secret",
+    "POSTGRES_DB=myapp",
+    "POSTGRES_USER=appuser"
+]
+Restart = "always"
+RestartSec = 10
+WorkingDirectory = "/var/lib/postgresql"
+ServiceEnable = true
+
+Before = ["webapp", "api", "worker"]
 ```
 
 ### Error Codes Reference
@@ -1903,6 +3176,7 @@ WorkingDirectory = "/opt/backend"
 | SIGCHLD | Handle | Reap zombie child processes |
 | SIGTERM | Shutdown | Graceful shutdown sequence |
 | SIGINT | Shutdown | Graceful shutdown (Ctrl+C) |
+| SIGHUP | Reload | Reload service configurations |
 | Others | Blocked | Ignored by init process |
 
 #### Signals to Service Processes
@@ -1925,28 +3199,31 @@ Typical enclave filesystem layout:
 ```
 /
 ├── sbin/
-│   └── init                    # Init binary (PID 1)
+│   └── init                          # Init binary (PID 1)
 ├── usr/
 │   └── bin/
-│       └── initctl            # Control tool
+│       └── initctl                   # Control tool
 ├── etc/
-│   ├── init.yaml              # Init configuration
+│   ├── init.yaml                     # Init configuration
 │   └── ...
-├── service/                   # Service definitions
+├── service/                          # Service definitions
 │   ├── webapp.service
+│   ├── database.service
 │   ├── worker.service
-│   └── monitor.service
-├── log/                       # Service logs
+│   ├── monitor.service
+│   └── backup.service.disabled       # Disabled service
+├── log/                              # Service logs
 │   ├── webapp.log
 │   ├── webapp.log.1
-│   ├── worker.log
-│   └── monitor.log
+│   ├── webapp.log.2
+│   ├── database.log
+│   └── worker.log
 ├── run/
-│   └── init.sock             # Control socket
-├── proc/                      # Process information
-├── sys/                       # Kernel objects
-├── dev/                       # Device nodes
-└── tmp/                       # Temporary files
+│   └── init.sock                     # Control socket
+├── proc/                             # Process information
+├── sys/                              # Kernel objects
+├── dev/                              # Device nodes
+└── tmp/                              # Temporary files
 ```
 
 ### Performance Tuning
@@ -1990,6 +3267,59 @@ find /log -name "*.gz" -delete
 du -s /log | awk '{if($1>102400)system("find /log -name \"*.log.*\" -delete")}'
 ```
 
+#### Optimizing Dependency Chains
+
+```toml
+# Bad: Long linear chain
+# a -> b -> c -> d -> e
+
+# Better: Parallel where possible
+# a, b, c, d all independent
+# e depends on all of them
+```
+
+### Command Reference Summary
+
+#### Init Commands
+```bash
+# Start init with default config
+init
+
+# Start init with custom config
+init --config /path/to/config.yaml
+
+# Use environment variable
+INIT_CONFIG=/path/to/config.yaml init
+```
+
+#### Service Management
+```bash
+initctl list                    # List all services
+initctl status <service>        # Show service status
+initctl start <service>         # Start service
+initctl stop <service>          # Stop service
+initctl restart <service>       # Restart service
+initctl enable <service>        # Enable service
+initctl enable --now <service>  # Enable and start
+initctl disable <service>       # Disable service
+```
+
+#### Logs
+```bash
+initctl logs <service>          # Show last 50 lines
+initctl logs <service> -n 100   # Show last 100 lines
+initctl logs-clear <service>    # Clear logs
+```
+
+#### System
+```bash
+initctl system-status           # Show system status
+initctl reload                  # Reload configurations
+initctl reboot                  # Reboot system
+initctl shutdown                # Shutdown system
+initctl ping                    # Test connectivity
+```
+
 ---
 
 ## License
@@ -2004,11 +3334,34 @@ For issues, questions, or contributions:
 
 - **Issue Tracker**: [GitHub Issues](https://github.com/sentient-agi/Sentient-Enclaves-Framework/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/sentient-agi/Sentient-Enclaves-Framework/discussions)
+- **Documentation**: [GitHub Wiki](https://github.com/sentient-agi/Sentient-Enclaves-Framework/wiki)
 - **Email**: Sentient Enclaves Team <sentient-enclaves-team@sentient.xyz>
 
 ---
 
 ## Changelog
+
+### Version 0.5.0 (Beta State Release)
+
+**New Features:**
+- Configurable init configuration file path via CLI (`--config`) and environment (`INIT_CONFIG`)
+- Service dependency management (`Before`, `After`, `Requires`, `RequiredBy`)
+- Automatic topological sorting for service startup order
+- Circular dependency detection
+- Enable/disable services at runtime
+- `enable --now` to enable and start service immediately
+- System reload command (`initctl reload`)
+- SIGHUP signal handling for configuration reload
+
+**Improvements:**
+- Enhanced service status display with dependency information
+- Better error messages for dependency issues
+- Improved service loading with enabled/disabled state tracking
+- Extended IPC protocol with enable/disable operations
+
+**Bug Fixes:**
+- Fixed service startup ordering issues
+- Improved error handling in dependency resolution
 
 ### Version 0.4.0 (Alpha State Release)
 
