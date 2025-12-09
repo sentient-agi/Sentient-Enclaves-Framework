@@ -15,7 +15,7 @@ use nix::sys::signal::{
 };
 use nix::sys::socket::{
     accept, bind, connect, listen, recv, send, socket, AddressFamily, MsgFlags, SockFlag,
-    SockType, UnixAddr, VsockAddr,
+    SockType, SockaddrLike, UnixAddr, VsockAddr,
 };
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
@@ -657,7 +657,6 @@ fn load_services(config: &InitConfig) -> Result<HashMap<String, ServiceState>> {
 
         let path = entry.path();
 
-        // Skip .disabled files
         if is_service_disabled(&path) {
             Logger::info(&format!("Skipping disabled service: {:?}", path));
             continue;
@@ -1049,12 +1048,10 @@ fn enable_service(config: &InitConfig, name: &str) -> Result<(), String> {
         .join(format!("{}.service", name));
 
     if disabled_path.exists() {
-        // Rename .disabled to .service
         rename(&disabled_path, &enabled_path)
             .map_err(|e| format!("Failed to rename service file: {}", e))?;
         Ok(())
     } else if enabled_path.exists() {
-        // Already enabled
         Ok(())
     } else {
         Err(format!("Service file not found"))
@@ -1068,12 +1065,10 @@ fn disable_service(config: &InitConfig, name: &str) -> Result<(), String> {
         .join(format!("{}.service.disabled", name));
 
     if enabled_path.exists() {
-        // Rename .service to .disabled
         rename(&enabled_path, &disabled_path)
             .map_err(|e| format!("Failed to rename service file: {}", e))?;
         Ok(())
     } else if disabled_path.exists() {
-        // Already disabled
         Ok(())
     } else {
         Err(format!("Service file not found"))
@@ -1219,7 +1214,6 @@ fn handle_client_request(
         }
 
         Request::ServiceDisable { name } => {
-            // First stop the service if running
             let mut services = services.lock().unwrap();
             if let Some(service) = services.get_mut(&name) {
                 if let Some(pid) = service.pid {
@@ -1303,78 +1297,25 @@ fn handle_client_request(
     }
 }
 
-fn control_socket_thread(services: ServiceMap, config: InitConfig) {
-    let socket_path = &config.socket_path;
-    let _ = remove_file(socket_path);
-
-    let socket_fd = match socket(
-        AddressFamily::Unix,
-        SockType::Stream,
-        SockFlag::empty(),
-        None,
-    ) {
-        Ok(fd) => fd,
-        Err(e) => {
-            Logger::error(&format!("Failed to create control socket: {}", e));
-            return;
-        }
-    };
-
-    let addr = match UnixAddr::new(socket_path.as_str()) {
-        Ok(addr) => addr,
-        Err(e) => {
-            Logger::error(&format!("Failed to create socket address: {}", e));
-            return;
-        }
-    };
-
-    if let Err(e) = bind(socket_fd, &addr) {
-        Logger::error(&format!("Failed to bind control socket: {}", e));
-        return;
-    }
-
-    if let Err(e) = listen(socket_fd, 5) {
-        Logger::error(&format!("Failed to listen on control socket: {}", e));
-        return;
-    }
-
-    Logger::info(&format!("Control socket listening on {}", socket_path));
-
-    loop {
-        match accept(socket_fd) {
-            Ok(client_fd) => {
-                let services = services.clone();
-                let config = config.clone();
-                thread::spawn(move || {
-                    handle_client_connection(client_fd, services, config);
-                });
-            }
-            Err(e) => {
-                Logger::warn(&format!("Failed to accept connection: {}", e));
-            }
-        }
-    }
-}
-
-fn handle_client_connection(client_fd: RawFd, services: ServiceMap, config: InitConfig) {
+fn handle_connection(fd: RawFd, services: &ServiceMap, config: &InitConfig) {
     let mut buffer = vec![0u8; 8192];
 
-    match recv(client_fd, &mut buffer, MsgFlags::empty()) {
+    match recv(fd, &mut buffer, MsgFlags::empty()) {
         Ok(n) if n > 0 => {
             buffer.truncate(n);
             match serde_json::from_slice::<Request>(&buffer) {
                 Ok(request) => {
-                    let response = handle_client_request(request, &services, &config);
+                    let response = handle_client_request(request, services, config);
                     let response_data = match serde_json::to_vec(&response) {
                         Ok(data) => data,
                         Err(e) => {
                             Logger::error(&format!("Failed to serialize response: {}", e));
-                            let _ = close(client_fd);
+                            let _ = close(fd);
                             return;
                         }
                     };
 
-                    let _ = send(client_fd, &response_data, MsgFlags::empty());
+                    let _ = send(fd, &response_data, MsgFlags::empty());
                 }
                 Err(e) => {
                     Logger::warn(&format!("Failed to parse request: {}", e));
@@ -1382,7 +1323,7 @@ fn handle_client_connection(client_fd: RawFd, services: ServiceMap, config: Init
                         message: format!("Invalid request: {}", e),
                     };
                     if let Ok(data) = serde_json::to_vec(&error_response) {
-                        let _ = send(client_fd, &data, MsgFlags::empty());
+                        let _ = send(fd, &data, MsgFlags::empty());
                     }
                 }
             }
@@ -1395,7 +1336,108 @@ fn handle_client_connection(client_fd: RawFd, services: ServiceMap, config: Init
         }
     }
 
-    let _ = close(client_fd);
+    let _ = close(fd);
+}
+
+fn unix_socket_thread(services: ServiceMap, config: InitConfig) {
+    let socket_path = &config.control.unix_socket_path;
+    let _ = remove_file(socket_path);
+
+    let socket_fd = match socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    ) {
+        Ok(fd) => fd,
+        Err(e) => {
+            Logger::error(&format!("Failed to create Unix socket: {}", e));
+            return;
+        }
+    };
+
+    let addr = match UnixAddr::new(socket_path.as_str()) {
+        Ok(addr) => addr,
+        Err(e) => {
+            Logger::error(&format!("Failed to create Unix socket address: {}", e));
+            return;
+        }
+    };
+
+    if let Err(e) = bind(socket_fd, &addr) {
+        Logger::error(&format!("Failed to bind Unix socket: {}", e));
+        return;
+    }
+
+    if let Err(e) = listen(socket_fd, 5) {
+        Logger::error(&format!("Failed to listen on Unix socket: {}", e));
+        return;
+    }
+
+    Logger::info(&format!("Unix control socket listening on {}", socket_path));
+
+    loop {
+        match accept(socket_fd) {
+            Ok(client_fd) => {
+                let services = services.clone();
+                let config = config.clone();
+                thread::spawn(move || {
+                    handle_connection(client_fd, &services, &config);
+                });
+            }
+            Err(e) => {
+                Logger::warn(&format!("Failed to accept Unix connection: {}", e));
+            }
+        }
+    }
+}
+
+fn vsock_socket_thread(services: ServiceMap, config: InitConfig) {
+    let socket_fd = match socket(
+        AddressFamily::Vsock,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    ) {
+        Ok(fd) => fd,
+        Err(e) => {
+            Logger::error(&format!("Failed to create VSOCK socket: {}", e));
+            return;
+        }
+    };
+
+    // Bind to VMADDR_CID_ANY (-1U) to listen on any CID, or specific CID
+    let listen_addr = VsockAddr::new(config.control.vsock_cid, config.control.vsock_port);
+
+    if let Err(e) = bind(socket_fd, &listen_addr) {
+        Logger::error(&format!("Failed to bind VSOCK socket: {}", e));
+        return;
+    }
+
+    if let Err(e) = listen(socket_fd, 5) {
+        Logger::error(&format!("Failed to listen on VSOCK socket: {}", e));
+        return;
+    }
+
+    Logger::info(&format!(
+        "VSOCK control socket listening on CID:{} PORT:{}",
+        config.control.vsock_cid, config.control.vsock_port
+    ));
+
+    loop {
+        match accept(socket_fd) {
+            Ok(client_fd) => {
+                let services = services.clone();
+                let config = config.clone();
+                thread::spawn(move || {
+                    handle_connection(client_fd, &services, &config);
+                });
+            }
+            Err(e) => {
+                Logger::warn(&format!("Failed to accept VSOCK connection: {}", e));
+            }
+        }
+    }
 }
 
 fn main() {
@@ -1405,12 +1447,10 @@ fn main() {
     Logger::info("Enclave init system starting...");
     Logger::info(&format!("Loading configuration from: {}", args.config));
 
-    // Record start time
     unsafe {
         SYSTEM_START_TIME = Some(Instant::now());
     }
 
-    // Load configuration
     let config = match InitConfig::load_from(&args.config) {
         Ok(c) => {
             Logger::info("Configuration loaded successfully");
@@ -1422,12 +1462,10 @@ fn main() {
         }
     };
 
-    // Apply environment variables from config
     config.apply_environment();
     Logger::info(&format!("Service directory: {}", config.service_dir));
     Logger::info(&format!("Log directory: {}", config.log_dir));
 
-    // Create log directory
     if let Err(e) = fs::create_dir_all(&config.log_dir) {
         Logger::warn(&format!("Failed to create log directory: {}", e));
     }
@@ -1445,7 +1483,6 @@ fn main() {
     let _ = init_fs(&OPS);
     let _ = init_cgroups();
 
-    // Create log directory again after pivot root
     if let Err(e) = fs::create_dir_all(&config.log_dir) {
         Logger::warn(&format!("Failed to create log directory after pivot root: {}", e));
     }
@@ -1458,7 +1495,6 @@ fn main() {
         }
     };
 
-    // Compute startup order and launch services
     {
         let services = services_map.lock().unwrap();
         if services.is_empty() {
@@ -1474,7 +1510,6 @@ fn main() {
                         if let Err(e) = launch_service(service) {
                             Logger::error(&format!("Failed to launch service {}: {}", service_name, e));
                         }
-                        // Small delay between service starts
                         drop(services);
                         thread::sleep(Duration::from_millis(100));
                     }
@@ -1483,11 +1518,22 @@ fn main() {
         }
     }
 
-    let services_for_socket = services_map.clone();
-    let config_for_socket = config.clone();
-    thread::spawn(move || {
-        control_socket_thread(services_for_socket, config_for_socket);
-    });
+    // Start control socket threads
+    if config.control.unix_socket_enabled {
+        let services_for_unix = services_map.clone();
+        let config_for_unix = config.clone();
+        thread::spawn(move || {
+            unix_socket_thread(services_for_unix, config_for_unix);
+        });
+    }
+
+    if config.control.vsock_enabled {
+        let services_for_vsock = services_map.clone();
+        let config_for_vsock = config.clone();
+        thread::spawn(move || {
+            vsock_socket_thread(services_for_vsock, config_for_vsock);
+        });
+    }
 
     Logger::info("Entering main loop");
     loop {
@@ -1504,7 +1550,6 @@ fn main() {
                 Ok(new_services) => {
                     let mut services = services_map.lock().unwrap();
 
-                    // Stop services that no longer exist or are now disabled
                     for (name, service) in services.iter_mut() {
                         if !new_services.contains_key(name) || !new_services[name].enabled {
                             if let Some(pid) = service.pid {
@@ -1517,7 +1562,6 @@ fn main() {
                     *services = new_services;
                     Logger::info("Services reloaded successfully");
 
-                    // Start new enabled services
                     let startup_order = compute_startup_order(&services);
                     for service_name in startup_order {
                         if let Some(service) = services.get_mut(&service_name) {

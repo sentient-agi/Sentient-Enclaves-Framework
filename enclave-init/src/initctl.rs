@@ -1,20 +1,36 @@
+mod config;
 mod protocol;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use nix::sys::socket::{connect, recv, send, socket, AddressFamily, MsgFlags, SockFlag, SockType, UnixAddr};
+use config::{ControlProtocol, InitctlConfig};
+use nix::sys::socket::{connect, recv, send, socket, AddressFamily, MsgFlags, SockFlag, SockType, UnixAddr, VsockAddr};
 use nix::unistd::close;
 use protocol::{Request, Response};
-
-const DEFAULT_SOCKET_PATH: &str = "/run/init.sock";
 
 #[derive(Parser)]
 #[command(name = "initctl")]
 #[command(about = "Control tool for enclave init system", long_about = None)]
 struct Cli {
-    /// Path to init control socket
-    #[arg(short = 's', long, env = "INIT_SOCKET", default_value = DEFAULT_SOCKET_PATH)]
-    socket: String,
+    /// Path to initctl configuration file
+    #[arg(short = 'c', long, env = "INITCTL_CONFIG", default_value = "/etc/initctl.yaml")]
+    config: String,
+
+    /// Override protocol (unix or vsock)
+    #[arg(short, long)]
+    protocol: Option<String>,
+
+    /// Override Unix socket path
+    #[arg(short = 's', long, env = "INIT_SOCKET")]
+    socket: Option<String>,
+
+    /// Override VSOCK CID
+    #[arg(long)]
+    vsock_cid: Option<u32>,
+
+    /// Override VSOCK port
+    #[arg(long)]
+    vsock_port: Option<u32>,
 
     #[command(subcommand)]
     command: Commands,
@@ -105,18 +121,50 @@ enum Commands {
     Ping,
 }
 
-fn send_request(socket_path: &str, request: Request) -> Result<Response> {
+fn send_request_unix(socket_path: &str, request: Request) -> Result<Response> {
     let socket_fd = socket(
         AddressFamily::Unix,
         SockType::Stream,
         SockFlag::empty(),
         None,
     )
-    .context("Failed to create socket")?;
+    .context("Failed to create Unix socket")?;
 
-    let addr = UnixAddr::new(socket_path).context("Failed to create socket address")?;
+    let addr = UnixAddr::new(socket_path).context("Failed to create Unix socket address")?;
 
-    connect(socket_fd, &addr).context("Failed to connect to init socket")?;
+    connect(socket_fd, &addr).context("Failed to connect to Unix socket")?;
+
+    let request_data = serde_json::to_vec(&request).context("Failed to serialize request")?;
+
+    send(socket_fd, &request_data, MsgFlags::empty())
+        .context("Failed to send request")?;
+
+    let mut buffer = vec![0u8; 65536];
+    let n = recv(socket_fd, &mut buffer, MsgFlags::empty())
+        .context("Failed to receive response")?;
+
+    buffer.truncate(n);
+
+    let response: Response = serde_json::from_slice(&buffer)
+        .context("Failed to deserialize response")?;
+
+    close(socket_fd).context("Failed to close socket")?;
+
+    Ok(response)
+}
+
+fn send_request_vsock(cid: u32, port: u32, request: Request) -> Result<Response> {
+    let socket_fd = socket(
+        AddressFamily::Vsock,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    )
+    .context("Failed to create VSOCK socket")?;
+
+    let addr = VsockAddr::new(cid, port);
+
+    connect(socket_fd, &addr).context("Failed to connect to VSOCK")?;
 
     let request_data = serde_json::to_vec(&request).context("Failed to serialize request")?;
 
@@ -157,20 +205,51 @@ fn format_uptime(secs: u64) -> String {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Load configuration
+    let mut config = InitctlConfig::load_from(&cli.config).unwrap_or_default();
+
+    // Apply CLI overrides
+    if let Some(protocol_str) = &cli.protocol {
+        config.protocol = match protocol_str.to_lowercase().as_str() {
+            "unix" => ControlProtocol::Unix,
+            "vsock" => ControlProtocol::Vsock,
+            _ => {
+                eprintln!("Invalid protocol '{}', use 'unix' or 'vsock'", protocol_str);
+                std::process::exit(1);
+            }
+        };
+    }
+
+    if let Some(socket_path) = &cli.socket {
+        config.unix_socket_path = socket_path.clone();
+    }
+
+    if let Some(cid) = cli.vsock_cid {
+        config.vsock_cid = cid;
+    }
+
+    if let Some(port) = cli.vsock_port {
+        config.vsock_port = port;
+    }
+
     // Handle enable --now specially
     if let Commands::Enable { ref name, now } = cli.command {
-        // First enable the service
         let enable_request = Request::ServiceEnable { name: name.clone() };
-        let response = send_request(&cli.socket, enable_request)?;
+        let response = match config.protocol {
+            ControlProtocol::Unix => send_request_unix(&config.unix_socket_path, enable_request)?,
+            ControlProtocol::Vsock => send_request_vsock(config.vsock_cid, config.vsock_port, enable_request)?,
+        };
 
         match response {
             Response::Success { message } => {
                 println!("✓ {}", message);
 
                 if now {
-                    // Then start it
                     let start_request = Request::ServiceStart { name: name.clone() };
-                    let start_response = send_request(&cli.socket, start_request)?;
+                    let start_response = match config.protocol {
+                        ControlProtocol::Unix => send_request_unix(&config.unix_socket_path, start_request)?,
+                        ControlProtocol::Vsock => send_request_vsock(config.vsock_cid, config.vsock_port, start_request)?,
+                    };
 
                     match start_response {
                         Response::Success { message } => {
@@ -211,7 +290,16 @@ fn main() -> Result<()> {
         Commands::Ping => Request::Ping,
     };
 
-    let response = send_request(&cli.socket, request)?;
+    let response = match config.protocol {
+        ControlProtocol::Unix => {
+            eprintln!("[DEBUG] Using Unix socket: {}", config.unix_socket_path);
+            send_request_unix(&config.unix_socket_path, request)?
+        }
+        ControlProtocol::Vsock => {
+            eprintln!("[DEBUG] Using VSOCK: CID={}, PORT={}", config.vsock_cid, config.vsock_port);
+            send_request_vsock(config.vsock_cid, config.vsock_port, request)?
+        }
+    };
 
     match response {
         Response::Success { message } => {
@@ -257,7 +345,6 @@ fn main() -> Result<()> {
                 println!("  Last Exit Code: {}", exit_code);
             }
 
-            // Show dependencies
             if !status.dependencies.before.is_empty() {
                 println!("  Before: {}", status.dependencies.before.join(", "));
             }

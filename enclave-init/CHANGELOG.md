@@ -347,3 +347,99 @@ initctl reload
 initctl status webapp
 ```
 
+# v0.6.0
+
+Added VSOCK support for the init control protocol:
+   - Added support for init control protocol (`initctl`) over VSock as well, as it is implemented for Unix domain sockets now.
+   - Added listening on dedicated `CID:PORT` for control protocol commands in a dedicated thread, as it is made for Unix sockets now.
+   - Dedicated `CID` and `PORT` for control protocol are set in `init.yaml` as for Unix domain socket path as well.
+   - The used protocol, VSock or Unix domain socket or both (listening both sockets, Unix domain socket and VSock), are set by configuration parameter in `init.yaml` as well.
+   - Made `initctl.yaml` configuration file for `initctl` CLI client and include configuration for Unix domain socket and for VSock (`CID` and `PORT`), and parameter for which protocol will be used, over Unix domain socket or over VSock.
+
+## Key Features
+
+The Enclave's Init System implementation now supports:
+
+1. **Dual protocol support**: Both Unix socket and VSOCK for control interface
+2. **Configurable protocols**: Enable/disable each protocol independently
+3. **VSOCK control listening**: Init listens on VSOCK for remote control
+4. **Initctl configuration**: Separate config file for initctl with protocol selection
+5. **CLI overrides**: Override protocol and connection parameters from command line
+6. **Simultaneous listening**: Can listen on both Unix socket and VSOCK at the same time
+
+## Examples of configuration YAML files for `init` system and `initctl`:
+
+**Example `/etc/init.yaml`:**
+```yaml
+service_dir: /service
+log_dir: /log
+
+# Control socket configuration
+control:
+  # Enable Unix socket control interface
+  unix_socket_enabled: true
+  unix_socket_path: /run/init.sock
+
+  # Enable VSOCK control interface
+  vsock_enabled: true
+  # Use VMADDR_CID_ANY (4294967295) to listen on any CID, or specific CID
+  vsock_cid: 4294967295  # -1U / VMADDR_CID_ANY
+  vsock_port: 9001
+
+max_log_size: 10485760
+max_log_files: 5
+
+environment:
+  TZ: UTC
+  LANG: en_US.UTF-8
+
+# VSOCK heartbeat configuration (different from control socket)
+vsock:
+  enabled: true
+  cid: 3
+  port: 9000
+
+nsm_driver_path: nsm.ko
+pivot_root: true
+pivot_root_dir: /rootfs
+```
+
+**Example `/etc/initctl.yaml`:**
+```yaml
+# Protocol to use: "unix" or "vsock"
+protocol: unix
+
+# Unix socket configuration
+unix_socket_path: /run/init.sock
+
+# VSOCK configuration
+vsock_cid: 3      # Parent CID for enclave access
+vsock_port: 9001  # Control port
+```
+
+**Example `/etc/initctl.yaml` for host access:**
+```yaml
+# For host accessing enclave over VSOCK
+protocol: vsock
+
+# Unix socket (not used when protocol is vsock)
+unix_socket_path: /run/init.sock
+
+# VSOCK configuration
+vsock_cid: 16     # Enclave CID
+vsock_port: 9001  # Control port
+```
+
+## Usage examples
+
+```bash
+# Inside enclave (Unix socket)
+initctl list
+
+# From host (VSOCK)
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
+
+# Or configure in /etc/initctl.yaml
+initctl list
+```
+

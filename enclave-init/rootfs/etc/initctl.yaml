@@ -1,0 +1,9 @@
+# Protocol to use: "unix" or "vsock"
+protocol: unix
+
+# Unix socket configuration
+unix_socket_path: /run/init.sock
+
+# VSOCK configuration
+vsock_cid: 3      # Parent CID for enclave access
+vsock_port: 9001  # Control port

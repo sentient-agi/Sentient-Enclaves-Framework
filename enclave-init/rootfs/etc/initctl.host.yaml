@@ -1,0 +1,9 @@
+# For host accessing enclave over VSOCK
+protocol: vsock
+
+# Unix socket (not used when protocol is vsock)
+unix_socket_path: /run/init.sock
+
+# VSOCK configuration
+vsock_cid: 16     # Enclave CID
+vsock_port: 9001  # Control port
