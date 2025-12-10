@@ -294,8 +294,8 @@ Server Thread (per protocol):
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/enclave-init.git
-cd enclave-init
+git clone https://github.com/sentient-agi/Sentient-Enclaves-Framework.git
+cd Sentient-Enclaves-Framework/enclave-init/
 
 # Build release binaries
 cargo build --release
@@ -2137,7 +2137,7 @@ nitro-cli describe-enclaves | jq '.[0].State'
 ```bash
 # Clone repository
 git clone https://github.com/sentient-agi/Sentient-Enclaves-Framework.git
-cd enclave-init
+cd Sentient-Enclaves-Framework/enclave-init/
 
 # Build debug version
 cargo build
