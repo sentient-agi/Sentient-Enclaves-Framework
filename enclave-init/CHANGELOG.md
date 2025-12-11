@@ -443,3 +443,33 @@ initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
 initctl list
 ```
 
+# v0.7.0
+
+## Enclave Init System - Process Management Integration
+
+Added comprehensive process management capabilities to the control protocol.
+Integration into control protocol, `initctl` and `init`, the ability to manage system processes as well as services.
+This effectively distinguish managed services and ad-hoc processes in a system.
+
+## Key Features
+
+The key additions are:
+
+1. **New `process.rs` module** with process listing, info gathering, and signal sending
+2. **Process management requests** in protocol (ProcessList, ProcessStatus, ProcessStart, ProcessStop, ProcessRestart, ProcessKill)
+3. **Process info tracking** showing which processes are managed services
+4. **Enhanced system status** with total process count
+
+The process management integrates seamlessly with service management, showing which processes are managed by init and allowing operations on both.
+
+The process management functionality is fully integrated into control protocol, with `initctl` and `init`:
+
+1. **`initctl ps list`** - List all processes with details
+2. **`initctl ps status <PID>`** - Show detailed process information
+3. **`initctl ps start/run <COMMAND>`** - Start a new process
+4. **`initctl ps stop <PID>`** - Stop a process (SIGTERM)
+5. **`initctl ps restart <PID>`** - Restart managed services
+6. **`initctl ps kill <PID> --signal <N>`** - Send specific signal to process
+
+The system tracks which processes are managed as services and provides comprehensive process information including CPU%, memory, state, and parent relationships.
+

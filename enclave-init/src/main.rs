@@ -1,6 +1,7 @@
 mod config;
 mod dependencies;
 mod logger;
+mod process;
 mod protocol;
 
 use anyhow::{Context, Result};
@@ -1031,14 +1032,33 @@ fn get_system_status(config: &InitConfig, services: &HashMap<String, ServiceStat
     let active_services = services.values().filter(|s| s.is_active()).count();
     let enabled_services = services.values().filter(|s| s.enabled).count();
 
+    // Count total processes
+    let total_processes = if let Ok(entries) = fs::read_dir("/proc") {
+        entries.filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().parse::<i32>().is_ok())
+            .count()
+    } else {
+        0
+    };
+
     SystemStatus {
         uptime_secs: uptime,
         total_services: services.len(),
         active_services,
         enabled_services,
+        total_processes,
         log_dir: config.log_dir.clone(),
         service_dir: config.service_dir.clone(),
     }
+}
+
+fn get_service_pids(services: &HashMap<String, ServiceState>) -> HashMap<String, i32> {
+    services
+        .iter()
+        .filter_map(|(name, service)| {
+            service.pid.map(|pid| (name.clone(), pid.as_raw()))
+        })
+        .collect()
 }
 
 fn enable_service(config: &InitConfig, name: &str) -> Result<(), String> {
@@ -1088,6 +1108,7 @@ fn handle_client_request(
     match request {
         Request::Ping => Response::Pong,
 
+        // Service management
         Request::ListServices => {
             let services = services.lock().unwrap();
             let service_list: Vec<ServiceInfo> = services
@@ -1264,6 +1285,100 @@ fn handle_client_request(
             }
         }
 
+        // Process management
+        Request::ProcessList => {
+            let services = services.lock().unwrap();
+            let service_pids = get_service_pids(&services);
+            let processes = process::list_processes(&service_pids);
+            Response::ProcessList { processes }
+        }
+
+        Request::ProcessStatus { pid } => {
+            let services = services.lock().unwrap();
+            let service_pids = get_service_pids(&services);
+            let uptime_secs = unsafe {
+                SYSTEM_START_TIME
+                    .map(|start| start.elapsed().as_secs())
+                    .unwrap_or(0)
+            };
+
+            match process::get_process_info(pid, uptime_secs, &service_pids) {
+                Ok(process) => Response::ProcessStatus { process },
+                Err(e) => Response::Error {
+                    message: format!("Failed to get process status: {}", e),
+                },
+            }
+        }
+
+        Request::ProcessStart { command, args, env } => {
+            match process::start_process(&command, &args, &env) {
+                Ok(pid) => Response::ProcessStarted {
+                    pid,
+                    message: format!("Process started with PID {}", pid),
+                },
+                Err(e) => Response::Error {
+                    message: format!("Failed to start process: {}", e),
+                },
+            }
+        }
+
+        Request::ProcessStop { pid } => {
+            match process::signal_process(pid, Signal::SIGTERM) {
+                Ok(_) => Response::Success {
+                    message: format!("SIGTERM sent to process {}", pid),
+                },
+                Err(e) => Response::Error {
+                    message: format!("Failed to stop process: {}", e),
+                },
+            }
+        }
+
+        Request::ProcessRestart { pid } => {
+            // Get process info first
+            let service_pids = {
+                let services_guard = services.lock().unwrap();
+                get_service_pids(&services_guard)
+            };
+
+            // Check if it's a managed service
+            if let Some((service_name, _)) = service_pids.iter().find(|(_, &p)| p == pid) {
+                // Use service restart
+                return handle_client_request(
+                    Request::ServiceRestart { name: service_name.clone() },
+                    services,
+                    config,
+                );
+            }
+
+            Response::Error {
+                message: format!("Process {} is not managed by init, cannot restart", pid),
+            }
+        }
+
+        Request::ProcessKill { pid, signal } => {
+            let sig = match signal {
+                1 => Signal::SIGHUP,
+                2 => Signal::SIGINT,
+                9 => Signal::SIGKILL,
+                15 => Signal::SIGTERM,
+                _ => {
+                    return Response::Error {
+                        message: format!("Unsupported signal: {}", signal),
+                    };
+                }
+            };
+
+            match process::signal_process(pid, sig) {
+                Ok(_) => Response::Success {
+                    message: format!("Signal {} sent to process {}", signal, pid),
+                },
+                Err(e) => Response::Error {
+                    message: format!("Failed to send signal: {}", e),
+                },
+            }
+        }
+
+        // System management
         Request::SystemStatus => {
             let services = services.lock().unwrap();
             Response::SystemStatus {
@@ -1406,7 +1521,6 @@ fn vsock_socket_thread(services: ServiceMap, config: InitConfig) {
         }
     };
 
-    // Bind to VMADDR_CID_ANY (-1U) to listen on any CID, or specific CID
     let listen_addr = VsockAddr::new(config.control.vsock_cid, config.control.vsock_port);
 
     if let Err(e) = bind(socket_fd, &listen_addr) {
@@ -1518,7 +1632,6 @@ fn main() {
         }
     }
 
-    // Start control socket threads
     if config.control.unix_socket_enabled {
         let services_for_unix = services_map.clone();
         let config_for_unix = config.clone();

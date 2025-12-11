@@ -105,6 +105,10 @@ enum Commands {
         name: String,
     },
 
+    /// Process management commands
+    #[command(subcommand)]
+    Ps(PsCommands),
+
     /// Show system status
     SystemStatus,
 
@@ -119,6 +123,60 @@ enum Commands {
 
     /// Ping the init system
     Ping,
+}
+
+#[derive(Subcommand)]
+enum PsCommands {
+    /// List all processes
+    List,
+
+    /// Show status of a specific process
+    Status {
+        /// Process ID
+        #[arg(value_name = "PID")]
+        pid: i32,
+    },
+
+    /// Start a new process (alias: run)
+    #[command(alias = "run")]
+    Start {
+        /// Command to execute
+        #[arg(value_name = "COMMAND")]
+        command: String,
+
+        /// Arguments for the command
+        #[arg(value_name = "ARGS")]
+        args: Vec<String>,
+
+        /// Environment variables (KEY=VALUE)
+        #[arg(short, long)]
+        env: Vec<String>,
+    },
+
+    /// Stop a process (send SIGTERM)
+    Stop {
+        /// Process ID
+        #[arg(value_name = "PID")]
+        pid: i32,
+    },
+
+    /// Restart a process (managed services only)
+    Restart {
+        /// Process ID
+        #[arg(value_name = "PID")]
+        pid: i32,
+    },
+
+    /// Send a signal to a process
+    Kill {
+        /// Process ID
+        #[arg(value_name = "PID")]
+        pid: i32,
+
+        /// Signal number (default: 15/SIGTERM)
+        #[arg(short, long, default_value = "15")]
+        signal: i32,
+    },
 }
 
 fn send_request_unix(socket_path: &str, request: Request) -> Result<Response> {
@@ -199,6 +257,34 @@ fn format_uptime(secs: u64) -> String {
         format!("{}m {}s", minutes, seconds)
     } else {
         format!("{}s", seconds)
+    }
+}
+
+fn format_memory(kb: u64) -> String {
+    if kb >= 1024 * 1024 {
+        format!("{:.1}G", kb as f64 / (1024.0 * 1024.0))
+    } else if kb >= 1024 {
+        format!("{:.1}M", kb as f64 / 1024.0)
+    } else {
+        format!("{}K", kb)
+    }
+}
+
+fn format_state(state: &str) -> &str {
+    match state {
+        "R" => "Running",
+        "S" => "Sleeping",
+        "D" => "Disk sleep",
+        "Z" => "Zombie",
+        "T" => "Stopped",
+        "t" => "Tracing",
+        "X" => "Dead",
+        "x" => "Dead",
+        "K" => "Wakekill",
+        "W" => "Waking",
+        "P" => "Parked",
+        "I" => "Idle",
+        _ => state,
     }
 }
 
@@ -283,6 +369,20 @@ fn main() -> Result<()> {
         Commands::Disable { name } => Request::ServiceDisable { name: name.clone() },
         Commands::Logs { name, lines } => Request::ServiceLogs { name: name.clone(), lines: *lines },
         Commands::LogsClear { name } => Request::ServiceLogsClear { name: name.clone() },
+
+        Commands::Ps(ps_cmd) => match ps_cmd {
+            PsCommands::List => Request::ProcessList,
+            PsCommands::Status { pid } => Request::ProcessStatus { pid: *pid },
+            PsCommands::Start { command, args, env } => Request::ProcessStart {
+                command: command.clone(),
+                args: args.clone(),
+                env: env.clone(),
+            },
+            PsCommands::Stop { pid } => Request::ProcessStop { pid: *pid },
+            PsCommands::Restart { pid } => Request::ProcessRestart { pid: *pid },
+            PsCommands::Kill { pid, signal } => Request::ProcessKill { pid: *pid, signal: *signal },
+        },
+
         Commands::SystemStatus => Request::SystemStatus,
         Commands::Reload => Request::SystemReload,
         Commands::Reboot => Request::SystemReboot,
@@ -292,11 +392,9 @@ fn main() -> Result<()> {
 
     let response = match config.protocol {
         ControlProtocol::Unix => {
-            eprintln!("[DEBUG] Using Unix socket: {}", config.unix_socket_path);
             send_request_unix(&config.unix_socket_path, request)?
         }
         ControlProtocol::Vsock => {
-            eprintln!("[DEBUG] Using VSOCK: CID={}, PORT={}", config.vsock_cid, config.vsock_port);
             send_request_vsock(config.vsock_cid, config.vsock_port, request)?
         }
     };
@@ -367,11 +465,58 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Response::ProcessList { processes } => {
+            if processes.is_empty() {
+                println!("No processes found");
+            } else {
+                println!("{:<8} {:<8} {:<12} {:<6} {:<8} {:<10} {:<10} {}",
+                         "PID", "PPID", "STATE", "CPU%", "MEM", "MANAGED", "SERVICE", "COMMAND");
+                println!("{}", "-".repeat(100));
+
+                for process in processes {
+                    let managed = if process.managed { "yes" } else { "no" };
+                    let service = process.service_name.as_deref().unwrap_or("-");
+                    let cmdline = if process.cmdline.len() > 50 {
+                        format!("{}...", &process.cmdline[..47])
+                    } else {
+                        process.cmdline.clone()
+                    };
+
+                    println!("{:<8} {:<8} {:<12} {:<6.1} {:<8} {:<10} {:<10} {}",
+                             process.pid,
+                             process.ppid,
+                             format_state(&process.state),
+                             process.cpu_percent,
+                             format_memory(process.memory_kb),
+                             managed,
+                             service,
+                             cmdline);
+                }
+            }
+        }
+        Response::ProcessStatus { process } => {
+            println!("Process: {}", process.pid);
+            println!("  Name: {}", process.name);
+            println!("  Parent PID: {}", process.ppid);
+            println!("  State: {}", format_state(&process.state));
+            println!("  Command: {}", process.cmdline);
+            println!("  CPU: {:.1}%", process.cpu_percent);
+            println!("  Memory: {}", format_memory(process.memory_kb));
+            println!("  Start Time: {}", process.start_time);
+            println!("  Managed by Init: {}", if process.managed { "yes" } else { "no" });
+            if let Some(service_name) = process.service_name {
+                println!("  Service: {}", service_name);
+            }
+        }
+        Response::ProcessStarted { pid, message } => {
+            println!("✓ {} (PID: {})", message, pid);
+        }
         Response::SystemStatus { status } => {
             println!("System Status");
             println!("  Uptime: {}", format_uptime(status.uptime_secs));
             println!("  Services: {} total, {} enabled, {} active",
                      status.total_services, status.enabled_services, status.active_services);
+            println!("  Processes: {} total", status.total_processes);
             println!("  Service Directory: {}", status.service_dir);
             println!("  Log Directory: {}", status.log_dir);
         }
