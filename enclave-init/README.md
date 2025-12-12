@@ -15,6 +15,7 @@ A robust, systemd-inspired init system designed specifically for AWS Nitro Encla
 - [Service Files](#service-files)
 - [Service Dependencies](#service-dependencies)
 - [Control Protocols](#control-protocols)
+- [Process Management](#process-management)
 - [CLI Reference](#cli-reference)
 - [Usage Guide](#usage-guide)
 - [Advanced Topics](#advanced-topics)
@@ -27,7 +28,7 @@ A robust, systemd-inspired init system designed specifically for AWS Nitro Encla
 
 ## Overview
 
-The Enclave Init System is a minimal, production-ready init system (PID 1) designed to run inside secure enclaves. It provides process supervision, automatic service restarts, service dependency management, comprehensive logging, and dual-protocol control interfaces (Unix socket and VSOCK) for managing services at runtime.
+The Enclave Init System is a minimal, production-ready init system (PID 1) designed to run inside secure enclaves. It provides process supervision, automatic service restarts, service dependency management, comprehensive logging, dual-protocol control interfaces (Unix socket and VSOCK), and system-wide process management capabilities.
 
 ### Key Characteristics
 
@@ -38,6 +39,7 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
 - **Dependency management**: Systemd-style service dependencies with startup ordering
 - **Runtime control**: Manage services without restarting the enclave
 - **Dual protocol support**: Control via Unix socket (local) or VSOCK (remote)
+- **Process management**: List, monitor, and control all system processes
 - **Enable/Disable**: Dynamic service activation control
 - **Persistent logging**: Per-service log files with automatic rotation
 - **Configurable**: YAML-based configuration for all aspects of the system
@@ -56,6 +58,10 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
   - Automatic service restarts based on policy
   - Graceful shutdown handling
   - Signal handling (SIGTERM, SIGINT, SIGHUP, SIGCHLD)
+  - System-wide process listing and monitoring
+  - Process information (CPU, memory, state, command line)
+  - Start, stop, restart, and signal processes
+  - Track managed vs unmanaged processes
 
 - **Service Management**
   - Systemd-style service file format (TOML)
@@ -66,6 +72,7 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
   - Configurable restart delays
   - Enable/disable services at runtime
   - Service dependencies and ordering
+  - Service-to-process mapping
 
 - **Dependency Management**
   - `Before`: Specify services that should start after this one
@@ -92,11 +99,14 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
   - View and clear logs via CLI
 
 - **Runtime Control**
-  - CLI tool (`initctl`) for service management
+  - CLI tool (`initctl`) for service and process management
   - Start, stop, restart services
   - Enable, disable services
   - Reload configurations without restart
   - View service status and logs
+  - List and monitor all processes
+  - Start ad-hoc processes
+  - Send signals to processes
   - System-wide operations (reload, reboot, shutdown)
   - Remote control from host via VSOCK
 
@@ -125,6 +135,8 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
 │                                                   │
 │  ┌───────────────────────────────────────────┐    │
 │  │         initctl (Host)                    │    │
+│  │  - Service Management                     │    │
+│  │  - Process Management                     │    │
 │  │  (VSOCK Client)                           │    │
 │  └───────────────┬───────────────────────────┘    │
 │                  │                                │
@@ -141,8 +153,9 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
 │  │                                           │    │
 │  │  - Signal Handling (TERM/INT/HUP/CHLD)    │    │
 │  │  - Process Supervision                    │    │
-│  │  - Filesystem Initialization              │    │
 │  │  - Service Management                     │    │
+│  │  - System Process Management              │    │
+│  │  - Filesystem Initialization              │    │
 │  │  - Dependency Resolution                  │    │
 │  │  - Unix Socket (/run/init.sock)           │    │
 │  │  - VSOCK Socket (CID:ANY PORT:9001)       │    │
@@ -150,11 +163,14 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
 │           │              │              │         │
 │     ┌─────┴─────┐  ┌─────┴─────┐  ┌─────┴─────┐   │
 │     │ Service A │  │ Service B │  │ Service C │   │
+│     │  (PID X)  │  │  (PID Y)  │  │  (PID Z)  │   │
 │     │(depends B)│  │           │  │(after A,B)│   │
 │     └───────────┘  └───────────┘  └───────────┘   │
 │                                                   │
 │  ┌───────────────────────────────────────────┐    │
 │  │         initctl (Enclave)                 │    │
+│  │  - Service Management                     │    │
+│  │  - Process Management (ps commands)       │    │
 │  │  (Unix Socket Client)                     │    │
 │  └───────────────────────────────────────────┘    │
 │                                                   │
@@ -164,6 +180,7 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
 │  /service/*.service          - Service files      │
 │  /service/*.service.disabled - Disabled services  │
 │  /log/*.log                  - Service logs       │
+│  /proc/                      - Process info       │
 └───────────────────────────────────────────────────┘
 ```
 
@@ -181,14 +198,16 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
    └──────────┘                    └──────────┘
    Path: /run/init.sock
    Use: In-enclave management
+   Commands: Service + Process management
 
 2. VSOCK (Remote Control)
    ┌──────────┐                    ┌──────────┐
-   │ initctl  │ ──[VSOCK]────────> │   init   │
+   │  initctl │ ──[VSOCK]────────> │   init   │
    │  (Host)  │ <───────────────── │ (Enclave)│
    └──────────┘                    └──────────┘
    CID: 16 (enclave), PORT: 9001
    Use: Host-to-enclave management
+   Commands: Service + Process management
 
 3. Both Protocols Simultaneously
    ┌──────────┐                    ┌──────────┐
@@ -196,8 +215,49 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
    │ (Local)  │                    │   init   │
    │          │                    │  (PID 1) │
    │ initctl  │ ──[VSOCK]────────> │          │
-   │  (Host)  │                    │          │
+   │ (Host)   │                    │          │
    └──────────┘                    └──────────┘
+```
+
+### Process Management Flow
+
+```
+┌─────────────────────────────────────────────────────┐
+│              Process Management Layer               │
+└─────────────────────────────────────────────────────┘
+
+Init System View of Processes:
+┌─────────────────────────────────────────────────────┐
+│  All System Processes                               │
+│                                                     │
+│  ┌──────────────────────────────────────────┐       │
+│  │  Managed Services (tracked by init)      │       │
+│  │  - webapp (PID 123) → Service            │       │
+│  │  - database (PID 124) → Service          │       │
+│  │  - worker (PID 125) → Service            │       │
+│  └──────────────────────────────────────────┘       │
+│                                                     │
+│  ┌────────────────────────────────────────────┐     │
+│  │  Unmanaged Processes                       │     │
+│  │  - bash (PID 200) → User shell             │     │
+│  │  - python (PID 201) → Ad-hoc process       │     │
+│  │  - grep (PID 202) → Temporary              │     │
+│  └────────────────────────────────────────────┘     │
+│                                                     │
+│  ┌────────────────────────────────────────────┐     │
+│  │  System Processes                          │     │
+│  │  - init (PID 1) → Init system              │     │
+│  │  - kthreadd (PID 2) → Kernel threads       │     │
+│  └────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────┘
+
+Process Operations:
+- List: Show all processes with details
+- Status: Get detailed info for specific PID
+- Start: Launch new ad-hoc process
+- Stop: Send SIGTERM to process
+- Kill: Send specific signal to process
+- Restart: Restart managed service by PID
 ```
 
 ### Process Flow
@@ -230,53 +290,13 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
                     ├─> Check SIGHUP → Reload Services
                     ├─> Restart Dead Services (per policy)
                     ├─> Handle Unix Socket Requests
+                    │   ├─ Service commands
+                    │   └─ Process commands
                     ├─> Handle VSOCK Requests
+                    │   ├─ Service commands
+                    │   └─ Process commands
                     │
                     └─> [Loop continues]
-```
-
-### Control Protocol Flow
-
-```
-Client Request Flow:
-┌──────────────┐
-│ initctl CLI  │
-└──────┬───────┘
-       │
-       ├─> Load /etc/initctl.yaml
-       ├─> Apply CLI overrides
-       ├─> Determine protocol (unix/vsock)
-       │
-       ├─> [Unix Socket Path]
-       │   │
-       │   ├─> Connect to /run/init.sock
-       │   ├─> Send JSON request
-       │   ├─> Receive JSON response
-       │   └─> Display result
-       │
-       └─> [VSOCK]
-           │
-           ├─> Connect to CID:PORT
-           ├─> Send JSON request
-           ├─> Receive JSON response
-           └─> Display result
-
-Server Thread (per protocol):
-┌──────────────┐
-│ Socket/VSOCK │
-│   Listener   │
-└──────┬───────┘
-       │
-       ├─> Accept connection
-       ├─> Spawn handler thread
-       │   │
-       │   ├─> Receive request
-       │   ├─> Parse JSON
-       │   ├─> Handle request
-       │   ├─> Serialize response
-       │   └─> Send response
-       │
-       └─> [Loop for next connection]
 ```
 
 ---
@@ -469,22 +489,23 @@ ps aux | grep init
 INIT_CONFIG=/etc/my-init.yaml /sbin/init
 ```
 
-### 5. Manage Services
+### 5. Manage Services and Processes
 
 **Inside Enclave (Unix Socket)**:
 
 ```bash
-# List all services
+# Service management
 initctl list
-
-# Check service status
 initctl status webapp
-
-# View logs
 initctl logs webapp -n 100
-
-# Restart a service
 initctl restart webapp
+
+# Process management
+initctl ps list
+initctl ps status 123
+initctl ps start /usr/bin/mycommand arg1 arg2
+initctl ps stop 456
+initctl ps kill 789 --signal 9
 ```
 
 **From Host (VSOCK)**:
@@ -496,14 +517,15 @@ export INITCTL_CONFIG=/etc/enclave-init/initctl.yaml
 # Or use CLI options
 initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
 
-# Check service status from host
+# Service management from host
 initctl status webapp
-
-# Restart service from host
 initctl restart webapp
-
-# View logs from host
 initctl logs webapp -n 100
+
+# Process management from host
+initctl ps list
+initctl ps status 123
+initctl ps stop 456
 ```
 
 ---
@@ -599,47 +621,6 @@ pivot_root_dir: /rootfs
 | `pivot_root` | boolean | `true` | Perform pivot root operation on startup |
 | `pivot_root_dir` | string | `/rootfs` | Source directory for pivot root |
 
-#### Control Socket Configuration Details
-
-**Unix Socket**:
-- **Purpose**: Local control within enclave
-- **Path**: Configurable (default: `/run/init.sock`)
-- **Permissions**: Unix socket permissions apply
-- **Use Case**: In-enclave service management
-
-**VSOCK Control**:
-- **Purpose**: Remote control from host
-- **CID**: Use `4294967295` (VMADDR_CID_ANY) to listen on any CID
-- **Port**: Configurable (default: `9001`)
-- **Use Case**: Host-to-enclave service management
-
-**Simultaneous Listening**:
-```yaml
-control:
-  unix_socket_enabled: true
-  unix_socket_path: /run/init.sock
-  vsock_enabled: true
-  vsock_cid: 4294967295
-  vsock_port: 9001
-```
-
-#### VSOCK CID Values
-
-| CID Value | Constant | Meaning |
-|-----------|----------|---------|
-| 0 | VMADDR_CID_HYPERVISOR | Hypervisor |
-| 1 | VMADDR_CID_LOCAL | Local communication |
-| 2 | VMADDR_CID_HOST | Host (deprecated, use 2) |
-| 3+ | - | Guest/Enclave CID |
-| 4294967295 | VMADDR_CID_ANY | Listen on any CID |
-
-#### Configuration Loading Priority
-
-1. **CLI argument**: `init --config /path/to/config.yaml` (highest priority)
-2. **Environment variable**: `INIT_CONFIG=/path/to/config.yaml`
-3. **Default path**: `/etc/init.yaml`
-4. **Built-in defaults**: If no file found
-
 ---
 
 ### Initctl Configuration (`initctl.yaml`)
@@ -688,31 +669,6 @@ vsock_port: 9001   # Control port
 | `unix_socket_path` | string | `/run/init.sock` | Unix socket path (when protocol is unix) |
 | `vsock_cid` | integer | `3` | VSOCK CID to connect to (when protocol is vsock) |
 | `vsock_port` | integer | `9001` | VSOCK port to connect to (when protocol is vsock) |
-
-#### CLI Overrides
-
-All configuration options can be overridden via CLI arguments:
-
-```bash
-# Override protocol
-initctl --protocol vsock list
-
-# Override Unix socket path
-initctl --socket /custom/path/init.sock list
-
-# Override VSOCK parameters
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
-
-# Override config file
-initctl --config /path/to/initctl.yaml list
-```
-
-#### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `INITCTL_CONFIG` | Path to initctl configuration file |
-| `INIT_SOCKET` | Override Unix socket path (deprecated, use config) |
 
 ---
 
@@ -781,78 +737,6 @@ RequiredBy = ["monitor"]
 | `Requires` | array | No | `[]` | Required dependencies |
 | `RequiredBy` | array | No | `[]` | Services that require this one |
 
-### Restart Policies
-
-#### `no`
-Never restart the service automatically.
-
-```toml
-Restart = "no"
-```
-
-**Use case**: One-shot tasks, services that should not restart
-
-#### `always`
-Always restart the service regardless of exit status.
-
-```toml
-Restart = "always"
-RestartSec = 5
-```
-
-**Use case**: Critical services that must always run (web servers, databases)
-
-#### `on-failure`
-Restart only if the service exits with a non-zero exit code.
-
-```toml
-Restart = "on-failure"
-RestartSec = 10
-```
-
-**Use case**: Services that may exit successfully but should restart on errors
-
-#### `on-success`
-Restart only if the service exits with exit code 0.
-
-```toml
-Restart = "on-success"
-RestartSec = 5
-```
-
-**Use case**: Periodic tasks that need to run continuously when successful
-
-### Enable/Disable Mechanism
-
-Services can be enabled or disabled in two ways:
-
-#### 1. File Extension Method
-
-- **Enabled**: File named `myservice.service`
-- **Disabled**: File named `myservice.service.disabled`
-
-```bash
-# Disable by renaming
-mv /service/myapp.service /service/myapp.service.disabled
-
-# Enable by renaming back
-mv /service/myapp.service.disabled /service/myapp.service
-
-# Or use initctl (works locally or remotely)
-initctl enable myapp
-initctl disable myapp
-```
-
-#### 2. ServiceEnable Option
-
-```toml
-# In service file
-ServiceEnable = true   # Enabled
-ServiceEnable = false  # Disabled
-```
-
-**Note**: File extension takes precedence. A `.service.disabled` file will not be loaded regardless of `ServiceEnable` setting.
-
 ---
 
 ## Service Dependencies
@@ -887,11 +771,6 @@ Specifies services that should start **after** this service.
 Before = ["webapp"]
 ```
 
-**Behavior**:
-- Equivalent to webapp having `After = ["database"]`
-- Reverse of `After`
-- Multiple services can be specified
-
 #### `Requires`
 
 Hard dependency. The required service must exist and start successfully.
@@ -903,12 +782,6 @@ Requires = ["database"]
 After = ["database"]  # Usually combined with After
 ```
 
-**Behavior**:
-- Database must exist (error if not)
-- Database starts first (implies `After`)
-- If database fails to start, webapp won't start
-- Strong dependency relationship
-
 #### `RequiredBy`
 
 Reverse of `Requires`. This service is required by others.
@@ -919,79 +792,11 @@ Reverse of `Requires`. This service is required by others.
 RequiredBy = ["webapp"]
 ```
 
-**Behavior**:
-- Informational/documentation purpose
-- Doesn't affect startup order directly
-- Useful for tracking reverse dependencies
-
-### Dependency Resolution
-
-#### Algorithm
-
-The init system uses **Topological Sort (Kahn's Algorithm)** to determine startup order:
-
-1. **Build dependency graph** from service files
-2. **Validate** that all required dependencies exist
-3. **Detect circular dependencies**
-4. **Compute ordering** using topological sort
-5. **Start services** in computed order
-
-#### Example Dependency Chain
-
-```toml
-# redis.service
-[redis.service]
-ExecStart = "/usr/bin/redis-server"
-Before = ["cache-warmer", "webapp"]
-
-# cache-warmer.service
-[cache-warmer.service]
-ExecStart = "/usr/bin/cache-warmer"
-After = ["redis"]
-Before = ["webapp"]
-Requires = ["redis"]
-
-# database.service
-[database.service]
-ExecStart = "/usr/bin/postgres"
-Before = ["webapp"]
-
-# webapp.service
-[webapp.service]
-ExecStart = "/usr/bin/webapp"
-After = ["database", "cache-warmer"]
-Requires = ["database"]
-```
-
-**Computed startup order**:
-1. `redis` (no dependencies)
-2. `database` (no dependencies)
-3. `cache-warmer` (after redis)
-4. `webapp` (after database and cache-warmer)
-
-### Circular Dependency Detection
-
-The init system detects and reports circular dependencies:
-
-```toml
-# service-a.service
-After = ["service-b"]
-
-# service-b.service
-After = ["service-a"]
-```
-
-**Result**: Error logged, services start in arbitrary order.
-
-```
-[ERROR] Failed to compute startup order: Circular dependency detected in service definitions
-```
-
 ---
 
 ## Control Protocols
 
-The init system supports two control protocols for managing services.
+The init system supports two control protocols for managing services and processes.
 
 ### Unix Socket Protocol
 
@@ -1004,32 +809,11 @@ control:
   unix_socket_path: /run/init.sock
 ```
 
-**Advantages**:
-- Fast local communication
-- Standard Unix permissions for access control
-- No network overhead
-- Works without VSOCK support
-
 **Use Cases**:
 - In-enclave service management
+- In-enclave process management
 - Local automation scripts
 - Container-like environments
-
-**Client Configuration** (in `/etc/initctl.yaml`):
-```yaml
-protocol: unix
-unix_socket_path: /run/init.sock
-```
-
-**Usage**:
-```bash
-# Inside enclave
-initctl list
-initctl status webapp
-initctl restart webapp
-```
-
----
 
 ### VSOCK Protocol
 
@@ -1043,166 +827,269 @@ control:
   vsock_port: 9001
 ```
 
-**CID Selection**:
-- **VMADDR_CID_ANY (4294967295)**: Listen on any CID (recommended)
-- **Specific CID**: Bind to enclave's assigned CID
-- **Auto-assignment**: Enclave CID is usually auto-assigned by hypervisor
-
-**Advantages**:
-- Remote management from host
-- No need to enter enclave
-- Secure communication via VSOCK
-- Multiple enclaves on same host can use different ports
-
 **Use Cases**:
 - Host-to-enclave management
+- Remote service control
+- Remote process monitoring
 - CI/CD pipelines managing enclave services
-- Monitoring and orchestration from host
 - Zero-downtime deployments
 
-**Client Configuration** (in `/etc/initctl.yaml` on host):
-```yaml
-protocol: vsock
-vsock_cid: 16      # Enclave's CID
-vsock_port: 9001
-```
-
-**Finding Enclave CID**:
-```bash
-# On host, list running enclaves
-nitro-cli describe-enclaves
-
-# Output includes:
-# "EnclaveCID": 16
-```
-
-**Usage from Host**:
-```bash
-# Configure initctl
-export INITCTL_CONFIG=/etc/enclave-init/initctl.yaml
-
-# Or use CLI options
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
-
-# Manage services remotely
-initctl status webapp
-initctl restart webapp
-initctl logs webapp -n 100
-
-# Enable/disable services
-initctl enable newservice --now
-initctl disable oldservice
-```
-
 ---
 
-### Dual Protocol Mode
+## Process Management
 
-**Purpose**: Enable both Unix socket and VSOCK simultaneously
+The init system provides comprehensive process management capabilities, allowing you to list, monitor, and control all processes in the system.
 
-**Configuration** (in `/etc/init.yaml`):
-```yaml
-control:
-  # Enable both protocols
-  unix_socket_enabled: true
-  unix_socket_path: /run/init.sock
+### Process Information
 
-  vsock_enabled: true
-  vsock_cid: 4294967295
-  vsock_port: 9001
-```
+The init system tracks and displays the following information for each process:
 
-**Benefits**:
-- Local management via Unix socket
-- Remote management via VSOCK
-- Flexibility in access method
-- Redundancy
+| Field | Description |
+|-------|-------------|
+| **PID** | Process ID |
+| **PPID** | Parent Process ID |
+| **Name** | Process name (from /proc/[pid]/stat) |
+| **Command** | Full command line with arguments |
+| **State** | Process state (Running, Sleeping, Zombie, etc.) |
+| **CPU%** | CPU usage percentage |
+| **Memory** | Memory usage (RSS) in KB/MB/GB |
+| **Start Time** | Process start time |
+| **Managed** | Whether process is managed by init as a service |
+| **Service** | Service name if managed |
 
-**Use Cases**:
-- Development: local testing + remote monitoring
-- Production: in-enclave automation + host management
-- Troubleshooting: access from multiple locations
+### Process States
 
-**Usage**:
+| State | Description |
+|-------|-------------|
+| Running | Currently executing |
+| Sleeping | Interruptible sleep (waiting for event) |
+| Disk sleep | Uninterruptible sleep (usually I/O) |
+| Zombie | Terminated but not yet reaped |
+| Stopped | Stopped by signal |
+| Tracing | Being traced (e.g., by debugger) |
+| Dead | Process is dead |
+| Idle | Kernel idle thread |
+
+### Process Management Commands
+
+#### List All Processes
+
 ```bash
-# Inside enclave (Unix socket)
-initctl list
-
-# From host (VSOCK)
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
+initctl ps list
 ```
 
----
-
-### Protocol Comparison
-
-| Feature | Unix Socket | VSOCK |
-|---------|-------------|-------|
-| **Location** | Local (in-enclave) | Remote (host-to-enclave) |
-| **Performance** | Very fast | Fast (VSOCK overhead) |
-| **Security** | File permissions | Enclave isolation |
-| **Use Case** | In-enclave management | Host management |
-| **Requires** | Unix filesystem | VSOCK kernel module |
-| **Port** | File path | CID + Port number |
-| **Concurrent** | Yes | Yes |
-| **Overhead** | Minimal | Low |
-
----
-
-### IPC Protocol Format
-
-Both Unix socket and VSOCK use the same JSON-based protocol.
-
-**Request Format**:
-```json
-{
-  "ServiceStatus": {
-    "name": "webapp"
-  }
-}
+**Output**:
+```
+PID      PPID     STATE        CPU%   MEM      MANAGED    SERVICE    COMMAND
+----------------------------------------------------------------------------------------------------
+1        0        Sleeping     0.1    12.5M    no         -          /sbin/init
+123      1        Running      2.5    256M     yes        webapp     /usr/bin/python3 /app/server.py
+124      1        Sleeping     1.2    512M     yes        database   /usr/bin/postgres -D /var/lib/p...
+125      1        Sleeping     0.8    128M     yes        worker     /usr/bin/celery worker
+200      1        Sleeping     0.0    8.2M     no         -          bash
+201      200      Running      5.2    64M      no         -          python script.py
 ```
 
-**Response Format**:
-```json
-{
-  "ServiceStatus": {
-    "status": {
-      "name": "webapp",
-      "enabled": true,
-      "active": true,
-      "pid": 1234,
-      "restart_policy": "always",
-      "restart_count": 3,
-      "restart_sec": 5,
-      "exit_status": null,
-      "exec_start": "/usr/bin/python3 /app/server.py",
-      "working_directory": "/app",
-      "dependencies": {
-        "before": ["monitor"],
-        "after": ["database", "cache"],
-        "requires": ["database"],
-        "required_by": []
-      }
-    }
-  }
-}
+#### Get Process Status
+
+```bash
+initctl ps status <PID>
 ```
 
-**Request Types**:
-- `ListServices`
-- `ServiceStatus { name }`
-- `ServiceStart { name }`
-- `ServiceStop { name }`
-- `ServiceRestart { name }`
-- `ServiceEnable { name }`
-- `ServiceDisable { name }`
-- `ServiceLogs { name, lines }`
-- `ServiceLogsClear { name }`
-- `SystemStatus`
-- `SystemReload`
-- `SystemReboot`
-- `SystemShutdown`
-- `Ping`
+**Example**:
+```bash
+initctl ps status 123
+```
+
+**Output**:
+```
+Process: 123
+  Name: python3
+  Parent PID: 1
+  State: Running
+  Command: /usr/bin/python3 /app/server.py
+  CPU: 2.5%
+  Memory: 256M
+  Start Time: 1234567890
+  Managed by Init: yes
+  Service: webapp
+```
+
+#### Start a Process
+
+Start a new ad-hoc process (not managed as a service):
+
+```bash
+initctl ps start <COMMAND> [ARGS...] [--env KEY=VALUE]
+```
+
+**Examples**:
+```bash
+# Simple command
+initctl ps start /usr/bin/python3 script.py
+
+# Alias: run
+initctl ps run /usr/bin/python3 script.py
+
+# With arguments
+initctl ps start /usr/bin/myapp --config /etc/myapp.conf --verbose
+
+# With environment variables
+initctl ps start /usr/bin/myapp -e LOG_LEVEL=debug -e PORT=8080
+```
+
+**Output**:
+```
+✓ Process started with PID 789 (PID: 789)
+```
+
+**Note**: Ad-hoc processes are not managed (no restart policy, not tracked as services).
+
+#### Stop a Process
+
+Send SIGTERM to a process:
+
+```bash
+initctl ps stop <PID>
+```
+
+**Example**:
+```bash
+initctl ps stop 789
+```
+
+**Output**:
+```
+✓ SIGTERM sent to process 789
+```
+
+#### Restart a Process
+
+Restart a managed service by its PID:
+
+```bash
+initctl ps restart <PID>
+```
+
+**Example**:
+```bash
+initctl ps restart 123
+```
+
+**Output**:
+```
+✓ Service 'webapp' restarted
+```
+
+**Note**: Only works for processes managed by init as services. For ad-hoc processes, you'll get an error:
+```
+✗ Error: Process 789 is not managed by init, cannot restart
+```
+
+#### Kill a Process with Signal
+
+Send a specific signal to a process:
+
+```bash
+initctl ps kill <PID> --signal <SIGNAL_NUMBER>
+```
+
+**Common Signals**:
+| Signal | Number | Description |
+|--------|--------|-------------|
+| SIGHUP | 1 | Hangup (often used to reload config) |
+| SIGINT | 2 | Interrupt (Ctrl+C) |
+| SIGKILL | 9 | Kill (cannot be caught or ignored) |
+| SIGTERM | 15 | Terminate (default, graceful) |
+
+**Examples**:
+```bash
+# Send SIGTERM (default)
+initctl ps kill 789 --signal 15
+
+# Force kill
+initctl ps kill 789 --signal 9
+
+# Send SIGHUP (reload)
+initctl ps kill 789 --signal 1
+
+# Short form
+initctl ps kill 789 -s 9
+```
+
+**Output**:
+```
+✓ Signal 9 sent to process 789
+```
+
+### Process Management from Host
+
+All process management commands work remotely via VSOCK:
+
+```bash
+# List processes in enclave from host
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ps list
+
+# Get process status
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ps status 123
+
+# Stop process
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ps stop 789
+
+# Kill process
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ps kill 789 --signal 9
+```
+
+### Managed vs Unmanaged Processes
+
+**Managed Processes**:
+- Started as services via service files
+- Have restart policies
+- Tracked by init
+- Show service name in process list
+- Can be restarted via `initctl ps restart <PID>`
+
+**Unmanaged Processes**:
+- Started ad-hoc via `initctl ps start`
+- No restart policy
+- Not tracked as services
+- Show "-" for service name
+- Cannot be restarted (only stopped/killed)
+
+### Process Monitoring Example
+
+Monitor processes in real-time:
+
+```bash
+#!/bin/bash
+# monitor-processes.sh
+
+while true; do
+    clear
+    echo "=== Enclave Processes - $(date) ==="
+    initctl ps list
+    sleep 5
+done
+```
+
+Remote monitoring from host:
+
+```bash
+#!/bin/bash
+# host-monitor.sh
+
+INITCTL="initctl --protocol vsock --vsock-cid 16 --vsock-port 9001"
+
+while true; do
+    clear
+    echo "=== Enclave Processes - $(date) ==="
+    $INITCTL ps list
+    echo ""
+    echo "=== Services ==="
+    $INITCTL list
+    sleep 5
+done
+```
 
 ---
 
@@ -1226,31 +1113,11 @@ init [OPTIONS]
 | `--help` | `-h` | - | - | Show help information |
 | `--version` | `-V` | - | - | Show version information |
 
-#### Examples
-
-```bash
-# Start with default config
-init
-
-# Start with custom config
-init --config /etc/my-init.yaml
-init -c /etc/my-init.yaml
-
-# Use environment variable
-INIT_CONFIG=/etc/my-init.yaml init
-
-# Show help
-init --help
-
-# Show version
-init --version
-```
-
 ---
 
 ### `initctl` - Init Control Tool
 
-Command-line interface for managing the init system and services.
+Command-line interface for managing the init system, services, and processes.
 
 #### Synopsis
 
@@ -1270,34 +1137,11 @@ initctl [OPTIONS] <COMMAND>
 | `--help` | `-h` | - | - | Show help information |
 | `--version` | `-V` | - | - | Show version information |
 
-#### Usage Examples
-
-**Local (Unix Socket)**:
-```bash
-# Use default config
-initctl list
-
-# Override socket path
-initctl --socket /custom/init.sock list
-initctl -s /run/init.sock list
-```
-
-**Remote (VSOCK)**:
-```bash
-# Use config file
-export INITCTL_CONFIG=/etc/enclave-init/initctl.yaml
-initctl list
-
-# Override protocol
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
-
-# Short form
-initctl -p vsock --vsock-cid 16 --vsock-port 9001 status webapp
-```
-
 #### Commands
 
-### `list`
+### Service Management Commands
+
+#### `list`
 
 List all services with their current status.
 
@@ -1313,26 +1157,11 @@ NAME                      ENABLED    ACTIVE     RESTART         RESTARTS
 webapp                    enabled    active     always          3
 database                  enabled    active     always          1
 worker                    enabled    inactive   on-failure      0
-monitor                   enabled    active     always          2
-cache                     disabled   inactive   always          0
-```
-
-**Columns:**
-- `NAME`: Service name (from filename without .service extension)
-- `ENABLED`: `enabled` or `disabled`
-- `ACTIVE`: `active` (running) or `inactive` (not running)
-- `RESTART`: Restart policy
-- `RESTARTS`: Number of times the service has been restarted
-
-**Remote Usage**:
-```bash
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
 ```
 
 ---
 
-### `status`
+#### `status`
 
 Show detailed status of a specific service.
 
@@ -1344,9 +1173,6 @@ initctl status <SERVICE>
 **Example:**
 ```bash
 initctl status webapp
-
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 status webapp
 ```
 
 **Output:**
@@ -1368,7 +1194,7 @@ Service: webapp
 
 ---
 
-### `start`
+#### `start`
 
 Start a stopped service.
 
@@ -1377,23 +1203,9 @@ Start a stopped service.
 initctl start <SERVICE>
 ```
 
-**Examples:**
-```bash
-# Local
-initctl start webapp
-
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 start webapp
-```
-
-**Output:**
-```
-✓ Service 'webapp' started
-```
-
 ---
 
-### `stop`
+#### `stop`
 
 Stop a running service.
 
@@ -1402,18 +1214,9 @@ Stop a running service.
 initctl stop <SERVICE>
 ```
 
-**Examples:**
-```bash
-# Local
-initctl stop webapp
-
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 stop webapp
-```
-
 ---
 
-### `restart`
+#### `restart`
 
 Restart a service.
 
@@ -1422,18 +1225,9 @@ Restart a service.
 initctl restart <SERVICE>
 ```
 
-**Examples:**
-```bash
-# Local
-initctl restart webapp
-
-# From host (useful for deployments)
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 restart webapp
-```
-
 ---
 
-### `enable`
+#### `enable`
 
 Enable a disabled service.
 
@@ -1449,17 +1243,13 @@ initctl enable [OPTIONS] <SERVICE>
 
 **Examples:**
 ```bash
-# Local
 initctl enable webapp
 initctl enable --now webapp
-
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 enable --now newservice
 ```
 
 ---
 
-### `disable`
+#### `disable`
 
 Disable a service.
 
@@ -1468,18 +1258,9 @@ Disable a service.
 initctl disable <SERVICE>
 ```
 
-**Examples:**
-```bash
-# Local
-initctl disable webapp
-
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 disable oldservice
-```
-
 ---
 
-### `logs`
+#### `logs`
 
 Display logs for a service.
 
@@ -1495,17 +1276,13 @@ initctl logs [OPTIONS] <SERVICE>
 
 **Examples:**
 ```bash
-# Local
 initctl logs webapp
 initctl logs webapp -n 100
-
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 logs webapp -n 200
 ```
 
 ---
 
-### `logs-clear`
+#### `logs-clear`
 
 Clear all logs for a service.
 
@@ -1514,18 +1291,157 @@ Clear all logs for a service.
 initctl logs-clear <SERVICE>
 ```
 
-**Examples:**
-```bash
-# Local
-initctl logs-clear webapp
+---
 
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 logs-clear webapp
+### Process Management Commands
+
+#### `ps list`
+
+List all processes in the system.
+
+**Syntax:**
+```bash
+initctl ps list
+```
+
+**Output:**
+```
+PID      PPID     STATE        CPU%   MEM      MANAGED    SERVICE    COMMAND
+----------------------------------------------------------------------------------------------------
+1        0        Sleeping     0.1    12.5M    no         -          /sbin/init
+123      1        Running      2.5    256M     yes        webapp     /usr/bin/python3 /app/server.py
+124      1        Sleeping     1.2    512M     yes        database   /usr/bin/postgres -D /var/lib/...
 ```
 
 ---
 
-### `system-status`
+#### `ps status`
+
+Show status of a specific process.
+
+**Syntax:**
+```bash
+initctl ps status <PID>
+```
+
+**Example:**
+```bash
+initctl ps status 123
+```
+
+**Output:**
+```
+Process: 123
+  Name: python3
+  Parent PID: 1
+  State: Running
+  Command: /usr/bin/python3 /app/server.py
+  CPU: 2.5%
+  Memory: 256M
+  Start Time: 1234567890
+  Managed by Init: yes
+  Service: webapp
+```
+
+---
+
+#### `ps start` / `ps run`
+
+Start a new ad-hoc process.
+
+**Syntax:**
+```bash
+initctl ps start <COMMAND> [ARGS...] [OPTIONS]
+initctl ps run <COMMAND> [ARGS...]  # Alias
+```
+
+**Options:**
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--env <KEY=VALUE>` | `-e` | Set environment variable |
+
+**Examples:**
+```bash
+# Simple command
+initctl ps start /usr/bin/python3 script.py
+
+# With arguments
+initctl ps start /usr/bin/myapp --config /etc/myapp.conf
+
+# With environment
+initctl ps start /usr/bin/myapp -e LOG_LEVEL=debug -e PORT=8080
+
+# Using run alias
+initctl ps run /bin/bash script.sh
+```
+
+---
+
+#### `ps stop`
+
+Stop a process (send SIGTERM).
+
+**Syntax:**
+```bash
+initctl ps stop <PID>
+```
+
+**Example:**
+```bash
+initctl ps stop 789
+```
+
+---
+
+#### `ps restart`
+
+Restart a managed service by PID.
+
+**Syntax:**
+```bash
+initctl ps restart <PID>
+```
+
+**Example:**
+```bash
+initctl ps restart 123
+```
+
+**Note**: Only works for processes managed as services.
+
+---
+
+#### `ps kill`
+
+Send a signal to a process.
+
+**Syntax:**
+```bash
+initctl ps kill <PID> [OPTIONS]
+```
+
+**Options:**
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--signal <N>` | `-s` | `15` | Signal number to send |
+
+**Examples:**
+```bash
+# Send SIGTERM (default)
+initctl ps kill 789
+
+# Force kill
+initctl ps kill 789 --signal 9
+
+# Send SIGHUP
+initctl ps kill 789 -s 1
+```
+
+---
+
+### System Management Commands
+
+#### `system-status`
 
 Show overall system status and statistics.
 
@@ -1534,102 +1450,63 @@ Show overall system status and statistics.
 initctl system-status
 ```
 
-**Examples:**
-```bash
-# Local
-initctl system-status
-
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 system-status
-```
-
 **Output:**
 ```
 System Status
   Uptime: 2d 5h 32m 15s
   Services: 12 total, 10 enabled, 9 active
+  Processes: 45 total
   Service Directory: /service
   Log Directory: /log
 ```
 
 ---
 
-### `reload`
+#### `reload`
 
-Reload service configurations without restarting the system.
+Reload service configurations.
 
 **Syntax:**
 ```bash
 initctl reload
 ```
 
-**Examples:**
-```bash
-# Local
-initctl reload
-
-# From host (useful for applying config changes)
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 reload
-```
-
 ---
 
-### `reboot`
+#### `reboot`
 
-Reboot the system (enclave).
+Reboot the system.
 
 **Syntax:**
 ```bash
 initctl reboot
 ```
 
-**Examples:**
-```bash
-# Local
-initctl reboot
-
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 reboot
-```
-
 ---
 
-### `shutdown`
+#### `shutdown`
 
-Shutdown the system (enclave).
+Shutdown the system.
 
 **Syntax:**
 ```bash
 initctl shutdown
 ```
 
-**Examples:**
-```bash
-# Local
-initctl shutdown
-
-# From host
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 shutdown
-```
-
 ---
 
-### `ping`
+#### `ping`
 
-Test connectivity to the init system.
+Test connectivity to init.
 
 **Syntax:**
 ```bash
 initctl ping
 ```
 
-**Examples:**
-```bash
-# Local
-initctl ping
-
-# From host (test VSOCK connectivity)
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ping
+**Output:**
+```
+✓ Pong - init system is responsive
 ```
 
 ---
@@ -1637,20 +1514,6 @@ initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ping
 ## Usage Guide
 
 ### Basic Operations
-
-#### Starting the Init System
-
-```bash
-# Standard startup (uses default config)
-exec /sbin/init
-
-# With custom config path
-exec /sbin/init --config /etc/my-init.yaml
-
-# Using environment variable
-export INIT_CONFIG=/etc/my-init.yaml
-exec /sbin/init
-```
 
 #### Managing Services Locally
 
@@ -1666,128 +1529,215 @@ initctl restart myapp
 # Enable/disable
 initctl enable myapp
 initctl disable myapp
+
+# View logs
+initctl logs myapp -n 100
 ```
 
-#### Managing Services Remotely from Host
+#### Managing Processes Locally
 
 ```bash
-# Setup initctl config on host
-cat > /etc/enclave-init/initctl.yaml << EOF
-protocol: vsock
-vsock_cid: 16
-vsock_port: 9001
-EOF
+# List all processes
+initctl ps list
 
+# Get process info
+initctl ps status 123
+
+# Start ad-hoc process
+initctl ps start /usr/bin/python3 script.py
+
+# Stop process
+initctl ps stop 789
+
+# Kill process
+initctl ps kill 789 --signal 9
+```
+
+#### Managing from Host via VSOCK
+
+```bash
+# Setup
 export INITCTL_CONFIG=/etc/enclave-init/initctl.yaml
 
-# Now manage enclave services from host
+# Service management
 initctl list
 initctl status webapp
 initctl restart webapp
-initctl logs webapp -n 100
+
+# Process management
+initctl ps list
+initctl ps status 123
+initctl ps stop 789
 ```
 
 ### Advanced Operations
 
-#### Remote Service Deployment
+#### Remote Process Monitoring
 
 ```bash
 #!/bin/bash
-# deploy.sh - Deploy new service from host
+# monitor-enclave.sh - Monitor enclave from host
 
-ENCLAVE_CID=16
-INITCTL="initctl --protocol vsock --vsock-cid $ENCLAVE_CID --vsock-port 9001"
-
-# Copy new service file to enclave (via shared volume or other mechanism)
-# Then enable and start
-
-$INITCTL enable newservice --now
-$INITCTL status newservice
-```
-
-#### Zero-Downtime Restart from Host
-
-```bash
-#!/bin/bash
-# rolling-restart.sh - Restart services one by one
-
-SERVICES=("webapp-1" "webapp-2" "webapp-3")
 INITCTL="initctl --protocol vsock --vsock-cid 16 --vsock-port 9001"
 
-for service in "${SERVICES[@]}"; do
-    echo "Restarting $service..."
-    $INITCTL restart $service
-    sleep 10  # Wait for health check
-done
+echo "=== Services ==="
+$INITCTL list
+
+echo ""
+echo "=== Top Processes by CPU ==="
+$INITCTL ps list | sort -k4 -rn | head -10
+
+echo ""
+echo "=== Top Processes by Memory ==="
+$INITCTL ps list | sort -k5 -rn | head -10
 ```
 
-#### Multi-Enclave Management
+#### Kill Runaway Processes
 
 ```bash
 #!/bin/bash
-# manage-enclaves.sh - Manage multiple enclaves
+# kill-high-cpu.sh - Kill processes using >90% CPU
 
-ENCLAVES=(16 17 18)
+INITCTL="initctl"
+THRESHOLD=90.0
 
-for cid in "${ENCLAVES[@]}"; do
-    echo "=== Enclave CID: $cid ==="
-    initctl --protocol vsock --vsock-cid $cid --vsock-port 9001 list
-    echo
+$INITCTL ps list | tail -n +3 | while read line; do
+    PID=$(echo $line | awk '{print $1}')
+    CPU=$(echo $line | awk '{print $4}')
+    MANAGED=$(echo $line | awk '{print $6}')
+
+    # Use bc for floating point comparison
+    if (( $(echo "$CPU > $THRESHOLD" | bc -l) )); then
+        if [ "$MANAGED" = "no" ]; then
+            echo "Killing high CPU process: PID=$PID CPU=$CPU%"
+            $INITCTL ps kill $PID --signal 9
+        else
+            echo "High CPU managed process: PID=$PID CPU=$CPU% (skipping)"
+        fi
+    fi
 done
 ```
 
-#### CI/CD Integration
+#### Start Debugging Session
 
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy to Enclave
+```bash
+# Start interactive shell in enclave
+initctl ps start /bin/bash
 
-on:
-  push:
-    branches: [main]
+# Or from host
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ps start /bin/bash
+```
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
+#### Process Tree View
 
-      - name: Deploy service
-        run: |
-          # Copy service file to enclave
-          # ...
+```bash
+#!/bin/bash
+# Show process tree
 
-          # Reload and restart
-          initctl --protocol vsock \
-                  --vsock-cid ${{ secrets.ENCLAVE_CID }} \
-                  --vsock-port 9001 \
-                  reload
+initctl ps list | awk '
+BEGIN {
+    print "Process Tree:"
+}
+NR > 2 {
+    pid = $1
+    ppid = $2
+    cmd = ""
+    for (i=8; i<=NF; i++) cmd = cmd $i " "
+    processes[pid] = sprintf("  PID %s: %s", pid, cmd)
+    children[ppid] = children[ppid] " " pid
+}
+END {
+    # Print tree starting from PID 1
+    print_tree(1, 0)
+}
 
-          initctl --protocol vsock \
-                  --vsock-cid ${{ secrets.ENCLAVE_CID }} \
-                  --vsock-port 9001 \
-                  restart myapp
+function print_tree(pid, level) {
+    if (processes[pid]) {
+        for (i=0; i<level; i++) printf "  "
+        print processes[pid]
+    }
+    split(children[pid], kids, " ")
+    for (k in kids) {
+        if (kids[k] != "") print_tree(kids[k], level+1)
+    }
+}
+'
 ```
 
 ---
 
 ## Advanced Topics
 
-### VSOCK Networking Details
+### Process Information Sources
 
-**VSOCK (Virtual Socket)** provides communication between host and guest VMs/enclaves.
+The init system gathers process information from `/proc`:
 
-#### VSOCK Address Format
+#### `/proc/[pid]/stat`
+- Process name
+- State
+- Parent PID
+- CPU time (user + system)
+- Start time
+
+#### `/proc/[pid]/cmdline`
+- Full command line with arguments
+
+#### `/proc/[pid]/status`
+- Memory usage (VmRSS)
+
+### CPU Percentage Calculation
+
+CPU percentage is calculated as:
 
 ```
-CID:PORT
+cpu_percent = (total_cpu_time * 100) / (elapsed_time * HZ)
 ```
 
-- **CID** (Context ID): Identifies the VM/enclave
-- **PORT**: Port number (like TCP port)
+Where:
+- `total_cpu_time` = user time + system time (from /proc/[pid]/stat)
+- `elapsed_time` = system uptime - process start time
+- `HZ` = kernel CONFIG_HZ (usually 100)
 
-#### Special CID Values
+### Process States in /proc
 
+| Code | State | Description |
+|------|-------|-------------|
+| R | Running | Currently executing or runnable |
+| S | Sleeping | Interruptible sleep |
+| D | Disk sleep | Uninterruptible sleep |
+| Z | Zombie | Terminated, waiting for parent |
+| T | Stopped | Stopped by signal |
+| t | Tracing | Being traced |
+| X/x | Dead | Process is dead |
+| K | Wakekill | Wakekill state |
+| W | Waking | Waking state |
+| P | Parked | Parked state |
+| I | Idle | Idle kernel thread |
+
+### Signal Handling
+
+**Init Process** (PID 1):
+- Blocks all signals except SIGCHLD
+- Handles SIGTERM/SIGINT for shutdown
+- Handles SIGHUP for reload
+- Handles SIGCHLD for reaping children
+
+**Child Processes**:
+- All signals unblocked
+- Can handle signals normally
+- Terminated children are reaped by init
+
+**Process Management Signals**:
+```rust
+Signal::SIGHUP  => 1   // Hangup
+Signal::SIGINT  => 2   // Interrupt
+Signal::SIGKILL => 9   // Kill (uncatchable)
+Signal::SIGTERM => 15  // Terminate (graceful)
+```
+
+### VSOCK Integration Details
+
+**VSOCK CID Values**:
 ```rust
 const VMADDR_CID_HYPERVISOR: u32 = 0;
 const VMADDR_CID_LOCAL: u32 = 1;
@@ -1795,337 +1745,152 @@ const VMADDR_CID_HOST: u32 = 2;
 const VMADDR_CID_ANY: u32 = 4294967295;  // -1U
 ```
 
-#### Finding Enclave CID
-
-**Method 1: From host**:
+**Finding Enclave CID**:
 ```bash
+# Method 1: From host
 nitro-cli describe-enclaves | jq '.[] | .EnclaveCID'
-```
 
-**Method 2: Inside enclave**:
-```bash
-# CID is assigned by hypervisor and can be found in kernel messages
-dmesg | grep -i vsock
-```
-
-**Method 3: From parent process**:
-```bash
-# When starting enclave
+# Method 2: From enclave start
 nitro-cli run-enclave --eif-path app.eif | jq '.EnclaveCID'
-```
-
-#### VSOCK Ports
-
-Ports 0-1023 typically require privileges. Use ports 1024+ for services.
-
-**Recommended Port Allocation**:
-- `9000`: VSOCK heartbeat
-- `9001`: Init control protocol
-- `9002+`: Application services
-
-### Control Socket Security
-
-#### Unix Socket Security
-
-**File Permissions**:
-```bash
-# Check socket permissions
-ls -l /run/init.sock
-# srwxr-xr-x 1 root root 0 Jan 1 00:00 /run/init.sock
-
-# Restrict access
-chmod 600 /run/init.sock  # Only root
-chmod 660 /run/init.sock  # Root and group
-```
-
-**Access Control**:
-- Based on Unix file permissions
-- Users need read/write access to socket
-- Can use groups for shared access
-
-#### VSOCK Security
-
-**Isolation**:
-- VSOCK communication is isolated per VM/enclave
-- Hypervisor enforces isolation
-- Host can connect to enclave, but enclaves can't connect to each other (by default)
-
-**Port Security**:
-- Only accessible via VSOCK (not network)
-- Hypervisor mediates all connections
-- Enclave must explicitly listen on port
-
-**Best Practices**:
-- Use specific CID in client config (not ANY)
-- Document which ports are used
-- Consider adding authentication layer for sensitive operations
-
-### Multi-Protocol Access Patterns
-
-#### Pattern 1: Local Development
-
-```yaml
-# /etc/init.yaml
-control:
-  unix_socket_enabled: true
-  unix_socket_path: /run/init.sock
-  vsock_enabled: false
-```
-
-Use Unix socket for fast local testing.
-
-#### Pattern 2: Production Enclave
-
-```yaml
-# /etc/init.yaml
-control:
-  unix_socket_enabled: true
-  unix_socket_path: /run/init.sock
-  vsock_enabled: true
-  vsock_cid: 4294967295
-  vsock_port: 9001
-```
-
-Enable both for flexibility.
-
-#### Pattern 3: Secure Enclave
-
-```yaml
-# /etc/init.yaml
-control:
-  unix_socket_enabled: false
-  vsock_enabled: true
-  vsock_cid: 4294967295
-  vsock_port: 9001
-```
-
-VSOCK only for controlled host access.
-
-#### Pattern 4: Monitoring Setup
-
-```yaml
-# Host monitoring tool config
-protocol: vsock
-vsock_cid: 16
-vsock_port: 9001
-```
-
-Monitor enclave health from host:
-```bash
-#!/bin/bash
-while true; do
-    if ! initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ping; then
-        echo "Enclave not responding!"
-        # Alert
-    fi
-    sleep 30
-done
 ```
 
 ---
 
 ## Troubleshooting
 
-### VSOCK Issues
+### Process Management Issues
 
-#### VSOCK Not Available
+#### Cannot List Processes
 
-**Symptom**: "Failed to create VSOCK socket"
-
-**Solutions**:
-
-1. Check if VSOCK kernel module is loaded:
-```bash
-lsmod | grep vsock
-# Should show: vhost_vsock, vmw_vsock_virtio_transport, vsock
-```
-
-2. Load VSOCK module:
-```bash
-modprobe vhost_vsock
-modprobe vsock
-```
-
-3. Check kernel config:
-```bash
-zcat /proc/config.gz | grep VSOCK
-# Should have: CONFIG_VSOCK=y or =m
-```
-
-#### Cannot Connect from Host
-
-**Symptom**: "Failed to connect to VSOCK"
-
-**Debugging**:
-
-1. Verify enclave CID:
-```bash
-nitro-cli describe-enclaves
-```
-
-2. Check if enclave is listening:
-```bash
-# Inside enclave
-netstat -l | grep 9001
-# Or check init logs
-grep "VSOCK control socket listening" /var/log/init.log
-```
-
-3. Test with simple VSOCK tool:
-```bash
-# On host
-vsock-socat - VSOCK-CONNECT:16:9001
-```
-
-4. Check firewall/security groups (shouldn't affect VSOCK but verify)
-
-#### Wrong CID
-
-**Symptom**: Connection refused or timeout
-
-**Solution**:
-
-1. Get correct CID:
-```bash
-nitro-cli describe-enclaves | jq '.[0].EnclaveCID'
-```
-
-2. Update initctl config:
-```yaml
-vsock_cid: 16  # Use actual CID
-```
-
-3. Or use command line:
-```bash
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ping
-```
-
-#### Port Already in Use
-
-**Symptom**: "Failed to bind VSOCK socket"
+**Symptom**: `initctl ps list` fails or shows no processes
 
 **Solutions**:
 
-1. Check if another service is using the port:
+1. Check if /proc is mounted:
 ```bash
-# Inside enclave
-netstat -tulpn | grep 9001
+mount | grep proc
 ```
 
-2. Change port in config:
-```yaml
-control:
-  vsock_port: 9002  # Use different port
-```
-
-3. Kill conflicting process:
+2. Verify permissions:
 ```bash
-kill <PID>
+ls -ld /proc
+# Should be: dr-xr-xr-x
 ```
 
-### Protocol Selection Issues
-
-#### initctl Uses Wrong Protocol
-
-**Symptom**: Commands fail with connection errors
-
-**Debugging**:
-
-1. Check current config:
+3. Check init is running:
 ```bash
-cat /etc/initctl.yaml
+ps aux | grep init
 ```
 
-2. Check what initctl is using:
+#### Process Status Shows Wrong Info
+
+**Symptom**: CPU or memory values seem incorrect
+
+**Possible Causes**:
+- /proc filesystem not properly mounted
+- Process state changing rapidly
+- Kernel HZ value different than expected (100)
+
+**Debug**:
 ```bash
-initctl ping
-# Look for debug output showing protocol
+# Check HZ value
+getconf CLK_TCK
+
+# Manually check process
+cat /proc/123/stat
+cat /proc/123/status
 ```
 
-3. Override protocol explicitly:
-```bash
-initctl --protocol unix ping
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ping
-```
+#### Cannot Start Process
 
-#### Config File Not Found
-
-**Symptom**: "Config file not found, using defaults"
+**Symptom**: `initctl ps start` fails
 
 **Solutions**:
 
-1. Create config file:
+1. Check command exists:
 ```bash
-cat > /etc/initctl.yaml << EOF
-protocol: unix
-unix_socket_path: /run/init.sock
-EOF
+which mycommand
 ```
 
-2. Use custom path:
+2. Check permissions:
 ```bash
-initctl --config /path/to/config.yaml list
+ls -l /usr/bin/mycommand
 ```
 
-3. Set environment variable:
+3. Try running directly:
 ```bash
-export INITCTL_CONFIG=/etc/enclave-init/initctl.yaml
-initctl list
+/usr/bin/mycommand
+```
+
+4. Check logs:
+```bash
+# Init system logs any fork/exec failures
+dmesg | grep init
+```
+
+#### Cannot Kill Process
+
+**Symptom**: `initctl ps kill` fails
+
+**Solutions**:
+
+1. Verify process exists:
+```bash
+initctl ps status <PID>
+```
+
+2. Check if process is in uninterruptible sleep:
+```bash
+initctl ps status <PID> | grep State
+# If "Disk sleep", process cannot be killed until I/O completes
+```
+
+3. Try SIGKILL:
+```bash
+initctl ps kill <PID> --signal 9
+```
+
+#### Process Shows as Zombie
+
+**Symptom**: Process state is "Zombie"
+
+**Explanation**: Process has exited but not yet been reaped by parent.
+
+**Normally**: Init automatically reaps zombies via SIGCHLD handler.
+
+**If persists**:
+```bash
+# Check if parent is still alive
+initctl ps status <ZOMBIE_PID>
+# Note the PPID
+
+# If parent is init (PID 1), zombie should be reaped automatically
+# If zombie persists, init may be busy - wait a moment
 ```
 
 ### Remote Management Issues
 
-#### Cannot Manage from Host
+#### Cannot Control Processes from Host
 
-**Symptom**: Commands from host fail
+**Symptom**: Process commands from host fail
 
 **Checklist**:
-
 1. ✓ VSOCK enabled in init config
 2. ✓ Correct enclave CID
-3. ✓ Correct port
+3. ✓ Correct port (9001)
 4. ✓ Enclave is running
-5. ✓ VSOCK kernel modules loaded
-6. ✓ initctl configured for VSOCK
+5. ✓ initctl configured for VSOCK
 
-**Debug Steps**:
-
+**Test connectivity**:
 ```bash
-# 1. Verify enclave is running
-nitro-cli describe-enclaves
-
-# 2. Test VSOCK connectivity
+# Test with ping
 initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ping
 
-# 3. Check init logs inside enclave
-# (via console or shared volume)
-cat /var/log/init.log | grep VSOCK
+# Test service list
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
 
-# 4. Enable debug output
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list 2>&1
-```
-
-#### Timeout on Remote Commands
-
-**Symptom**: Commands hang or timeout
-
-**Possible Causes**:
-
-1. **Init not responding**: Check if init process is alive
-2. **VSOCK queue full**: Check enclave resource usage
-3. **Network issue**: Verify VSOCK connection
-
-**Solutions**:
-
-```bash
-# Check enclave health
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ping
-
-# Try simpler command
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 system-status
-
-# Check enclave resources
-nitro-cli describe-enclaves | jq '.[0].State'
+# Test process list
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ps list
 ```
 
 ---
@@ -2144,136 +1909,112 @@ cargo build
 
 # Build release version
 cargo build --release
-```
 
-### Building with VSOCK Support
+# Run tests
+cargo test
 
-```bash
-# VSOCK support requires nix crate with socket features
-cargo build --release
+# Check code
+cargo clippy
 
-# Verify VSOCK symbols
-nm target/release/init | grep vsock
-```
-
-### Testing VSOCK Locally
-
-Without a real enclave, you can test VSOCK using vsock_loopback:
-
-```bash
-# Load loopback module
-modprobe vsock_loopback
-
-# Test with loopback CID (1)
-initctl --protocol vsock --vsock-cid 1 --vsock-port 9001 ping
+# Format code
+cargo fmt
 ```
 
 ### Project Structure
 
 ```
 enclave-init/
-├── Cargo.toml                  # Dependencies
+├── Cargo.toml                  # Rust dependencies and build config
 ├── src/
-│   ├── main.rs                # Init system
-│   ├── initctl.rs             # CLI tool
-│   ├── protocol.rs            # IPC protocol
-│   ├── config.rs              # Configuration (init & initctl)
-│   ├── logger.rs              # Logging
-│   └── dependencies.rs        # Dependency resolution
+│   ├── main.rs                # Init system (PID 1)
+│   ├── initctl.rs             # CLI control tool
+│   ├── protocol.rs            # IPC protocol definitions
+│   ├── config.rs              # Configuration loading
+│   ├── logger.rs              # Logging implementation
+│   ├── dependencies.rs        # Dependency resolution
+│   └── process.rs             # Process management
 ├── examples/
-│   ├── init.yaml              # Init config example
+│   ├── init.yaml              # Example init configuration
 │   ├── initctl.yaml           # Initctl config examples
-│   │   ├── local.yaml         # Unix socket config
-│   │   └── remote.yaml        # VSOCK config
-│   └── services/              # Service file examples
+│   └── services/              # Example service files
+├── tests/
+│   └── integration/           # Integration tests
 └── docs/
     └── README.md              # This file
 ```
 
----
+### Testing Process Management
 
-### Contributing
+```bash
+# Unit tests
+cargo test process
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new features
-5. Run `cargo fmt` and `cargo clippy`
-6. Submit a pull request
+# Integration test - list processes
+cargo run --bin initctl -- ps list
 
-### Code Style
+# Integration test - start process
+cargo run --bin initctl -- ps start /bin/sleep 10
 
-- Follow Rust standard style (enforced by `rustfmt`)
-- Use `clippy` for linting
-- Add documentation comments for public APIs
-- Write tests for new features
-- Use meaningful variable names
-- Keep functions focused and small
+# Test process killing
+cargo run --bin initctl -- ps start /bin/sleep 100
+# Get PID from output
+cargo run --bin initctl -- ps kill <PID> --signal 15
+```
 
 ---
 
 ## FAQ
 
-### Control Protocol Questions
+### Process Management Questions
 
-**Q: Can I use both Unix socket and VSOCK at the same time?**
+**Q: Can I manage processes that weren't started by init?**
 
-A: Yes! Enable both in `/etc/init.yaml`:
-```yaml
-control:
-  unix_socket_enabled: true
-  vsock_enabled: true
-```
+A: Yes! `initctl ps list` shows all processes in the system, regardless of how they were started. You can stop, kill, or get status for any process.
 
-**Q: How do I control enclave from host?**
-
-A: Configure initctl on host to use VSOCK:
-```yaml
-# /etc/initctl.yaml on host
-protocol: vsock
-vsock_cid: 16  # Your enclave CID
-vsock_port: 9001
-```
-
-**Q: What's the difference between VSOCK heartbeat and control socket?**
+**Q: What's the difference between managed and unmanaged processes?**
 
 A:
-- **Heartbeat** (`vsock.enabled`, port 9000): One-time signal to host that enclave is ready
-- **Control socket** (`control.vsock_enabled`, port 9001): Ongoing service management protocol
+- **Managed**: Started as services, have restart policies, tracked by init
+- **Unmanaged**: All other processes (ad-hoc starts, user shells, etc.)
 
-**Q: Can multiple clients connect simultaneously?**
+**Q: Can I restart unmanaged processes?**
 
-A: Yes, both Unix socket and VSOCK support concurrent connections. Each connection is handled in a separate thread.
+A: No. `initctl ps restart` only works for processes managed as services. For unmanaged processes, you need to stop and start them manually.
 
-**Q: Which protocol is faster?**
+**Q: Why does `initctl ps list` show system processes like `kthreadd`?**
 
-A: Unix socket is slightly faster for local communication. VSOCK has minimal overhead for remote access. The difference is negligible for most use cases.
+A: The command shows ALL processes visible in `/proc`. This includes kernel threads and system processes.
 
-**Q: Can I disable control socket completely?**
+**Q: How accurate are the CPU and memory values?**
 
-A: You can disable both protocols, but then you can't manage services at runtime:
-```yaml
-control:
-  unix_socket_enabled: false
-  vsock_enabled: false
-```
+A: They're snapshots from `/proc` at the time of the request. For precise monitoring, use dedicated tools or poll regularly.
 
-**Q: How do I secure the control socket?**
+**Q: Can I start services via `initctl ps start`?**
 
-A:
-- **Unix socket**: Use file permissions (`chmod 600`)
-- **VSOCK**: Enclave isolation provides security; optionally add authentication layer
+A: No. Use `initctl start <service>` for services. `initctl ps start` is for ad-hoc processes that aren't managed as services.
 
-**Q: Can I change ports after enclave is running?**
+**Q: What happens to processes when I reboot?**
 
-A: No, you need to restart the enclave with new configuration.
+A: All processes are terminated (SIGTERM, then SIGKILL after timeout), then the system reboots.
 
-**Q: What if I forget the enclave CID?**
+**Q: Can I send custom signals via VSOCK?**
 
-A: Query from host:
+A: Yes! All process management commands work over VSOCK:
 ```bash
-nitro-cli describe-enclaves | jq '.[] | .EnclaveCID'
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ps kill <PID> -s 9
 ```
+
+**Q: Why can't I kill PID 1?**
+
+A: PID 1 (init) has special protections in the kernel. It ignores most signals. Use `initctl shutdown` or `initctl reboot` instead.
+
+**Q: How do I find the PID of a service?**
+
+A: Use `initctl status <service>` which shows the PID, or use `initctl ps list` and look for the service name.
+
+**Q: Can I start graphical applications?**
+
+A: In an enclave environment, typically not. Enclaves usually don't have graphics. But you can start any command-line application.
 
 ---
 
@@ -2326,34 +2067,6 @@ vsock_cid: 16
 vsock_port: 9001
 ```
 
-#### Enclave Initctl Configuration
-
-```yaml
-# /etc/initctl.yaml - Enclave configuration
-protocol: unix
-unix_socket_path: /run/init.sock
-vsock_cid: 3
-vsock_port: 9001
-```
-
-### Environment Variables Reference
-
-| Variable | Scope | Description |
-|----------|-------|-------------|
-| `INIT_CONFIG` | init | Path to init configuration file |
-| `INITCTL_CONFIG` | initctl | Path to initctl configuration file |
-| `INIT_SOCKET` | initctl | Override Unix socket path (deprecated) |
-
-### Port Allocation Recommendations
-
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 9000 | VSOCK | Heartbeat (init → host) |
-| 9001 | VSOCK | Control protocol (host → init) |
-| 9002 | VSOCK | Application service 1 |
-| 9003 | VSOCK | Application service 2 |
-| ... | VSOCK | Additional services |
-
 ### Command Reference Summary
 
 #### Init Commands
@@ -2363,7 +2076,7 @@ init --config /path/to/init.yaml       # Custom config
 INIT_CONFIG=/path/to/init.yaml init    # Via environment
 ```
 
-#### Initctl Commands (Local)
+#### Service Management (Local)
 ```bash
 initctl list                           # List services
 initctl status <service>               # Service details
@@ -2376,53 +2089,141 @@ initctl disable <service>              # Disable service
 initctl logs <service>                 # View logs
 initctl logs <service> -n 100          # View 100 lines
 initctl logs-clear <service>           # Clear logs
+```
+
+#### Process Management (Local)
+```bash
+initctl ps list                        # List all processes
+initctl ps status <PID>                # Process details
+initctl ps start <cmd> [args]          # Start process
+initctl ps run <cmd> [args]            # Alias for start
+initctl ps stop <PID>                  # Stop process (SIGTERM)
+initctl ps restart <PID>               # Restart managed service
+initctl ps kill <PID> -s <N>           # Send signal
+```
+
+#### System Management
+```bash
 initctl system-status                  # System info
 initctl reload                         # Reload configs
+initctl reboot                         # Reboot system
+initctl shutdown                       # Shutdown system
 initctl ping                           # Test connection
 ```
 
-#### Initctl Commands (Remote from Host)
+#### Remote Management (from Host)
 ```bash
 # Via config file
 export INITCTL_CONFIG=/etc/enclave-init/initctl.yaml
 initctl list
+initctl ps list
 
 # Via CLI options
 initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 list
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 status webapp
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 restart webapp
-initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 logs webapp -n 100
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ps list
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 ps status 123
 ```
 
-### VSOCK Reference
+### Process Information Fields
 
-#### Constants
-```rust
-VMADDR_CID_HYPERVISOR = 0       // Hypervisor
-VMADDR_CID_LOCAL = 1            // Local communication
-VMADDR_CID_HOST = 2             // Host (legacy)
-VMADDR_CID_ANY = 4294967295     // Listen on any CID (-1U)
-```
+| Field | Source | Description |
+|-------|--------|-------------|
+| PID | /proc/[pid]/ | Process ID |
+| PPID | /proc/[pid]/stat | Parent Process ID |
+| Name | /proc/[pid]/stat | Process name (in parentheses) |
+| Cmdline | /proc/[pid]/cmdline | Full command with args |
+| State | /proc/[pid]/stat | Process state code |
+| CPU% | /proc/[pid]/stat | Calculated from utime+stime |
+| Memory | /proc/[pid]/status | VmRSS (Resident Set Size) |
+| StartTime | /proc/[pid]/stat | Boot time + start ticks |
+| Managed | Init tracking | If process is a service |
+| Service | Init tracking | Service name if managed |
 
-#### Finding CID
+### Signal Reference
+
+| Signal | Number | Description | Catchable |
+|--------|--------|-------------|-----------|
+| SIGHUP | 1 | Hangup | Yes |
+| SIGINT | 2 | Interrupt | Yes |
+| SIGQUIT | 3 | Quit | Yes |
+| SIGKILL | 9 | Kill | No |
+| SIGTERM | 15 | Terminate | Yes |
+| SIGSTOP | 19 | Stop | No |
+| SIGCONT | 18 | Continue | Yes |
+
+### Example Scripts
+
+#### Process Monitor Script
+
 ```bash
-# Method 1: nitro-cli
-nitro-cli describe-enclaves | jq '.[] | .EnclaveCID'
+#!/bin/bash
+# process-monitor.sh - Monitor high CPU/memory processes
 
-# Method 2: From start output
-nitro-cli run-enclave --eif-path app.eif | jq '.EnclaveCID'
+THRESHOLD_CPU=80.0
+THRESHOLD_MEM_MB=500
 
-# Method 3: Inside enclave
-dmesg | grep -i vsock
+initctl ps list | tail -n +3 | while read line; do
+    PID=$(echo $line | awk '{print $1}')
+    CPU=$(echo $line | awk '{print $4}')
+    MEM=$(echo $line | awk '{print $5}')
+    MANAGED=$(echo $line | awk '{print $6}')
+    SERVICE=$(echo $line | awk '{print $7}')
+    CMD=$(echo $line | cut -d' ' -f8-)
+
+    # Check CPU
+    if (( $(echo "$CPU > $THRESHOLD_CPU" | bc -l) )); then
+        echo "HIGH CPU: PID=$PID CPU=$CPU% MANAGED=$MANAGED SERVICE=$SERVICE"
+        echo "  Command: $CMD"
+    fi
+
+    # Check memory (convert to MB for comparison)
+    MEM_VAL=$(echo $MEM | sed 's/[^0-9.]//g')
+    MEM_UNIT=$(echo $MEM | sed 's/[0-9.]//g')
+
+    if [ "$MEM_UNIT" = "G" ]; then
+        MEM_MB=$(echo "$MEM_VAL * 1024" | bc)
+    elif [ "$MEM_UNIT" = "M" ]; then
+        MEM_MB=$MEM_VAL
+    else
+        MEM_MB=$(echo "$MEM_VAL / 1024" | bc)
+    fi
+
+    if (( $(echo "$MEM_MB > $THRESHOLD_MEM_MB" | bc -l) )); then
+        echo "HIGH MEM: PID=$PID MEM=$MEM MANAGED=$MANAGED SERVICE=$SERVICE"
+        echo "  Command: $CMD"
+    fi
+done
 ```
 
-#### Testing VSOCK
-```bash
-# Test connectivity
-initctl --protocol vsock --vsock-cid <CID> --vsock-port 9001 ping
+#### Service Health Check
 
-# Debug connection
-strace initctl --protocol vsock --vsock-cid <CID> --vsock-port 9001 ping
+```bash
+#!/bin/bash
+# service-health.sh - Check service and process health
+
+SERVICES=("webapp" "database" "worker")
+
+for service in "${SERVICES[@]}"; do
+    echo "Checking $service..."
+
+    # Get service status
+    STATUS=$(initctl status $service)
+
+    # Check if active
+    if echo "$STATUS" | grep -q "Status: active"; then
+        # Get PID
+        PID=$(echo "$STATUS" | grep "PID:" | awk '{print $2}')
+
+        # Check process details
+        PROC=$(initctl ps status $PID)
+        CPU=$(echo "$PROC" | grep "CPU:" | awk '{print $2}')
+        MEM=$(echo "$PROC" | grep "Memory:" | awk '{print $2}')
+
+        echo "  ✓ Active (PID: $PID, CPU: $CPU, MEM: $MEM)"
+    else
+        echo "  ✗ Inactive"
+    fi
+done
 ```
 
 ---
@@ -2445,6 +2246,27 @@ For issues, questions, or contributions:
 ---
 
 ## Changelog
+
+### Version 0.7.0
+
+**New Features:**
+- Complete process management system
+- `initctl ps list` - List all system processes
+- `initctl ps status` - Get detailed process information
+- `initctl ps start/run` - Start ad-hoc processes
+- `initctl ps stop` - Stop processes
+- `initctl ps restart` - Restart managed services by PID
+- `initctl ps kill` - Send signals to processes
+- Process information: PID, PPID, CPU%, memory, state, command
+- Managed vs unmanaged process tracking
+- Service-to-process mapping
+- Remote process management via VSOCK
+
+**Improvements:**
+- Enhanced system status with total process count
+- Process state parsing from /proc
+- CPU and memory usage calculation
+- Full command line display for processes
 
 ### Version 0.6.0
 
@@ -2475,7 +2297,7 @@ For issues, questions, or contributions:
 - Improved documentation for VSOCK usage
 - Added examples for host-to-enclave control
 
-### Version 0.5.0 (Beta State Release)
+### Version 0.5.0 (Beta Stage Release)
 
 **New Features:**
 - Configurable init configuration file path via CLI (`--config`) and environment (`INIT_CONFIG`)
@@ -2497,8 +2319,9 @@ For issues, questions, or contributions:
 - Fixed service startup ordering issues
 - Improved error handling in dependency resolution
 
-### Version 0.4.0 (Alpha State Release)
+### Version 0.4.0 (Alpha Stage Release)
 
+**Features:**
 - Init system with process supervision
 - Service management with restart policies
 - File-based logging with rotation
@@ -2510,4 +2333,3 @@ For issues, questions, or contributions:
 - Comprehensive documentation
 
 ---
-
