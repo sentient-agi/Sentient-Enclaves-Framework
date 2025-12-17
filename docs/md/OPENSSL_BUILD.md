@@ -4,7 +4,7 @@ The following is a guide of how to build attestation web server with VRF proofs 
 
 ```bash
 wget https://github.com/openssl/openssl/releases/download/openssl-3.5.0/openssl-3.5.0.tar.gz
-tar -xvf openssl-3.5.0.tar.gz 
+tar -xvf openssl-3.5.0.tar.gz
 
 cd ./openssl-3.5.0
 ./Configure
