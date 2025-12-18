@@ -141,7 +141,7 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
 │  └───────────────┬───────────────────────────┘    │
 │                  │                                │
 │             [VSOCK CID:16 PORT:9001]              │
-└──────────────────┴────────────────────────────────┘
+└──────────────────┼────────────────────────────────┘
                    │
                    │ VSOCK Connection
                    │
@@ -159,7 +159,7 @@ The Enclave Init System is a minimal, production-ready init system (PID 1) desig
 │  │  - Dependency Resolution                  │    │
 │  │  - Unix Socket (/run/init.sock)           │    │
 │  │  - VSOCK Socket (CID:ANY PORT:9001)       │    │
-│  └───────────────────────────────────────────┘    │
+│  └────────┬──────────────┬──────────────┬────┘    │
 │           │              │              │         │
 │     ┌─────┴─────┐  ┌─────┴─────┐  ┌─────┴─────┐   │
 │     │ Service A │  │ Service B │  │ Service C │   │
