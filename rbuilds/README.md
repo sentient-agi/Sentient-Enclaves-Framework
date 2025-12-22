@@ -1,933 +1,1053 @@
-# `rbuilds.sh` – Reproducible Builds System for AWS Nitro Enclaves
-
-`rbuilds.sh` is the reproducible build orchestrator for the **Sentient Enclaves Framework**.
-It turns an application Dockerfile into a fully configured **AWS Nitro Enclaves EIF** image with:
-
-- A custom **Linux kernel** tuned for Nitro Enclaves (vsock, Netfilter, NAT).
-- A custom **init system** (C/clang-based init and a brand new `enclave-init` written in Rust).
-- **Secure Local Channel (SLC)** for VSock-based binary protocol for executinon commands in enclave from host, file and directory transfer.
-- **Forward / reverse / transparent proxies** for enclave networking.
-- **Remote attestation web server**.
-- **File system monitor** for:
-  - handling any FS changing events via `inotify`
-  - make per-file attestation starting with files hashing scheme (SHA3-512)
-  - and pairing with remote attestation web server through NATS KV storage (enclave service bus) to producing VRF proofs for hashes and generate attestation documents, which are includes hash and proof for files.
-
-This README documents `rbuilds.sh` end-to-end: quick start, build pipeline stages, CLI reference, and how the init systems and runtime components fit together.
-
----
+# Reproducible Builds System (`rbuilds.sh`)
 
 ## Table of Contents
 
-1. [Conceptual Overview](#conceptual-overview)
-2. [Features](#features)
-3. [Prerequisites & Environment](#prerequisites--environment)
-4. [Repository Layout](#repository-layout)
-5. [Quick Start](#quick-start)
-6. [Build Pipeline & Stages](#build-pipeline--stages)
-7. [CLI Usage & Global Options](#cli-usage--global-options)
-8. [Command Reference (`--cmd`)](#command-reference---cmd)
-9. [Interactive & Automation Shell Mode](#interactive--automation-shell-mode)
-10. [What Gets Packaged Into the EIF](#what-gets-packaged-into-the-eif)
-11. [Init Systems](#init-systems)
-    - [Current C/clang-based init](#current-cclang-based-init)
-    - [New Rust `enclave-init`](#new-rust-enclave-init)
-12. [CI / Automation Patterns](#ci--automation-patterns)
-13. [Troubleshooting & Tips](#troubleshooting--tips)
+- [Overview](#overview)
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Quick Start Guide](#quick-start-guide)
+- [Installation](#installation)
+- [Architecture](#architecture)
+- [CLI Reference](#cli-reference)
+- [Build Stages](#build-stages)
+- [Configuration Options](#configuration-options)
+- [Networking Support](#networking-support)
+- [Init Systems](#init-systems)
+- [Usage Guide](#usage-guide)
+- [Advanced Usage](#advanced-usage)
+- [Components Reference](#components-reference)
+- [Dockerfile Reference](#dockerfile-reference)
+- [Troubleshooting](#troubleshooting)
+- [Examples](#examples)
 
 ---
 
-## Conceptual Overview
+## Overview
 
-At a high level, `rbuilds.sh`:
+`rbuilds.sh` is a comprehensive shell script for building reproducible AWS Nitro Enclave images (EIF). It provides an end-to-end solution for creating custom enclave environments with:
 
-1. Builds a **custom Linux kernel** that supports Nitro Enclaves, vsock, and the necessary Netfilter/NAT stack.
-2. Builds the **init system** that runs as PID 1 inside the enclave and orchestrates all services.
-3. Builds the enclave’s **userland components**:
-   - Secure Local Channel (SLC) tools.
-   - Forward / reverse / transparent VSock-based proxies.
-   - Remote attestation web server.
-   - File system monitor for per-file attestation.
-4. Assembles everything into an **EIF image** using standard Linux/BSD CLI tools (`bsd-tar`, etc.) and `nitro-cli`.
-5. Provides commands for **creating, listing, attaching to, and destroying** enclaves, and for running EIF images in both debug and normal modes.
+- **Custom Linux kernel builds** with networking stack support
+- **Init system compilation** (C-based and Go-based implementations)
+- **Rust application builds** for the Sentient Secure Enclaves (SSE) Framework
+- **Transparent VSock proxies** for enclave networking
+- **Remote attestation** components
+- **File system monitoring** for per-file attestation
 
-`rbuilds.sh` is:
+The script ensures byte-level reproducibility of enclave images, enabling verifiable builds for confidential computing applications.
 
-- **Reproducible** – deterministic build pipeline for kernel, init, and userland.
-- **Composable** – split into clearly defined stages (kernel, init, framework components/apps/services, user apps/services, rootfs, EIF, enclave).
-- **Operator-friendly** – offers a CLI (`--cmd`) and an interactive+automation shell mode suitable for local development and CI.
+### Key Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| **Reproducible Builds** | Deterministic EIF image generation with consistent PCR hashes |
+| **Custom Kernel** | Linux kernel with networking modules for enclave connectivity |
+| **Multiple Init Systems** | Support for C, Go, and Rust-based init systems |
+| **Networking Stack** | Forward and reverse proxy support for TCP/UDP over VSock |
+| **Remote Attestation** | Built-in RA web server with VRF proofs and PCR verification |
+| **File System Monitoring** | Real-time inotify-based file hash tracking |
+| **Pipeline SLC** | Secure local channel for host-enclave communication |
 
 ---
 
 ## Features
 
-- **Reproducible builds** of enclave images with pinned toolchains and configurations.
-- **End-to-end pipeline** – from a Dockerfile to a running Nitro Enclave.
-- **Custom kernel** tuned for:
-  - vsock.
-  - Netfilter and NAT for transparent proxies.
-- **Secure Local Channel (SLC)**:
-  - Execute commands inside the enclave via VSock.
-  - Transfer files and directories via VSock.
-- **Networking proxies**:
-  - Forward proxies.
-  - Reverse proxies.
-  - Transparent proxies (with iptables/Netfilter integration).
-- **Remote attestation web server**:
-  - Attestation document handling.
-  - Integration with KMS and external verifiers (by design).
-- **File system monitor**:
-  - `inotify`-based monitoring of virtual enclave file systems (CoW FS hashing layer for enclave ramdisk/`initramfs`).
-  - Per-file attestation of runtime data.
-- **Multiple init implementations**:
-  - Current C/clang-based init.
-  - New Rust-based `enclave-init` (designed to replace the former, build integration is in progress).
-- **Interactive command shell and automation mode**:
-  - For orchestrating builds and enclave lifecycle via stdin (useful for CI).
+### Core Features
+
+- ✅ **Automated Build Pipeline** - Single command to build entire enclave stack
+- ✅ **Interactive Shell Mode** - Step-by-step guided builds
+- ✅ **CLI Automation** - Scriptable command interface
+- ✅ **Docker-based Isolation** - All builds in isolated containers
+- ✅ **Modular Architecture** - Build stages can run independently
+- ✅ **Configurable Networking** - Forward, reverse, or bidirectional proxies
+- ✅ **Multiple Init Systems** - Choose between C, Go, or Rust init
+- ✅ **Comprehensive Logging** - Build timing and output capture
+
+### Framework Components Built
+
+| Component | Description |
+|-----------|-------------|
+| `pipeline` | Secure local channel protocol for host-enclave communication |
+| `ra-web-srv` | Remote attestation HTTPS web server |
+| `fs-monitor` | File system change tracking and hashing |
+| `pf-proxy` | VSock port forwarding proxies (forward/reverse/transparent) |
+| `nats-server` | Embedded message queue for enclave service bus |
+| `eif_build` | EIF image assembly tool |
+| `eif_extract` | EIF image extraction/inspection tool |
 
 ---
 
-## Prerequisites & Environment
+## Prerequisites
 
-### Platform
+### System Requirements
 
-- An **AWS EC2 instance** that supports **AWS Nitro Enclaves**:
-  - Nitro-based instance family.
-  - Nitro Enclaves feature enabled in the EC2 instance configuration.
+- **Platform**: AWS EC2 instance with Nitro Enclaves support
+- **OS**: Amazon Linux 2023 (recommended) or Amazon Linux 2
+- **Architecture**: x86_64
+- **vCPUs**: Minimum 4 (excluding certain instance types)
+- **Memory**: Sufficient for enclave allocation (default: 838656 MiB configurable)
 
-### Host OS & Tools
+### Instance Requirements
 
-On the host EC2 instance you should have:
+Nitro-based Intel or AMD instances with at least 4 vCPUs. **Excluded instance types**:
+- c7i.24xlarge, c7i.48xlarge
+- G4ad
+- m7i.24xlarge, m7i.48xlarge, M7i-Flex
+- r7i.24xlarge, r7i.48xlarge, R7iz
+- T3, T3a
+- Trn1, Trn1n
+- U-*, VT1
 
-- A modern Linux distribution (e.g., Amazon Linux 2023 or equivalent).
-- **Docker** or a compatible container runtime.
-- **Nitro CLI**: `nitro-cli` installed and configured.
-- Standard Unix tools:
-  - `bash`
-  - `time` (`/usr/bin/time`)
-  - `tee`
-  - `mkdir` and other `coreutils`.
+### Software Dependencies
 
-### Important Note
+The script automatically installs required dependencies:
+- `docker` - Container runtime
+- `aws-nitro-enclaves-cli` - Nitro Enclaves management
+- `sed`, `grep`, `pcregrep` - Text processing utilities
 
-`rbuilds.sh` assumes it is run from the **project root** of the `sentient-enclaves-framework` repository:
+---
+
+## Quick Start Guide
+
+### 1. Enable Nitro Enclaves
 
 ```bash
-git clone https://github.com/sentient-agi/Sentient-Enclaves-Framework.git
-cd Sentient-Enclaves-Framework
-./rbuilds/rbuilds.sh [...]
+cd rbuilds/
+sudo ./rbuilds.sh --cmd "make_nitro"
+# System will prompt for reboot
 ```
 
----
-
-## Repository Layout
-
-Only the relevant pieces for `rbuilds.sh` are listed here:
-
-- `rbuilds/rbuilds.sh`
-  Main build orchestrator shell script.
-
-- `rbuilds/enclave.init/`
-  Current (legacy) C/clang-based init system scripts, e.g. (for instance):
-  - `init_revp+tpp.sh` – orchestrates startup of proxies (forward/reverse/transparent), SLC, attestation server, FS monitor, and the main applications.
-
-- `rbuilds/rootfs_base/cmd`
-  Default **command** to run (by init system) inside the enclave (primary entrypoint for init scripts that running framework components and userland apps).
-
-- `rbuilds/rootfs_base/env`
-  Default **environment variables** for the enclave init (VSock ports/CIDs, proxy modes, etc.).
-
-- `enclave-init/`
-  Rust-based enclave's init system, see:
-  - [`enclave-init/README.md`](enclave-init/README.md)
-  - [`enclave-init/src/main.rs`](enclave-init/src/main.rs)
-
-- Build and cache directories (created/populated by `rbuilds.sh`):
-  - `.docker/` – Docker-related artifacts, Dockerfiles.
-  - `.linux/` – kernel build outputs, kernel `sysctl` and `systemd` init configurations for enclave host system.
-  - `.bin/` – auxiliary binaries / toolchain artifacts.
-  - `eif/` – EIF images and related logs.
-
-- Userland components included in the EIF (paths may vary in repo):
-  - Pipeline SLC (secure VSock channel).
-  - Proxies (forward, reverse, transparent).
-  - RA web server.
-  - File system monitor.
-
----
-
-## Quick Start
-
-This section walks through a minimal build → run → debug flow.
-
-### 1. Prepare an Application Dockerfile
-
-You need a Dockerfile that defines the application environment to be placed inside the enclave. For example:
-
-```text
-./pipeline-slc-network-al2023.dockerfile
-```
-
-Typical steps in that Dockerfile:
-
-- Start with Amazon Linux 2023 (or another supported base image).
-- Install your application and all runtime dependencies.
-- Optionally configure user, working directory, app entrypoint and app environment.
-
-### 2. Build Everything (Kernel, Init, Apps, EIF, Enclave)
-
-From the project root:
+### 2. Build Everything (Automated)
 
 ```bash
-mkdir -vp ./eif/; \
+# Full automated build with networking support
+mkdir -vp ./eif/
 /usr/bin/time -v -o ./eif/make_build.log \
-./rbuilds/rbuilds.sh \
-  --tty \
-  --debug \
-  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
-  --network \
-  --init-c \
-  --cmd "make_all" \
-  2>&1 3>&1 | tee ./eif/make_build.output
+  ./rbuilds.sh --tty --debug \
+    --dockerfile ./pipeline-slc-network-al2023.dockerfile \
+    --network --init-c \
+    --cmd "make_all" 2>&1 3>&1 | tee ./eif/make_build.output
 ```
 
-What this does:
-
-- Creates `./eif/` as the output directory for EIFs and logs.
-- Runs the **full pipeline** (`make_nitro`, `make_kernel`, `make_apps`, `make_init`, `make_eif`, `make_enclave`).
-- Records detailed resource usage in `./eif/make_build.log`.
-- Streams build output to both the terminal and `./eif/make_build.output`.
-
-**About `3>&1`:**
-
-- The `--tty` flag uses file descriptor `3` as the pseudo-TTY.
-- `3>&1` merges that TTY output back into your shell so you see everything in real time.
-
-### 3. Run the Enclave
-
-Once an EIF is built and registered, you can run it via:
+### 3. Step-by-Step Build
 
 ```bash
-# Debug mode with CLI-style console
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "run_eif_image_debugmode_cli" 2>&1 3>&1
-
-# Normal mode
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "run_eif_image" 2>&1 3>&1
-```
-
-### 4. Attach, Inspect, and Tear Down
-
-Attach to a running enclave console:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "attach_console_to_enclave" 2>&1 3>&1
-```
-
-List enclaves:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "list_enclaves" 2>&1 3>&1
-```
-
-Drop (terminate) a single enclave (recently created):
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "drop_enclave" 2>&1 3>&1
-```
-
-Drop all enclaves:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "drop_enclaves_all" 2>&1 3>&1
-```
-
----
-
-## Build Pipeline & Stages
-
-`rbuilds.sh` exposes build "stages" via the `--cmd` option. You can run them individually or via the `make_all` meta-command.
-
-Common pattern:
-
-```bash
-./rbuilds/rbuilds.sh \
-  --tty \
-  --debug \
-  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
-  --network \
-  --init-c \
-  --cmd "make_<stage>" \
-  2>&1 3>&1
-```
-
-### Stage Overview
-
-- `make_nitro`
-  Initialize Nitro-related build environment, setup Nitro run-time on EC2 instance and base artifacts.
-
-- `make_clear`
-  Clean build artifacts and reset state.
-
-- `make_kernel`
-  Build the custom Linux kernel with Nitro + vsock + Netfilter.
-
-- `make_apps`
-  Build userland components:
-  - Pipeline SLC.
-  - Proxies (forward, reverse, transparent).
-  - RA web server.
-  - FS monitor.
-
-- `make_init`
-  Build and stage the init system (C-based today, Rust-based will be included later).
-
-- `make_eif`
-  Package kernel, init, and rootfs into an EIF image.
-
-- `make_enclave`
-  Create and configure an enclave from the generated EIF.
-
-- `make_all`
-  Run all of the above in the correct order.
-
----
-
-## CLI Usage & Global Options
-
-You can use `rbuilds.sh` in:
-
-1. **CLI mode** (with `--cmd`), or
-2. **Interactive/automation shell mode** (with commands via stdin).
-
-### Basic CLI Pattern
-
-```bash
-./rbuilds/rbuilds.sh [GLOBAL OPTIONS] --cmd "<command>" [redirects]
-```
-
-### Global Options
-
-#### `--tty`
-
-Enable a TTY for Docker / internal processes.
-Use with `3>&1` so TTY output is visible:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --cmd "make_nitro" 2>&1 3>&1
-```
-
-#### `--debug`
-
-Enable verbose logging / tracing for:
-
-- `rbuilds.sh` itself.
-- Nested build steps (kernel, Docker builds, etc.).
-
-Recommended for all development and CI runs.
-
-#### `--dockerfile <path>`
-
-Specify the application Dockerfile used to construct the enclave root filesystem:
-
-```bash
---dockerfile ./pipeline-slc-network-al2023.dockerfile
-```
-
-Required for any stage that needs the app rootfs (`make_all`, `make_apps`, `make_eif`, etc.).
-
-#### `--network`
-
-Enable network access in the enclave. Activate both, forward and reverse port forwarding proxies. (`--reverse-network` + `--forward-network`)
-
-- Allows apps in enclave to pull packages/images/model files.
-- Allows apps and other tools to reach AWS endpoints, like KMS, if required.
-- Expose API endpoints of apps to host. (For exposing these endpoints further from host - routing and DNS forwarding setup required.)
-
-#### `--init-c`
-
-Select the C/clang-based init system as the init implementation to bundle into the EIF.
-
-> When the Rust `enclave-init` will be fully tested and integrated, expect an alternative flag (e.g., `--init-rust`) to select it. For now, `--init-c` is the stable, supported path.
-
-#### `--cmd "<command>"`
-
-Specify the operation to perform.
-Typical values include:
-
-- Build-related:
-  - `make_nitro`
-  - `make_clear`
-  - `make_kernel`
-  - `make_apps`
-  - `make_init`
-  - `make_eif`
-  - `make_enclave`
-  - `make_all`
-- Enclave lifecycle:
-  - `run_eif_image_debugmode_cli`
-  - `run_eif_image`
-  - `attach_console_to_enclave`
-  - `list_enclaves`
-  - `drop_enclave`
-  - `drop_enclaves_all`
-
-#### `--memory`, `--cpus` and `--cid`
-
-Resources allocation for Nitro run-time setup (for Nitro allocator service configuration) and CID set for enclave.
-
-#### `--man` and `--info`, `-h|-hh|-hhh` and `-?|-??|-???` - help and manual output options
-
-Built-in help:
-
-```bash
-./rbuilds/rbuilds.sh --man
-./rbuilds/rbuilds.sh --info
-```
-
-- `--man` – Print extended help & man strings, detailed manual (options, commands, notes).
-- `--info` – Print exhaustive documentation.
-
-- `-?|-h` - Print CLI keys/args/options/parameters help
-- `-??|-hh` - Print extended help
-- `-???|-hhh` - Print extended help with man messages/strings
-
----
-
-## Command Reference – `--cmd`
-
-Below is a summary of the main commands.
-Use `./rbuilds/rbuilds.sh --man` for the authoritative, version-specific reference.
-
-### Build / Maintenance Commands
-
-#### `make_nitro`
-
-Initialize Nitro-related build environment:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --cmd "make_nitro" 2>&1 3>&1
-```
-
-Typical responsibilities:
-
-- Check / prepare `nitro-cli` and Nitro allocator service.
-- Resources allocation for Nitro run-time setup (for Nitro allocator service configuration) and CID set for enclave.
-- Prepare and setup packages, base images or helper containers into system.
-- Initialize internal directories.
-
-#### `make_clear`
-
-Clean build artifacts:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --cmd "make_clear" 2>&1 3>&1
-```
-
-Removes intermediate build containers, outputs, allowing for a fully fresh build.
-
-#### `make_all`
-
-Run the full build pipeline:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug \
-  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
-  --network --init-c \
-  --cmd "make_all" 2>&1 3>&1
-```
-
-#### `make_kernel`
-
-Build the custom Linux kernel:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug \
+# Build kernel
+sudo ./rbuilds.sh --tty --debug \
   --dockerfile ./pipeline-slc-network-al2023.dockerfile \
   --network --init-c \
   --cmd "make_kernel" 2>&1 3>&1
-```
 
-Outputs kernel artifact(s) into `./kernel_blobs/` directory.
-
-#### `make_apps`
-
-Build userland binaries:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug \
+# Build system components
+sudo ./rbuilds.sh --tty --debug \
   --dockerfile ./pipeline-slc-network-al2023.dockerfile \
   --network --init-c \
   --cmd "make_apps" 2>&1 3>&1
-```
 
-Includes:
-
-- Pipeline SLC tool.
-- Forward/reverse/transparent proxies.
-- Attestation web server.
-- File system monitor.
-
-#### `make_init`
-
-Build and stage the init system:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug \
+# Build init system
+sudo ./rbuilds.sh --tty --debug \
   --dockerfile ./pipeline-slc-network-al2023.dockerfile \
   --network --init-c \
   --cmd "make_init" 2>&1 3>&1
-```
 
-Uses:
-
-- `rbuilds/enclave.init/` (current C/clang based init scripts path).
-- `rbuilds/rootfs_base/env` and `rbuilds/rootfs_base/cmd`.
-
-#### `make_eif`
-
-Package everything into an EIF:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug \
+# Build EIF image
+sudo ./rbuilds.sh --tty --debug \
   --dockerfile ./pipeline-slc-network-al2023.dockerfile \
   --network --init-c \
   --cmd "make_eif" 2>&1 3>&1
 ```
 
-Generates `.eif` files under `./eif/`.
-
-#### `make_enclave`
-
-Create/configure an enclave from the EIF:
+### 4. Run Enclave
 
 ```bash
-./rbuilds/rbuilds.sh --tty --debug \
-  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
-  --network --init-c \
-  --cmd "make_enclave" 2>&1 3>&1
-```
-
----
-
-### Enclave Lifecycle Commands
-
-Assume you already have an EIF image built and available.
-
-#### `run_eif_image_debugmode_cli`
-
-Run the enclave in debug mode with console:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
+# Run in debug mode with console output
+sudo ./rbuilds.sh --tty --debug --network --init-c \
   --cmd "run_eif_image_debugmode_cli" 2>&1 3>&1
 ```
 
-Good for:
+---
 
-- Live debugging.
-- Verifying that init and services start correctly.
+## Installation
 
-#### `run_eif_image`
+### Initial Setup
 
-Run the enclave normally:
-
+1. **Clone the Repository**
 ```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "run_eif_image" 2>&1 3>&1
+git clone https://github.com/sentient-agi/sentient-enclaves-framework.git
+cd sentient-enclaves-framework/rbuilds/
 ```
 
-Use this for non-interactive test runs or as a basis for production deployment.
-
-#### `attach_console_to_enclave`
-
-Attach a console to an already-running enclave (that running in `debugmode_cli`):
-
+2. **Configure Nitro Enclaves**
 ```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "attach_console_to_enclave" 2>&1 3>&1
+sudo ./rbuilds.sh --cmd "make_nitro"
 ```
 
-#### `list_enclaves`
+This command:
+- Installs Docker and Nitro Enclaves CLI
+- Adds current user to `docker` and `ne` groups
+- Configures enclave resource allocation in `/etc/nitro_enclaves/allocator.yaml`
+- Enables required system services
+- Prompts for system reboot
 
-List active enclaves on the host:
+### Resource Configuration
 
-```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "list_enclaves" 2>&1 3>&1
+Default enclave allocation (configurable via CLI):
+
+| Resource | Default Value | CLI Flag |
+|----------|---------------|----------|
+| Memory | 262144 MiB | `--memory <MiB>` |
+| CPUs | 16 | `--cpus <count>` |
+| VSock CID | 127 | `--cid <cid>` |
+
+---
+
+## Architecture
+
+### Build Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     rbuilds.sh Build Pipeline                   │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+         ┌────────────────────┼────────────────────┐
+         ▼                    ▼                    ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│  make_kernel    │  │   make_apps     │  │   make_init     │
+│                 │  │                 │  │                 │
+│ Custom Linux    │  │ SSE Framework   │  │ Init System     │
+│ Kernel + NSM    │  │ Components      │  │ (C/Go/Rust)     │
+└────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+         │                    │                    │
+         └────────────────────┼────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │    make_eif     │
+                    │                 │
+                    │ Assemble EIF    │
+                    │ Image           │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │  make_enclave   │
+                    │                 │
+                    │ Run & Manage    │
+                    │ Enclave         │
+                    └─────────────────┘
 ```
 
-#### `drop_enclave`
+### Directory Structure
 
-Drop/terminate currently built and running enclave by its name (according to the name of the `dockerfile`):
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "drop_enclave" 2>&1 3>&1
+```
+rbuilds/
+├── rbuilds.sh                              # Main build script
+├── patterns                                # CPIO archive exclusion patterns
+├── kernel_config/                          # Kernel configurations
+│   ├── artifacts_kmods/.config             # With kernel modules
+│   ├── artifacts_static/.config            # Static modules
+│   └── kernel_wo_net/.config               # Without networking
+├── init_apps/                              # Init system sources
+│   ├── init/                               # C-based init
+│   └── init_go/                            # Go-based init
+├── enclave.init/                           # Enclave runtime scripts
+│   ├── init.sh                             # Main init script
+│   ├── init_revp.sh                        # Reverse proxy init
+│   ├── init_tpp.sh                         # Transparent proxy init
+│   ├── init_revp+tpp.sh                    # Combined proxy init
+│   ├── init_wo_net.sh                      # No networking init
+│   ├── pf-*.sh                             # Proxy startup scripts
+│   └── .config/                            # Configuration files
+├── rootfs_base/                            # Base filesystem structure
+│   ├── cmd                                 # Default command
+│   └── env                                 # Environment variables
+└── *.dockerfile                            # Build dockerfiles
 ```
 
-#### `drop_recent_enclave`
+### Component Flow
 
-Drop/terminate currently built and running enclave by its enclave ID in Nitro Enclaves runtime:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "drop_recent_enclave" 2>&1 3>&1
 ```
-
-#### `drop_enclaves_all`
-
-Terminate all enclaves:
-
-```bash
-./rbuilds/rbuilds.sh --tty --debug --network --init-c \
-  --cmd "drop_enclaves_all" 2>&1 3>&1
+┌───────────────────────────────────────────────────────────────────┐
+│                        Host EC2 Instance                          │
+│                                                                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
+│  │ pf-rev-host  │  │ pf-tp-host   │  │   pf-host    │             │
+│  │ (Reverse     │  │ (Transparent │  │   (DNS/UDP   │             │
+│  │  Proxy)      │  │  Proxy)      │  │    Forward)  │             │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘             │
+│         │                 │                 │                     │
+│         └─────────────────┼─────────────────┘                     │
+│                           │ VSock                                 │
+└───────────────────────────┼───────────────────────────────────────┘
+                            │
+┌───────────────────────────┼───────────────────────────────────────┐
+│                           ▼                                       │
+│                     AWS Nitro Enclave                             │
+│                                                                   │
+│  ┌────────────────────────────────────────────────────────┐       │
+│  │                     init (PID 1)                       │       │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐       │       │
+│  │  │pipeline │ │ra-web-  │ │fs-      │ │nats-    │       │       │
+│  │  │(SLC)    │ │srv      │ │monitor  │ │server   │       │       │
+│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘       │       │
+│  │                                                        │       │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐                   │       │
+│  │  │vs2ip    │ │ip2vs-tp │ │socat    │   (Proxy Layer)   │       │
+│  │  │(Rev Prx)│ │(Fwd Prx)│ │(DNS)    │                   │       │
+│  │  └─────────┘ └─────────┘ └─────────┘                   │       │
+│  └────────────────────────────────────────────────────────┘       │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Interactive & Automation Shell Mode
+## CLI Reference
 
-Besides `--cmd`, `rbuilds.sh` can act as a small shell, a REPL, that reads commands either from own shell prompt (interactive shell mode) or from stdin (automation shell mode).
-This is useful for:
-- Interactive exploration.
-- CI or other orchestration tools that want to script multiple commands.
+### Global Options
 
-### Interactive Shell
+| Option | Short | Environment | Default | Description |
+|--------|-------|-------------|---------|-------------|
+| `--help` | `-?`, `-h` | - | - | Print CLI help |
+| `--help-ext` | `-??`, `-hh` | - | - | Print extended help |
+| `--man` | - | - | - | Print man pages |
+| `--info` | - | - | - | Print exhaustive documentation |
+| `--debug` | `-v`, `--verbose` | - | Off | Enable verbose output |
+| `--question` | `-q` | - | Off | Prompt before each command |
+| `--local-shell` | `--lsh`, `-lsh` | - | Off | Enable local shell command execution |
+| `--tty` | `--terminal` | - | Off | Allocate TTY for build output |
 
-Start:
+### Build Configuration
 
-```bash
-mkdir -vp ./eif/; \
-/usr/bin/time -v -o ./eif/make_build.log \
-./rbuilds/rbuilds.sh 2>&1 | tee ./eif/make_build.output
-```
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--dockerfile <path>` | `-d` | `pipeline-al2023.dockerfile` | Dockerfile for rootfs image |
+| `--kernel <version>` | `-k` | `6.14.5` | Linux kernel version |
+| `--user <name>` | `-u` | `sentient_build` | Kernel build username |
+| `--host <name>` | `-h` | `sentient_builder` | Kernel build hostname |
 
-Then, at the prompt, type commands such as:
+### Enclave Runtime
 
-```text
-make all
-make eif
-attach_console_to_enclave
-list_enclaves
-drop_enclave
-drop_enclaves_all
-```
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--memory <MiB>` | `-m` | `262144` | Enclave memory allocation |
+| `--cpus <count>` | - | `16` | Enclave CPU allocation |
+| `--cid <cid>` | - | `127` | VSock CID for enclave |
 
-### Automation via stdin
+### Networking Flags
 
-You can pipe commands directly:
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--network` | `-n` | Enable both forward and reverse proxies |
+| `--forward-network` | `-fn` | Enable forward proxy only |
+| `--reverse-network` | `-rn` | Enable reverse proxy only |
 
-```bash
-{ echo "attach_console_to_enclave"; } | ./rbuilds/rbuilds.sh 2>&1
-{ echo "list_enclaves"; }            | ./rbuilds/rbuilds.sh 2>&1
-{ echo "drop_enclave"; }             | ./rbuilds/rbuilds.sh 2>&1
-{ echo "drop_enclaves_all"; }        | ./rbuilds/rbuilds.sh 2>&1
-```
+### Init System Selection
 
-With timing + logs:
+| Option | Description |
+|--------|-------------|
+| `--init-c`, `--clang` | Use C-based init system (default) |
+| `--init-go`, `--golang` | Use Go-based init system |
+| `--init-rs`, `--rust` | Use Rust-based init system |
 
-```bash
-{ echo "attach_console_to_enclave"; } \
-  | /usr/bin/time -v -o ./eif/make_build.log \
-    ./rbuilds/rbuilds.sh 2>&1 | tee ./eif/make_build.output
-```
+### Command Execution
 
-For build commands that ask interactive questions, you can pre-feed answers:
-
-```bash
-{ echo "make eif";
-  echo "y";
-  echo "y";
-  echo "y";
-  echo "y";
-  echo "y";
-  echo "y";
-  echo "y"; } \
-  | /usr/bin/time -v -o ./make_build.log \
-    ./rbuilds/rbuilds.sh 2>&1 | tee ./make_build.output
-```
-
-Or a full build:
-
-```bash
-{ echo "make all"; } \
-  | /usr/bin/time -v -o ./make_build.log \
-    ./rbuilds/rbuilds.sh 2>&1 | tee ./make_build.output
-```
-
-### Local Shell Escape (`lsh`)
-
-There is a special command `lsh` that lets you run host commands from internal interactive shell prompt (REPL) and thorugh automation/stdin shell interface:
-
-```bash
-{ echo "lsh"; echo "ls -lah"; whoami; uname -a; date; pwd; } \
-  | /usr/bin/time -v -o ./make_build.log \
-    ./rbuilds/rbuilds.sh 2>&1 | tee ./make_build.output
-```
-
-Use this with care, as it bridges the interactive/automation shell and your host environment (through script eval loop, REPL).
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--cmd <command>` | `-c` | Execute specified command (repeatable) |
 
 ---
 
-## What Gets Packaged Into the EIF
+## Build Stages
 
-The EIF images produced by `rbuilds.sh` contain:
+### Stage 1: Kernel Build (`make_kernel`)
 
-### 1. Custom Linux Kernel
+Builds a custom Linux kernel with NSM driver support.
 
-- Built specifically for Nitro Enclaves.
-- Includes:
-  - vsock support.
-  - Netfilter/NAT support required by proxies.
-  - Other options suitable for enclave workloads.
+**Components:**
+- Linux kernel (configurable version)
+- NSM (Nitro Security Module) driver
+- Network stack modules (when networking enabled)
 
-### 2. Init System
+**Commands:**
+```bash
+docker_kcontainer_clear    # Clean previous container
+docker_kimage_clear        # Clean previous image
+docker_kimage_build        # Build kernel build environment
+docker_prepare_kbuildenv   # Setup build environment
+docker_kernel_build        # Compile kernel
+```
 
-- Runs as **PID 1**.
-- Responsibility:
-  - Mount core filesystems (`/proc`, `/sys`, `/dev`, etc.).
-  - Read configuration (`env`, `cmd`) and environment variables.
-  - Start and supervise enclave services.
-  - Coordinate graceful shutdown.
+**Output:**
+- `kernel_blobs/bzImage` - Compressed kernel image
+- `kernel_blobs/.config` - Kernel configuration
+- `kernel_blobs/nsm.ko` - NSM kernel module
+- `kernel_blobs/kernel_modules/` - Kernel modules
 
-### 3. Secure Local Channel (SLC)
+### Stage 2: Applications Build (`make_apps`)
 
-- VSock-based channel for:
-  - Executing commands inside the enclave from the host.
-  - Transferring files and directories between host and enclave.
-- Designed to be the main control/data plane between host and enclave, beyond attestation.
+Builds SSE Framework Rust applications.
 
-### 4. Proxies (Forward / Reverse / Transparent)
+**Components:**
+- `pipeline` - Secure local channel
+- `ra-web-srv` - Remote attestation web server
+- `fs-monitor` - File system monitor
+- `ip-to-vsock`, `vsock-to-ip` - Standard proxies
+- `ip-to-vsock-transparent`, `vsock-to-ip-transparent` - Transparent proxies
+- `transparent-port-to-vsock` - Port-based transparent proxy
+- `eif_build`, `eif_extract` - EIF image tools
 
-- Implemented as VSock-aware services with iptables/Netfilter integration.
-- Typical roles:
-  - Forward proxy for outbound connections (enclave → host → internet).
-  - Reverse proxy for inbound requests into enclave services.
-  - Transparent proxy using NAT rules so applications do not need proxy awareness.
+**Commands:**
+```bash
+docker_apps_rs_container_clear    # Clean previous container
+docker_apps_rs_image_clear        # Clean previous image
+docker_apps_rs_image_build        # Build Rust build environment
+docker_prepare_apps_rs_buildenv   # Clone repositories
+docker_apps_rs_build              # Compile applications
+```
 
-### 5. Remote Attestation Web Server
+### Stage 3: Init System Build (`make_init`)
 
-- Enclave-resident HTTP service for attestation flows.
-- Responsibilities (conceptual):
-  - Handling Nitro attestation documents.
-  - Interacting with KMS or other key management systems.
-  - Providing a REST-like interface for verifiers / clients.
-  - Attesting enclave base running image (EIF) in Nitro Enclaves runtime, enclave state and referenced artifacts (e.g., binaries, models).
+Builds init system for enclave boot.
 
-### 6. File System Monitor
+**Options:**
+- **C-based init** (`--init-c`): Minimal C init binary
+- **Go-based init** (`--init-go`): Go init with enhanced features
+- **Rust-based init** (`--init-rs`): New Rust init system (in beta testing stage)
 
-- `inotify`-based monitor inside the enclave.
-- Watches file system changes (e.g., new data, updated models).
-- Triggers **per-file attestation** so each specific runtime artifact can be attested, not just the initial EIF.
+**Commands:**
+```bash
+docker_init_apps_container_clear    # Clean previous container
+docker_init_apps_image_clear        # Clean previous image
+docker_init_apps_image_build        # Build init build environment
+docker_prepare_init_apps_buildenv   # Setup sources
+docker_init_apps_build              # Compile init + NATS server
+```
+
+**Additional build for NATS server:**
+- Compiles `nats-server` for enclave service bus
+
+### Stage 4: EIF Image Build (`make_eif`)
+
+Assembles final Enclave Image Format (EIF) file.
+
+**Process:**
+1. Create init CPIO archive
+2. Create rootfs base CPIO archive
+3. Export Docker container as rootfs CPIO
+4. Include kernel modules CPIO
+5. Assemble ramdisk from all CPIOs
+6. Build EIF with kernel + ramdisk
+
+**Commands:**
+```bash
+docker_eif_build_container_clear     # Clean app container
+docker_eif_build_image_clear         # Clean images
+docker_container_apps_image_build    # Build app image
+init_and_rootfs_base_images_build    # Create init/base CPIOs
+docker_to_rootfs_fs_image_build      # Export rootfs CPIO
+ramdisk_image_build                  # Combine all CPIOs
+eif_build_with_initc                 # Build EIF (C init)
+eif_build_with_initgo                # Build EIF (Go init)
+```
+
+**Output:**
+- `eif/init_c_eif/app-builder-secure-enclaves-framework.eif`
+- `eif/init_go_eif/app-builder-secure-enclaves-framework.eif`
+- PCR hashes for attestation verification
+
+---
+
+## Configuration Options
+
+### Kernel Configuration
+
+Three kernel configurations available in `kernel_config/`:
+
+| Config | Path | Description |
+|--------|------|-------------|
+| With Modules | `artifacts_kmods/.config` | Network modules as loadable |
+| Static | `artifacts_static/.config` | Network compiled statically |
+| No Network | `kernel_wo_net/.config` | Minimal, no networking |
+
+Selection is automatic based on `--network` flag.
+
+### Environment Variables
+
+Default enclave environment (`rootfs_base/env`):
+```
+SHELL='/usr/bin/env bash'
+HOME=/apps
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+RUST_LOG=debug
+RUST_BACKTRACE=full
+CERT_DIR=/apps/certs/
+```
+
+### Init Configuration
+
+Init startup command (`rootfs_base/cmd`):
+```
+/bin/bash
+-c
+--
+echo -e "init started"; echo -e "executing init.sh"; cd /apps/; ./init.sh 2>&1 & disown; echo -e "init.sh executed"; echo -e "init launched"; tail -f /dev/null
+```
+
+---
+
+## Networking Support
+
+### Network Modes
+
+| Mode | Flag | Init Script | Description |
+|------|------|-------------|-------------|
+| None | (default) | `init_wo_net.sh` | No network access |
+| Forward | `--forward-network` | `init_tpp.sh` | Outbound connections |
+| Reverse | `--reverse-network` | `init_revp.sh` | Inbound connections |
+| Both | `--network` | `init_revp+tpp.sh` | Full bidirectional |
+
+### Forward Proxy Flow
+
+```
+Enclave App → iptables DNAT → ip2vs-tp → VSock → vs2ip-tp → Internet
+```
+
+**Guest side (`pf-tp-guest.sh`):**
+- Configures localhost loopback
+- Sets iptables NAT rules
+- Starts `ip2vs-tp` transparent proxy
+
+**Host side (`pf-tp-host.sh`):**
+- Starts `vs2ip-tp` transparent proxy
+- Routes VSock traffic to destination
+
+### Reverse Proxy Flow
+
+```
+Internet → Host Port → ip2vs → VSock → vs2ip → Enclave Service
+```
+
+**Guest side (`pf-rev-guest.sh`):**
+- Configures localhost
+- Starts `vs2ip` proxies on multiple VSock ports
+- Maps VSock ports to local service ports
+
+**Host side (`pf-rev-host.sh`):**
+- Sets iptables rules for port redirection
+- Starts `ip2vs` and `tpp2vs` proxies
+- Routes external traffic to enclave
+
+### DNS Forwarding
+
+DNS queries from enclave forwarded via UDP over VSock:
+
+**Guest (`pf-guest.sh`):**
+```bash
+socat UDP-LISTEN:53,reuseaddr,fork VSOCK-CONNECT:5:8053
+```
+
+**Host (`pf-host.sh`):**
+```bash
+socat VSOCK-LISTEN:8053,reuseaddr,fork UDP:$(nameserver):53
+```
+
+### Port Mappings
+
+| External Port | VSock Port | Service |
+|---------------|------------|---------|
+| 80 | 8080 | HTTP |
+| 443 | 8443 | HTTPS |
+| 9000-10000 | 9000-10000 | Custom range |
+| 10000-11000 | 11001 | Transparent (port preserved) |
 
 ---
 
 ## Init Systems
 
-### Current C/clang-based init
+### C-based Init (`init.c`)
 
-**Location:**
+Minimal init system in C. Features:
+- NSM driver loading
+- Console setup
+- Basic process spawning
+- Filesystem mounting
 
-- Scripts and helpers in: `rbuilds/enclave.init/`
-- Boot scripts such as: `rbuilds/enclave.init/init_revp+tpp.sh`
-- Configuration:
-  - `rbuilds/rootfs_base/env` – default environment.
-  - `rbuilds/rootfs_base/cmd` – default command.
-
-**High-level behavior:**
-
-1. **Boot entrypoint**
-   Bootloading:
-   - Kernel bootload NSM device driver. Init send magic number as liveness check of enclave successful boot to hypervisor.
-   - Kernel boots and runs the initramfs that includes a small C-based init, which then executes `init_revp+tpp.sh` from `cmd` and set environment from `env` and init shell scripts.
-
-2. **Environment setup**
-   Init:
-   - Loads environment variables from `env`.
-   - Reads the primary app command from `cmd`.
-   - Configures VSock ports, proxy modes, attestation options, etc.
-
-3. **Service startup**
-   The init script orchestrates:
-   - Starting Pipeline SLC (VSock control protocol channel).
-   - Starting forward/reverse/transparent proxies and configuring netfilter/iptables.
-   - Starting NATS bus.
-   - Starting the RA web server.
-   - Starting the file system monitor.
-   - Finally launching the main application (`cmd`) in the configured environment.
-
-4. **Lifecycle management**
-   - Propagates signals to managed services.
-   - Ensures clean shutdown when the enclave is terminated.
-
-This C/clang-based init is the **current default** selected via `--init-c`.
-
----
-
-### New Rust `enclave-init`
-
-**Location:**
-
-- [`enclave-init/README.md`](enclave-init/README.md)
-- [`enclave-init/src/main.rs`](enclave-init/src/main.rs)
-
-The Rust `enclave-init` is the new init system designed to eventually replace the C/clang-based init. It is written in Rust for:
-
-- Better safety guarantees.
-- Clearer error handling and logging.
-- More robust service supervision.
-
-**Intended responsibilities:**
-
-- Run as PID 1 inside the enclave.
-- Mount required file systems.
-- Parse service files with configuration (similar to `env` and `cmd`) and environment variables.
-- Manage services and processes in an enclave system.
-- Handling of kernel signals for the runing processes.
-- Start and supervise:
-  - Pipeline SLC.
-  - Proxies (forward, reverse, transparent).
-  - Attestation web server.
-  - File system monitor.
-  - The main application process.
-- Enforce restart policies / failure handling as needed.
-- Provide structured logs for debugging and observability.
-
-**Integration with `rbuilds.sh`:**
-
-- The `make_init` stage will build the Rust binary and package it as `/init` in the rootfs.
-- A new CLI flag (e.g., `--init-rust`) can be used to select this implementation once integration is complete.
-- Until then, `--init-c` remains the stable path for production builds.
-
----
-
-## CI / Automation Patterns
-
-Below are examples of how to integrate `rbuilds.sh` into CI pipelines or higher-level orchestration.
-
-### Pattern 1: Simple “build all” job
-
+**Build:**
 ```bash
-mkdir -vp ./eif/
-/usr/bin/time -v -o ./eif/make_build.log \
-./rbuilds/rbuilds.sh \
-  --tty \
-  --debug \
-  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
-  --network \
-  --init-c \
-  --cmd "make_all" \
-  2>&1 3>&1 | tee ./eif/make_build.output
+gcc -Wall -Wextra -Werror -O3 -flto -static -static-libgcc -o init init.c
 ```
 
-Artifacts to keep:
+### Go-based Init (`init.go`)
 
-- `./eif/make_build.log`
-- `./eif/make_build.output`
-- `./eif/*.eif` (EIF images)
+Enhanced init system in Go. Features:
+- All C init features
+- Environment variable handling
+- Enhanced logging
+- Signal handling
 
-### Pattern 2: Stage-by-stage builds
+**Build:**
+```bash
+CGO_ENABLED=0 go build -a -trimpath -ldflags "-s -w -extldflags=-static" -o init init.go
+```
 
-Useful when you want to cache intermediate outputs or debug a specific stage.
+### Rust-based Init (New)
+
+Advanced init system with service management. Features:
+- Service supervision with restart policies
+- Dependency ordering (Before/After/Requires)
+- Process management (list, start, stop, signal)
+- Dual control protocol (Unix socket + VSock)
+- Persistent logging with rotation
+- System status monitoring
+
+**Configuration:** `/etc/init.yaml`
+**Control CLI:** `initctl`
+
+---
+
+## Usage Guide
+
+### Interactive Mode
+
+Start interactive shell:
+```bash
+./rbuilds.sh 2>&1
+```
+
+Commands available in interactive mode:
+```bash
+help              # Print help
+help_ext          # Extended help
+make kernel       # Build kernel
+make apps         # Build applications
+make init         # Build init system
+make eif          # Build EIF image
+make all          # Full build
+make enclave      # Enclave management
+make clear        # Clean all Docker artifacts
+q                 # Toggle question prompts
+lsh               # Toggle local shell access
+network           # Toggle full networking
+forward_network   # Toggle forward proxy
+reverse_network   # Toggle reverse proxy
+exit              # Exit shell
+```
+
+### Automation Mode
+
+Pipe commands for automation:
+```bash
+# Single command
+{ echo "make_kernel"; } | ./rbuilds.sh 2>&1
+
+# Multiple commands
+{
+  echo "make kernel"
+  echo "make apps"
+  echo "make init"
+  echo "make eif"
+} | ./rbuilds.sh 2>&1
+
+# With timing and logging
+{ echo "make all"; } | /usr/bin/time -v -o ./eif/make_build.log \
+  ./rbuilds.sh 2>&1 | tee ./eif/make_build.output
+```
+
+### Enclave Management
 
 ```bash
-# Kernel only
-./rbuilds/rbuilds.sh --tty --debug \
-  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
-  --network --init-c \
-  --cmd "make_kernel" 2>&1 3>&1
+# Run with debug console attached
+./rbuilds.sh --cmd "run_eif_image_debugmode_cli"
 
-# Apps only
-./rbuilds/rbuilds.sh --tty --debug \
-  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
-  --network --init-c \
-  --cmd "make_apps" 2>&1 3>&1
+# Run without console (background)
+./rbuilds.sh --cmd "run_eif_image_debugmode"
 
-# Init only
-./rbuilds/rbuilds.sh --tty --debug \
-  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
-  --network --init-c \
-  --cmd "make_init" 2>&1 3>&1
+# Run in production mode
+./rbuilds.sh --cmd "run_eif_image"
 
-# EIF only (after previous stages are cached)
-./rbuilds/rbuilds.sh --tty --debug \
-  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
+# Attach console to running enclave
+./rbuilds.sh --cmd "attach_console_to_enclave"
+
+# List running enclaves
+./rbuilds.sh --cmd "list_enclaves"
+
+# Terminate enclave
+./rbuilds.sh --cmd "drop_enclave"
+
+# Terminate all enclaves
+./rbuilds.sh --cmd "drop_enclaves_all"
+```
+
+---
+
+## Advanced Usage
+
+### Custom Dockerfile
+
+Use custom application dockerfile:
+```bash
+./rbuilds.sh --tty --debug \
+  --dockerfile ./my-app.dockerfile \
   --network --init-c \
   --cmd "make_eif" 2>&1 3>&1
 ```
 
-### Pattern 3: Complex flows via automation shell
+### Kernel Version Override
 
-For multi-step flows where you want a single entrypoint:
-
+Build with specific kernel:
 ```bash
-{
-  echo "make all";          # full build
-  echo "list_enclaves";     # sanity check
-  echo "run_eif_image";     # run the enclave
-} | /usr/bin/time -v -o ./eif/make_build.log \
-    ./rbuilds/rbuilds.sh 2>&1 | tee ./eif/make_build.output
+./rbuilds.sh --kernel 6.12.0 --cmd "make_kernel"
+```
+
+### Multiple Commands
+
+Execute multiple build stages:
+```bash
+./rbuilds.sh \
+  --cmd "make_kernel" \
+  --cmd "make_apps" \
+  --cmd "make_init" \
+  --cmd "make_eif"
+```
+
+### Resource Configuration
+
+Custom enclave resources:
+```bash
+./rbuilds.sh \
+  --memory 16384 \
+  --cpus 8 \
+  --cid 16 \
+  --cmd "run_eif_image_debugmode_cli"
+```
+
+### Build Without Networking
+
+Minimal build without network stack:
+```bash
+./rbuilds.sh --tty --debug \
+  --dockerfile ./pipeline-al2023.dockerfile \
+  --init-c \
+  --cmd "make_all" 2>&1 3>&1
+```
+
+### Local Shell Access
+
+Enable local shell commands:
+```bash
+./rbuilds.sh --lsh
+# Then in interactive mode:
+lsh  # Enable local shell
+ls -lah  # Execute local command
 ```
 
 ---
 
-## Troubleshooting & Tips
+## Components Reference
 
-### 1. Build fails with Docker/network errors
+### Pipeline (SLC)
 
-- Ensure Docker is running and your user has permission to use it.
-- If your Dockerfile needs network access (package managers, etc.), ensure host network working properly.
-- Check proxy/firewall rules if your build cannot reach external registries.
+Secure local channel for host-enclave communication.
 
-### 2. Nitro-related failures (cannot run EIF)
-
-- Confirm that:
-  - The EC2 instance supports Nitro Enclaves.
-  - Nitro Enclaves are enabled in the instance configuration.
-  - `nitro-cli` is installed and working (`nitro-cli --help`).
-- Check that `/var/run/nitro_enclaves/*` or related resources exist and are accessible.
-- Check for sufficient memory and CPUs allocation (by Nitro allocator service) and there are enough hardware resources available on the host.
-- Check for enabling Huge Pages (1GiB pages allocation by kernel).
-- Check if NUMA nodes are enabled on host. If NUMA involves memory/CPU allocation issues (for Nitro allocator service) and led to resources shortage on running NUMA node - disable NUMA in GRUB bootloader kernel boot parameters for testing and debugging purposes if needed. This will enable unified contiguous resources pool.
-
-### 3. Enclave runs but network doesn’t work
-
-- Remember: enclaves have **no direct network** – everything is via:
-  - VSock to the host.
-  - Proxies in host and enclave.
-- Check:
-  - That `make_apps` completed successfully and proxies are present and running.
-  - VSock CID and port values (`env` configuration) are correct.
-  - iptables rules on host and enclave enabled properly by init scripts.
-
-### 4. Attestation or FS monitor issues
-
-- Ensure those binaries were built (`make_apps`).
-- Check that required configuration (keys, KMS integration, endpoints) is in place.
-- Look at enclave logs via `run_eif_image_debugmode_cli` and `attach_console_to_enclave`.
-
-### 5. Getting more help
-
-Use the built-in help:
-
+**Enclave (listen mode):**
 ```bash
-./rbuilds/rbuilds.sh --info
-./rbuilds/rbuilds.sh --man
+./pipeline listen --port 53000
 ```
 
-These commands show the exact options and commands supported by your version of `rbuilds.sh`.
+**Host commands:**
+```bash
+# Execute command in enclave
+./pipeline run --cid 127 --port 53000 --command "hostname"
+
+# Send file to enclave
+./pipeline send-file --cid 127 --port 53000 \
+  --localpath ./data.txt --remotepath /apps/data.txt
+
+# Receive file from enclave
+./pipeline recv-file --cid 127 --port 53000 \
+  --remotepath /apps/output.txt --localpath ./output.txt
+```
+
+### Remote Attestation Web Server
+
+HTTPS server for enclave attestation.
+
+**Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/generate` | POST | Generate attestation for path |
+| `/ready/` | GET | Check processing status |
+| `/hash/` | GET | Get file hash |
+| `/proof/` | GET | Get VRF proof |
+| `/doc/` | GET | Get attestation document |
+| `/pcrs/` | GET | Get PCR registers |
+| `/pubkeys/` | GET | Get public keys |
+| `/verify_hash/` | POST | Verify file hash |
+| `/verify_proof/` | POST | Verify VRF proof |
+| `/verify_doc/` | POST | Verify document signature |
+| `/verify_cert_bundle/` | POST | Verify certificate chain |
+| `/verify_pcrs/` | POST | Compare PCR values |
+
+### File System Monitor
+
+Real-time file change tracking.
+
+**Configuration:**
+- Watch directory: `/apps/`
+- Ignore file: `.fsignore`
+- NATS integration for hash storage
+
+**Operation:**
+- Monitors inotify events
+- Computes SHA3-512 hashes
+- Stores hashes in NATS KV bucket
+- Triggers attestation document generation
+
+### NATS Server
+
+Embedded message queue for service bus.
+
+**Configuration:** `.config/nats.config`
+**Ports:**
+- 4222: NATS protocol
+- 4242: HTTP monitoring
+
+**KV Buckets:**
+- `fs_hashes`: File hash storage
+- `fs_att_docs`: Attestation documents
+
+---
+
+## Dockerfile Reference
+
+### Available Dockerfiles
+
+| File | Description |
+|------|-------------|
+| `rust-build-toolkit-al2023.dockerfile` | Rust build environment |
+| `golang-clang-build-toolkit.dockerfile` | Go/C build environment |
+| `eif-builder-al2023.dockerfile` | EIF assembly environment |
+| `pipeline-al2023.dockerfile` | Basic pipeline image |
+| `pipeline-slc-network-al2023.dockerfile` | Network-enabled image |
+
+### Creating Custom Dockerfile
+
+```dockerfile
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as enclave_app
+
+ENV SHELL="/usr/bin/env bash"
+ENV RUST_LOG="debug"
+ENV RUST_BACKTRACE="full"
+
+WORKDIR /apps
+
+# Install dependencies
+RUN dnf upgrade -y
+RUN dnf install -y your-dependencies
+
+# Copy your application
+COPY --link your-app /apps/
+
+# Default command (not used, init.sh takes over)
+CMD tail -f /dev/null
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+**Docker permission denied:**
+```bash
+sudo usermod -aG docker $USER
+# Re-login or: newgrp docker
+```
+
+**Enclave fails to start:**
+```bash
+# Check allocator configuration
+cat /etc/nitro_enclaves/allocator.yaml
+
+# Verify service status
+sudo systemctl status nitro-enclaves-allocator.service
+
+# Check available resources
+nitro-cli describe-enclaves --metadata
+```
+
+**Build fails with missing tools:**
+```bash
+# Install required packages
+sudo dnf install -y sed grep pcre-tools
+```
+
+**Network connectivity issues in enclave:**
+```bash
+# Verify proxies are running on host
+pidof vs2ip-tp
+pidof ip2vs-tp
+
+# Check iptables rules
+sudo iptables-save | grep -i nat
+```
+
+**TTY output issues:**
+```bash
+# Use 3>&1 for TTY mode
+./rbuilds.sh --tty --cmd "make_all" 2>&1 3>&1
+```
+
+### Debug Mode
+
+Enable verbose logging:
+```bash
+./rbuilds.sh --debug --tty --cmd "make_kernel" 2>&1 3>&1
+```
+
+### Clean Build
+
+Remove all build artifacts:
+```bash
+./rbuilds.sh --cmd "make_clear"
+# Or clean specific stage:
+./rbuilds.sh --cmd "docker_kcontainer_clear"
+```
+
+---
+
+## Examples
+
+### Example 1: Complete Build for AI Inference Server
+
+```bash
+#!/bin/bash
+# build-inference-server.sh
+
+cd rbuilds/
+
+# Build with networking for model download capability
+./rbuilds.sh --tty --debug \
+  --dockerfile ../reference_apps/inference_server/inference_server.dockerfile \
+  --network --init-c \
+  --memory 65536 \
+  --cpus 16 \
+  --cmd "make_all" 2>&1 3>&1
+
+# Deploy enclave
+./rbuilds.sh --network --init-c \
+  --memory 65536 --cpus 16 --cid 16 \
+  --cmd "run_eif_image_debugmode_cli" 2>&1 3>&1
+```
+
+### Example 2: Minimal Secure Computation
+
+```bash
+#!/bin/bash
+# build-minimal.sh
+
+cd rbuilds/
+
+# Build without networking for isolated computation
+./rbuilds.sh --tty --debug \
+  --dockerfile ./pipeline-al2023.dockerfile \
+  --init-c \
+  --cmd "make_all" 2>&1 3>&1
+
+# Run in production mode
+./rbuilds.sh --init-c --cmd "run_eif_image" 2>&1 3>&1
+```
+
+### Example 3: CI/CD Pipeline Integration
+
+```yaml
+# .github/workflows/build-enclave.yml
+name: Build Enclave Image
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: [self-hosted, nitro-enabled]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build EIF
+        run: |
+          cd rbuilds/
+          ./rbuilds.sh --tty \
+            --dockerfile ./pipeline-slc-network-al2023.dockerfile \
+            --network --init-c \
+            --cmd "make_all" 2>&1 3>&1
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: enclave-eif
+          path: rbuilds/eif/
+```
+
+### Example 4: Attestation Verification
+
+```bash
+#!/bin/bash
+# verify-enclave.sh
+
+# Get PCRs from built EIF
+EIF_PCRS=$(nitro-cli describe-eif \
+  --eif-path ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif \
+  | jq -r '.Measurements')
+
+# Get runtime PCRs via attestation
+RUNTIME_PCRS=$(curl -k https://127.0.0.1:8443/pcrs/)
+
+# Compare (simplified)
+echo "EIF PCRs: $EIF_PCRS"
+echo "Runtime PCRs: $RUNTIME_PCRS"
+
+# Verify attestation document
+curl -k -X POST https://127.0.0.1:8443/verify_cert_bundle/ \
+  -H "Content-Type: application/json" \
+  -d '{"cose_doc_bytes": "'$(curl -k -s https://127.0.0.1:8443/doc/?path=/apps/&view=hex)'"}'
+```
+
+---
+
+## Version Information
+
+**Framework Version:** `0.9.0`
+**Default Kernel Version:** `6.14.5`
+**Supported Init Systems:** C, Go, Rust (New)
 
 ---
 
 ## License
 
-This project is licensed under the **Apache 2.0 License**. See the [`LICENSE-APACHE`](LICENSE-APACHE) file for the details.
+This project is licensed under the Apache 2.0 License - see the [LICENSE-APACHE](LICENSE-APACHE) file for details.
 
 ---
 
+## References
+
+- [AWS Nitro Enclaves Documentation](https://docs.aws.amazon.com/enclaves/latest/user/)
+- [Sentient Enclaves Framework](https://github.com/sentient-agi/sentient-enclaves-framework)
+- [Reproducible Builds System](../rbuilds/README.md) (THIS README)
+- [Pipeline SLC Documentation](../pipeline/README.md)
+- [PF-Proxy Documentation](../pf-proxy/README.md)
+- [RA Web Server Documentation](../ra-web-srv/README.md)
+- [FS Monitor Documentation](../fs-monitor/README.md)
+- [Enclave Init System](../enclave-init/README.md)
+- [Enclave Engine](../enclave-engine/README.md)
+
+---
+
+## Support
+
+For issues, questions, or contributions:
+- **GitHub Issues**: [Project Issues](https://github.com/sentient-agi/sentient-enclaves-framework/issues)
+- **Documentation**: [Project Docs](../docs/)
+
+---
