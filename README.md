@@ -27,882 +27,693 @@
 
 # Sentient Enclaves Framework
 
-> **Sentient Enclaves Framework** is an end‑to‑end framework for building **confidential AI & crypto applications** on hardware **Trusted Execution Environments (TEEs)** – currently targeting **AWS Nitro Enclaves**.
+<p align="center">
+  <strong>A Comprehensive Trusted Execution Environment (TEE) Framework for Secure AI and Cryptographic Applications</strong>
+</p>
 
-It gives you:
-
-- A **secure local channel (SLC)** for talking to enclaves over `vsock`
-- **Transparent forward & reverse VSock/TCP proxies** for networking
-- A **remote attestation web server** running inside the enclave
-- A **file system monitor** for unattended attestation of external data
-- A **reproducible build system** for enclave images (EIFs)
-- Several **reference applications**: inference server, model fingerprinting server, and an X/Twitter agent
-
-You can think of it as: **"Docker‑like developer ergonomics, but for TEEs."**
-
----
-
-## Table of Contents
-
-- [Conceptual Overview](#conceptual-overview)
-- [Supported Platforms & Requirements](#supported-platforms--requirements)
-- [Repository Layout](#repository-layout)
-- [Architecture & Components](#architecture--components)
-  - [Pipeline SLC](#pipeline-slc)
-  - [Transparent VSock Proxies (`pf-proxy`)](#transparent-vsock-proxies-pf-proxy)
-  - [Remote Attestation Web Server (`ra-web-srv`)](#remote-attestation-web-server-ra-web-srv)
-  - [File System Monitor (`fs-monitor`)](#file-system-monitor-fs-monitor)
-  - [Reproducible Build System (`rbuilds`)](#reproducible-build-system-rbuilds)
-  - [Enclave Init System (`enclave-init`)](#enclave-init-system-enclave-init)
-  - [Cryptography Stack (WIP)](#cryptography-stack-wip)
-  - [Reference Applications](#reference-applications)
-- [Quick Start](#quick-start)
-  - [1. Prepare a Nitro Enclaves Host](#1-prepare-a-nitro-enclaves-host)
-  - [2. Clone the Repository](#2-clone-the-repository)
-  - [3. Build the Framework Components](#3-build-the-framework-components)
-  - [4. Build & Run a Reference Application](#4-build--run-a-reference-application)
-- [Usage Guide](#usage-guide)
-  - [Typical Workflow](#typical-workflow)
-  - [Working with `rbuilds` in Practice](#working-with-rbuilds-in-practice)
-  - [Managing Enclaves](#managing-enclaves)
-- [Remote Attestation & Integrity](#remote-attestation--integrity)
-  - [External Data Proofs](#external-data-proofs)
-  - [EIF / PCR Verification](#eif--pcr-verification)
-  - [Debug vs Non‑Debug Enclaves](#debug-vs-non-debug-enclaves)
-- [CLI Reference](#cli-reference)
-  - [`rbuilds.sh`](#rbuildssh)
-  - [Nitro CLI (Host)](#nitro-cli-host)
-  - [Pipeline, Proxies, RA Server & FS Monitor](#pipeline-proxies-ra-server--fs-monitor)
-- [Reproducible Builds & CI Integration](#reproducible-builds--ci-integration)
-- [Reference Applications in Detail](#reference-applications-in-detail)
-- [Changelog (High Level)](#changelog-high-level)
-- [Roadmap (High Level)](#roadmap-high-level)
-- [Contributing & Development Notes](#contributing--development-notes)
-- [License](#license)
+<p align="center">
+  <a href="#overview">Overview</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#components">Components</a> •
+  <a href="#build-system">Build System</a> •
+  <a href="#cli-reference">CLI Reference</a> •
+  <a href="#api-reference">API Reference</a> •
+  <a href="#configuration">Configuration</a> •
+  <a href="#security">Security</a> •
+  <a href="#troubleshooting">Troubleshooting</a>
+</p>
 
 ---
 
-## Conceptual Overview
+## Overview
 
-**Trusted Execution Environments (TEEs)** – also known as confidential computing environments – are hardware‑backed isolated execution zones (encrypted memory regions). Code and data inside a TEE are protected from the host OS, hypervisor, and cloud operator. Nitro Enclaves, AMD SEV‑SNP, and Intel TDX are examples.
+The **Sentient Enclaves Framework** is a production-grade, security-focused framework designed for building, deploying, and managing applications within AWS Nitro Enclaves. It provides comprehensive tooling for secure computation in Trusted Execution Environments (TEEs), enabling:
 
-The **Sentient Enclaves Framework** focuses on:
+- **Confidential AI Inference**: Run AI models in isolated, attestable environments
+- **Secure Cryptographic Operations**: Perform sensitive operations with hardware-backed isolation
+- **Remote Attestation**: Cryptographically prove the integrity of enclave workloads
+- **Secure Communication**: Encrypted channels between host and enclave via VSOCK
 
-- Running **AI / crypto workloads** in TEEs
-- Giving enclaves **network access** in a controlled, attestable way
-- Providing **reproducible enclave images** you can verify and audit
-- Enabling **remote attestation** of both code and external data
-- Making enclave interactions feel similar to working with **containers**
+### Key Features
 
----
-
-## Supported Platforms & Requirements
-
-### Primary Platform
-
-- **AWS Nitro Enclaves** on EC2
-- EC2 instances with **Nitro Enclaves enabled** in instance configuration
-
-### Host OS & Software
-
-On the EC2 host:
-
-- Linux distribution supported by Nitro Enclaves (e.g., Amazon Linux)
-- **Docker** (used by the build system to construct EIF images)
-- AWS Nitro Enclaves tools:
-  - `nitro-cli`
-  - Nitro Enclaves kernel modules enabled
-- Standard tooling: `bash`, `time`, `tee`, `git`, etc.
-
-### Hardware / Memory Sizing
-
-Recommended guideline:
-
-> **Host RAM** ≈ 2 × (**size of your application’s Docker image**),
-> because the enclave’s initramfs and rootfs are derived from that container plus runtime memory for the enclave itself.
-
-### Future / Planned Platforms
-
-The framework is designed to be portable - there are work‑in‑progress support for other confidential VMs (CVMs), including those with **GPU TEE support** (e.g., for confidential AI accelerators), via new Enclave's Engine for host/VM provisioning and CVM Launcher for KVM/QEMU.
+| Feature | Description |
+|---------|-------------|
+| 🔐 **Hardware Isolation** | Leverages AWS Nitro Enclaves for hardware-level memory isolation |
+| 📝 **Remote Attestation** | Cryptographic proof of enclave state with VRF proofs and NSM integration |
+| 🔄 **Secure Communication** | VSOCK-based Pipeline protocol for host-enclave communication |
+| 🌐 **Network Proxying** | Bidirectional port forwarding between host network and enclave |
+| 📦 **Reproducible Builds** | Deterministic EIF image generation with consistent PCR values |
+| 🛠️ **Custom Init System** | Lightweight service manager with dependency resolution |
+| 📊 **File System Monitoring** | Real-time integrity monitoring with NATS integration |
 
 ---
 
-## Repository Layout
+## Architecture
 
-Top‑level structure (simplified):
-
-```text
-secure-enclaves-framework/
-├── docs/              # Markdown docs & GitHub Pages sources
-├── enclave-init/      # Enclave init system sources
-├── fs-monitor/        # Filesystem monitor for unattended data attestation
-├── pf-proxy/          # Transparent VSock/TCP proxies (forward & reverse)
-├── pipeline/          # Pipeline SLC client/server (vsock control, remote commands execution, files and directories transfer)
-├── ra-web-srv/        # Remote attestation web server running inside enclave
-├── rbuilds/           # Reproducible enclave build system (rbuilds.sh, Dockerfiles)
-├── reference_apps/    # Example applications built on top of the framework
-│   ├── fingerprinting_server/
-│   ├── inference_server/
-│   └── X_Agent/
-├── .bin/, .docker/, .linux/, .cargo/  # Build artifacts, configurations & tooling
-├── Cargo.toml         # Rust workspace for core components
-├── README.md          # (Unified README)
-└── LICENSE-APACHE
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           HOST EC2 INSTANCE                             │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐          │
+│  │  Pipeline CLI   │  │  PF-Proxy (FW)  │  │  PF-Proxy (RV)  │          │
+│  │    (Client)     │  │   Host-side     │  │   Host-side     │          │
+│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘          │
+│           │ VSOCK              │ VSOCK              │ VSOCK             │
+├───────────┼────────────────────┼────────────────────┼───────────────────┤
+│           │                    │                    │                   │
+│  ┌────────▼────────────────────▼────────────────────▼────────────────┐  │
+│  │                     AWS NITRO ENCLAVE                             │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐  │  │
+│  │  │                    enclave-init (PID 1)                     │  │  │
+│  │  │         Service Manager with Dependency Resolution          │  │  │
+│  │  └─────────────────────────────────────────────────────────────┘  │  │
+│  │                                                                   │  │
+│  │  ┌───────────────┐  ┌───────────────┐  ┌───────────────────────┐  │  │
+│  │  │   Pipeline    │  │  ra-web-srv   │  │     fs-monitor        │  │  │
+│  │  │   (Server)    │  │  (HTTPS API)  │  │  (inotify+NATS)       │  │  │
+│  │  └───────────────┘  └───────────────┘  └───────────────────────┘  │  │
+│  │                                                                   │  │
+│  │  ┌───────────────┐  ┌───────────────┐  ┌───────────────────────┐  │  │
+│  │  │  NATS Server  │  │ PF-Proxy(FW)  │  │    PF-Proxy(RV)       │  │  │
+│  │  │ (Event Bus)   │  │  Guest-side   │  │    Guest-side         │  │  │
+│  │  └───────────────┘  └───────────────┘  └───────────────────────┘  │  │
+│  │                                                                   │  │
+│  │  ┌─────────────────────────────────────────────────────────────┐  │  │
+│  │  │           NSM (Nitro Security Module) Interface             │  │  │
+│  │  │    Attestation Documents • RNG • PCR Registers              │  │  │
+│  │  └─────────────────────────────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-The GitHub Pages docs for this project are served from:
-- [https://sentient-agi.github.io/Sentient-Enclaves-Framework/](https://sentient-agi.github.io/Sentient-Enclaves-Framework/)
-- [https://andrcmdr.github.io/secure-enclaves-framework/](https://andrcmdr.github.io/secure-enclaves-framework/)
+### Component Interactions
 
----
-
-## Architecture & Components
-
-### Pipeline SLC
-
-**Pipeline SLC** is a **VSock secure local channel (SLC)** protocol implemented as a client–server pair (host side + enclave side). It provides:
-
-- Remote execution of **shell commands inside the enclave**
-- **Bidirectional file and directory transfers** to/from the enclave’s filesystem
-- A **binary protocol over `vsock`**, designed for low overhead
-- UX similar to `docker exec` / `docker cp` but for enclaves
-
-Pipeline is the backbone for:
-
-- Bootstrapping applications inside the enclave
-- Uploading models / datasets / configuration
-- Retrieving logs or result artifacts when reverse proxies are not enabled
-
-Encryption support (WIP):
-
-- Strong **P2P encryption** and **proxy re‑encryption (PRE)** between:
-  - Host ↔ enclave
-  - Enclave ↔ S3 (or other storage)
-- Buffer‑level encryption for SLC traffic and content‑level encryption tools for data at rest / in transit
-- Keys intended to be held in **KMS** (AWS KMS, Vault or distributed KMS) and optionally in local TPM on the EC2 host
-
----
-
-### Transparent VSock Proxies (`pf-proxy`)
-
-**`pf-proxy`** is a set of **transparent VSock proxies** that give enclaves a **full TCP/IP networking stack** in a controlled way.
-
-Capabilities:
-
-- **Outbound networking (forward proxy)** – enclave apps open outbound TCP connections (HTTP(S), gRPC, DB, etc.) via the proxy
-- **Inbound networking (reverse proxy)** – expose enclave services (e.g., HTTPS API) to the outside world while keeping them confined in the enclave
-- Transparent port forwarding and **NAT**:
-  - Retrieves the **original destination address** from the TCP stream
-  - Supports **many‑to‑many** listener schemes and **full‑cone NAT** style behaviour
-- Strong reliance on Linux **Netfilter** and custom reproducible **Linux kernel** builds for enclave networking support
-
-Use cases:
-
-- Giving an inference server in the enclave access to S3 / external APIs
-- Publishing a confidential web service directly from within the enclave (as for in-house attestation web server, which is part of this framework)
-
----
-
-### Remote Attestation Web Server (`ra-web-srv`)
-
-**`ra-web-srv`** runs *inside the enclave* and exposes a **HTTPS API** for remote attestation.
-
-It supports two major attestation flows:
-
-1. **External data integrity proofs**
-2. **EIF / PCR attestation of the running enclave**
-
-Key ideas:
-
-- Runs on a TLS endpoint (e.g., `https://127.0.0.1:8443`) inside the enclave
-- Can be reached either via:
-  - Reverse proxy in `pf-proxy` (if **networking enabled** via `--network` in builds), or
-  - Via Pipeline SLC, using `vsock` port forwarding (making requests from inside the enclave)
-
-Endpoints (simplified):
-
-- **Generate proof for file content**
-
-  ```bash
-  curl -k -X POST \
-    -H 'Content-Type: application/json' \
-    -d '{ "path": "/path/to/file" }' \
-    https://127.0.0.1:8443/generate
-  ```
-
-- **Get generated proof**
-
-  ```bash
-  curl -k \
-    "https://127.0.0.1:8443/proof/?path=/path/to/file"
-  ```
-
-- **Get attestation document (with PCRs) related to a file**
-
-  ```bash
-  curl -k \
-    "https://127.0.0.1:8443/doc/?path=/path/to/file/&view=json_hex"
-  ```
-
-The RA server returns cryptographic hashes and VRF proofs that can be validated off‑enclave.
-
----
-
-### File System Monitor (`fs-monitor`)
-
-**`fs-monitor`** is designed as a **real‑time file system watcher** for the enclave’s ramdisk, with the files integrity hashing as for CoW filesystem. It:
-
-- Uses Linux **`inotify`** to track file & directory changes inside the enclave FS
-- Computes per‑file hashes, effectively emulating a **copy‑on‑write layer** for runtime FS changes
-- Acts as a **data provider** (providing unattended files hashing) for the RA web server:
-  - Automatically creates / updates attestation entries for new or modified files
-- Enables **unattended, unconditional attestation** of *all* external data that appears inside the enclave runtime filesystem
-
-Integration:
-
-- Tight integration with `ra-web-srv` (through NATS based service bus in enclave)
-- Attestation documents are stored/cached (hot cache in memory + cold DB storage using **NATS** KV storage)
-
----
-
-### Reproducible Build System (`rbuilds`)
-
-The **`rbuilds`** component is a **reproducible build system** for constructing enclave images (EIFs) from Dockerfiles.
-
-Features:
-
-- Build all enclave components (kernel, init, rootfs, apps, Pipeline SLC, proxies, RA server, FS monitor, NATS, etc.) in a deterministic way
-- Produce **reproducible EIFs** with stable hashes
-- Rebuilds:
-  - A custom **Linux kernel** with enclave networking stack
-  - The enclave **init system**
-  - Application containers exported into initramfs / rootfs
-- Operates purely with standard Unix/Linux tooling + Docker
-- Designed to integrate with **CI/CD** (GitHub Actions, self‑hosted CI, etc.)
-
-You drive it via `rbuilds.sh` (shell script) which acts as a meta‑orchestrator over Docker builds and Nitro CLI steps.
-
----
-
-### Enclave Init System (`enclave-init`)
-
-The **`enclave-init`** component is the **init process** that runs as PID 1 inside the enclave.
-
-Responsibilities:
-
-- Bootstraps the enclave environment from the exported rootfs
-- Starts:
-  - Pipeline SLC server
-  - Proxies
-  - RA web server
-  - FS Monitor
-  - NATS DB and MQ (service bus)
-  - User application processes
-- Handles:
-  - initial file systems mount
-  - system signals for processes
-  - processes and services management (inspired by `systemd` and `SysVInit`)
-  - uses `initctl` tool and control protocol through local Unix domain socket and/or VSock remotely from host, for processes and services management
-  - enclave state (system status and health check, reload configurations and services files on the fly, reboot, shutdown), graceful shutdown of enclave
-  - Nitro Secure Kernel Module (NSM device) loading
-  - interaction with Nitro/KVM hypervisor (enclave boot readiness, liveness and health checks)
-
-For now Enclaves Framework includes an updated init system fully rewritten in **Rust** for stronger safety guarantees.
-New Enclave's Init System integration into reproducible builds system (`rbuilds,sh`) included in the Roadmap.
-
----
-
-### Cryptography Stack (WIP)
-
-The **cryptography stack** (see `cryptography/` folder when present) is responsible for:
-
-- SLC buffer‑level encryption for the Pipeline Secure Local Channel (SLC) protocol
-- Content‑level encryption / decryption between enclave, host, and S3
-- **Multi‑hop proxy re‑encryption (PRE)** for privacy‑preserving data flows across multiple participants / enclaves / services
-- Integration with **KMS** and (optionally) local TPMs on the host
-
-Several parts that are marked as **WIP** in the Roadmap will be delivered soon; some functionality may be experimental or disabled in the current main branch.
-
----
-
-### Reference Applications
-
-Under `reference_apps/` you’ll find example applications built on top of the framework:
-
-- **`fingerprinting_server`** – a model fingerprinting (rights protection with DRM, Digital Rights Management, injection into model layers) service built with using the OML (Open Monetizable Loyal) principle for fingerprinting
-- **`inference_server`** – a local model inference server running inside an enclave
-- **`X_Agent`** – a chat‑style agent that interacts with X (Twitter) users, demonstrating:
-  - Networking via proxies
-  - Remote attestation flows
-  - File integrity proofs
-
-Each app contains:
-
-- `<app>.dockerfile` – Dockerfile template used by `rbuilds` to construct the enclave image for that app
-- `TEE_rbuilds_setup.md` – the **current** build & run guide for that app (using `rbuilds`)
-- `TEE_setup.md` – **legacy** setup guide (pre‑`rbuilds` build system); kept for reference
+1. **Host → Enclave Commands**: Pipeline CLI sends commands via VSOCK
+2. **File Integrity**: fs-monitor watches files, publishes hashes to NATS
+3. **Attestation**: ra-web-srv generates NSM attestation documents with VRF proofs
+4. **Network Access**: PF-Proxy bridges TCP traffic over VSOCK
 
 ---
 
 ## Quick Start
 
-### 1. Prepare a Nitro Enclaves Host
+### Prerequisites
 
-1. Launch an **EC2 instance** with **Nitro Enclaves** enabled (AMI + instance type that support it)
-2. Install required tooling on the host:
-   - `docker`
-   - `nitro-cli`
-   - `git`
-3. Ensure your IAM / instance profile allows access to any services you plan to use (S3, KMS, etc).
+- **EC2 Instance**: Must be a Nitro Enclave-enabled instance type (e.g., `c5.xlarge`, `m5.2xlarge`)
+- **Operating System**: Amazon Linux 2023 (recommended) or Amazon Linux 2
+- **Rust**: Version 1.91.1 or later
+- **Docker**: For build environment isolation
 
----
-
-### 2. Clone the Repository
+### 1. System Setup
 
 ```bash
-git clone https://github.com/sentient-agi/Sentient-Enclaves-Framework.git
-cd Sentient-Enclaves-Framework
+# Clone the repository
+git clone https://github.com/sentient-agi/sentient-enclaves-framework.git
+cd sentient-enclaves-framework/rbuilds
+
+# Install Nitro Enclaves CLI and allocate resources
+./rbuilds.sh --cmd "make_nitro"
+
+# Reboot to apply Nitro Enclaves allocator changes
+sudo reboot
+```
+
+### 2. Build Everything
+
+```bash
+# Full automated build (kernel, apps, init, EIF image)
+mkdir -vp ./eif/
+./rbuilds.sh --tty --debug --network --init-c --cmd "make_all" 2>&1 3>&1
+```
+
+### 3. Run the Enclave
+
+```bash
+# Launch enclave in debug mode with attached console
+./rbuilds.sh --tty --debug --network --init-c --cmd "run_eif_image_debugmode_cli" 2>&1 3>&1
+```
+
+### 4. Interact with the Enclave
+
+```bash
+# From host: Execute command inside enclave
+./pipeline run -- ls -la /apps/
+
+# Send file to enclave
+./pipeline send-file ./local-data.txt /apps/data.txt
+
+# Receive file from enclave
+./pipeline recv-file /apps/results.txt ./local-results.txt
 ```
 
 ---
 
-### 3. Build the Framework Components
+## Components
 
-The **recommended** way is via the `rbuilds` system.
+### Pipeline - Secure Local Channel Protocol
 
-From the project root:
+**Location**: `pipeline/`
+
+The Pipeline component provides secure, encrypted communication between host and enclave via VSOCK.
+
+#### Features
+- Command execution inside enclave
+- Bidirectional file transfer
+- Cryptographic channel security
+- Asynchronous operation modes
+
+#### Usage
 
 ```bash
-cd rbuilds
-# Example: run an internal command with TTY + debug logging
-./rbuilds.sh --tty --debug --cmd make_all
+# Start server (inside enclave)
+pipeline listen --port 53000
+
+# Execute command (from host)
+pipeline run --cid 127 --port 53000 -- /usr/bin/app --flag value
+
+# File operations
+pipeline send-file --cid 127 --port 53000 ./input.bin /apps/input.bin
+pipeline recv-file --cid 127 --port 53000 /apps/output.bin ./output.bin
 ```
 
-Typical options you’ll use:
+#### Configuration
 
-- `--tty` – create a TTY for Docker and bash (output is wired via FD 3)
-- `--debug` – verbose logging and (for some commands) debug enclave mode
-- `--dockerfile <path>` – choose which Dockerfile template to build from
-- `--network` – include networking/proxy components in the EIF
-- `--init-c` – use the C‑based init system variant
-- `--cmd <name>` – run a specific internal command, such as:
-  - `make_all`
-  - `make_kernel`
-  - `make_apps`
-  - `make_init`
-  - `make_eif`
-  - `make_enclave`
+**File**: `.config/pipeline.config.toml`
 
-The first successful `make_all` will:
-
-- Build / rebuild custom kernel + init
-- Build Enclaves Framework components (`make_apps`)
-- Build your app container
-- Export rootfs / initramfs
-- Produce an **EIF** (Enclave Image File) ready to run with Nitro Enclaves
-- Prepare Nitro Enclaves run-time configuration and run the enclave from the current EIF enclave image file
-
----
-
-### 4. Build & Run a Reference Application
-
-Every reference app follows a similar pattern and has its own `TEE_rbuilds_setup.md` with exact commands. High‑level steps:
-
-1. **Pick an app**, e.g.:
-
-   ```bash
-   cd reference_apps/inference_server
-   ```
-
-2. **Inspect the app Dockerfile**:
-
-   ```bash
-   ls *.dockerfile
-   ```
-
-3. **Follow the app’s `TEE_rbuilds_setup.md`**, which typically instructs you to call `rbuilds.sh` with:
-   - `--dockerfile` pointing to the app’s Dockerfile
-   - `--network` if the app needs external connectivity
-   - `--cmd make_all` or equivalent
-
-4. **Run the enclave** using `rbuilds` convenience commands, for example:
-
-   ```bash
-   cd rbuilds
-   ./rbuilds.sh --tty --debug --network --init-c --cmd run_eif_image
-   ```
-
-5. (Optional) **Attach console** and interact with the running enclave:
-
-   ```bash
-   ./rbuilds.sh --tty --debug --network --init-c --cmd attach_console_to_enclave
-   ```
-
-6. Use **Pipeline** or the proxies to talk to your app, depending on whether it is exposed via network or only locally inside the enclave.
-
----
-
-## Usage Guide
-
-### Typical Workflow
-
-A common developer flow looks like this:
-
-1. **Design your enclave app** as a Docker container
-   - Start from an Amazon Linux base or whatever your `rbuilds` Dockerfiles use
-   - Bundle your application, models, and runtime dependencies
-
-2. **Register it with the framework**
-   - Place your app Dockerfile under `reference_apps/<your_app>/`
-   - Add a `TEE_rbuilds_setup.md` describing the exact `rbuilds.sh` commands to build & run it
-
-3. **Build enclave image via `rbuilds`**
-   - Build the kernel, init, enclaves framework components and your app image in a reproducible way
-   - Produce an EIF with deterministic hash
-
-4. **Run the enclave**
-   - Use `rbuilds` commands like `run_eif_image` or `run_eif_image_debugmode_cli`
-   - Attach console if needed
-
-5. **Connect via Pipeline**
-   - Copy data in/out
-   - Execute commands inside the enclave
-
-6. **Enable networking with `pf-proxy` (optional but common)**
-   - Forward outbound connections (e.g., to S3 or external APIs)
-   - Expose inbound ports (for inference APIs, RA HTTP endpoints, etc.)
-
-7. **Set up remote attestation**
-   - Start `ra-web-srv` inside enclave
-   - Use it (plus `fs-monitor`) to attest your app, data, and runtime state
-
-8. **Integrate with CI/CD**
-   - Use `rbuilds` commands in GitHub Actions or other CI to produce EIFs
-   - Publish image hashes and attestation metadata
-
----
-
-### Working with `rbuilds` in Practice
-
-`rbuilds.sh` has three main usage modes:
-
-1. **Single command (CLI) mode**
-
-   ```bash
-   ./rbuilds.sh --tty --debug --cmd make_all
-   ```
-
-2. **Interactive shell mode (internal shell/REPL prompt)**
-
-   ```bash
-   ./rbuilds.sh
-   # You’ll get an internal prompt where you can type:
-   #   make_all
-   #   run_eif_image
-   #   list_enclaves
-   #   drop_enclaves_all
-   ```
-
-3. **Automation command shell interface (commands as input sequence for `rbuilds.sh` script)**
-
-   ```bash
-   { echo "list_enclaves"; } | ./rbuilds.sh
-   { echo "drop_enclave"; } | ./rbuilds.sh
-   ```
-
-There is also a special internal command `lsh` that lets you run local host shell commands via the same automation interface (i.e. one/any of the usage modes, intended for careful, advanced automation):
-
-```bash
-{ echo "lsh"; echo "ls -lah"; } | ./rbuilds.sh
-```
-
-Use the built‑in help for the most accurate, up‑to‑date options:
-
-```bash
-./rbuilds.sh --man
-./rbuilds.sh --info
+```toml
+cid = 127
+port = 53000
 ```
 
 ---
 
-### Managing Enclaves
+### Remote Attestation Web Server (ra-web-srv)
 
-Common `rbuilds` internal commands (names taken from documentation; always double‑check with `--man` on your version):
+**Location**: `ra-web-srv/`
 
-- `make_kernel` – build custom kernel image
-- `make_apps` – build framework components as application layers
-- `make_init` – build enclave init
-- `make_eif` – assemble EIF from built parts
-- `make_all` / `make_enclave` – full build → EIF → ready to run
+HTTPS REST API for remote attestation services, providing cryptographic proofs of enclave integrity.
 
-Enclave lifecycle:
+#### Features
+- SHA3-512 file hashing
+- VRF (Verifiable Random Function) proofs
+- NSM attestation document generation
+- Certificate chain validation
+- NATS JetStream persistence
 
-- `run_eif_image_debugmode_cli` – run EIF in debug mode (console accessible; PCRs invalid for attestation)
-- `run_eif_image` – run EIF in normal (non‑debug) mode
-- `attach_console_to_enclave` – attach Nitro console to running enclave
-- `list_enclaves` – list running enclaves
-- `drop_enclave` – stop one enclave
-- `drop_enclaves_all` – stop all enclaves managed by this setup
+#### API Endpoints
 
----
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/generate` | POST | Start processing files/directories |
+| `/hash/` | GET | Get SHA3-512 hash for file |
+| `/proof/` | GET | Get VRF proof for file |
+| `/doc/` | GET | Get attestation document |
+| `/pcrs/` | GET | Get enclave PCR registers |
+| `/verify_hash/` | POST | Verify file hash |
+| `/verify_proof/` | POST | Verify VRF proof |
+| `/verify_doc/` | POST | Verify attestation document signature |
+| `/verify_cert_bundle/` | POST | Verify certificate chain |
+| `/pubkeys/` | GET | Get server public keys |
+| `/nsm_desc` | GET | Get NSM device description |
+| `/rng_seq` | GET | Get cryptographic random bytes |
 
-## Remote Attestation & Integrity
-
-### External Data Proofs
-
-To attest external data (e.g. models, datasets, configs) copied into the enclave, you use the RA web server:
-
-1. **Generate a proof**
-
-   ```bash
-   curl -k -X POST \
-     -H 'Content-Type: application/json' \
-     -d '{ "path": "/path/to/file" }' \
-     https://127.0.0.1:8443/generate
-   ```
-
-   - The RA server computes a hash and VRF proof (for hash) of the file in the enclave FS.
-   - When calling via Pipeline instead of direct network, escape quotes per your shell’s needs.
-
-2. **Retrieve proof**
-
-   ```bash
-   curl -k \
-     "https://127.0.0.1:8443/proof/?path=/path/to/file"
-   ```
-
-3. **Verify off‑enclave**
-
-   - Compute a local hash of what you believe is the correct file content.
-   - Compare with the hash (and other evidence) coming from the enclave’s RA server.
-   - If they match and you trust the RA endpoint (see EIF attestation below), you gain confidence that:
-     - The data inside the enclave is exactly what you expect.
-     - It hasn’t been tampered with post‑attestation.
-
----
-
-### EIF / PCR Verification
-
-To prove that the **right EIF image** is running, compare **PCR measurements** between:
-
-1. **Runtime PCRs from inside enclave** (via RA web server):
-
-   ```bash
-   curl -k \
-     "https://127.0.0.1:8443/doc/?path=/path/to/file/&view=json_hex"
-   ```
-
-2. **Reference PCRs from EIF on host**:
-
-   ```bash
-   nitro-cli describe-eif --eif-path /path/to/your/app.eif
-   ```
-
-The important PCRs are:
-
-- **PCR0**: measurement of all data influencing runtime of code in EIF
-  - Roughly `SHA384(Kernel | Cmdline | Ramdisk(init) | Ramdisk(1:))`
-- **PCR1**: measurement of bootstrap + kernel
-  - `SHA384(Kernel | Initramfs | Cmdline | Ramdisk(init))`
-- **PCR2**: measurement of user application portion
-  - `SHA384(Ramdisk(1:))`
-
-If PCR0/1/2 from **runtime** (RA) match those from **`describe-eif`**, you have cryptographic proof that the expected EIF is running.
-
----
-
-### Debug vs Non‑Debug Enclaves
-
-Important security note:
-
-- In **debug mode**, Nitro Enclaves run-time (and hypervisor) does **not** set PCRs (they show as all zeros).
-  - Attestation is **not meaningful**.
-- For **valid attestation**:
-  - Run enclaves in **non‑debug** mode
-  - Build EIFs using `rbuilds` steps that produce production‑grade images
-  - Only then do PCRs reflect your actual image contents
-
----
-
-## CLI Reference
-
-> **Note:** Exact flags and subcommands may evolve; always check `--help`, `--info`, or project docs (README of each component) for your version. The summaries below are based on the current docs & repo structure.
-
-### `rbuilds.sh`
-
-Location:
-
-- `rbuilds/rbuilds.sh` (invoked from the repo root: `cd rbuilds && ./rbuilds.sh`)
-
-Common flags:
-
-- `--tty`
-  - Allocate TTY for Docker and shell processes
-  - Requires redirecting FD 3 to STDOUT in some usage patterns (`3>&1`)
-- `--debug`
-  - Verbose logs; may enable debug enclave runs for some commands
-- `--dockerfile <path>`
-  - Select specific Dockerfile template (e.g. `./pipeline-slc-network-al2023.dockerfile`)
-- `--network`
-  - Build with network / proxy features enabled (forward & reverse)
-- `--init-c`
-  - Use C‑based init system variant
-- `--cmd <internal_command>`
-  - Run one of the framework’s internal orchestration commands (build stages, enclave lifecycle, etc.)
-- `--man`, `--info`
-  - Print manual / detailed info text for the current version
-
-Typical commands (not exhaustive):
-
-- Build stages:
-  - `make_kernel`
-  - `make_apps`
-  - `make_init`
-  - `make_eif`
-  - `make_all` / `make_enclave`
-- Enclave control:
-  - `run_eif_image`
-  - `run_eif_image_debugmode_cli`
-  - `attach_console_to_enclave`
-  - `list_enclaves`
-  - `drop_enclave`
-  - `drop_enclaves_all`
-- Special shell:
-  - `lsh` – local shell mode inside the automation interface (advanced)
-
----
-
-### Nitro CLI (Host)
-
-Nitro CLI is not part of this repo but is heavily used alongside it. Key commands in the docs:
-
-- **Inspect EIF and PCRs**
-
-  ```bash
-  nitro-cli describe-eif --eif-path /path/to/app.eif
-  ```
-
-- **Start / terminate enclaves**
-
-  `rbuilds` internal commands are wrap Nitro CLI commands like:
-
-  ```bash
-  nitro-cli run-enclave     # via rbuilds
-  nitro-cli terminate-enclave
-  nitro-cli describe-enclaves
-  ```
-
-(Always check `man nitro-cli` on the host for authoritative syntax.)
-
----
-
-### Pipeline, Proxies, RA Server & FS Monitor
-
-These binaries are part of the Rust (Cargo) workspace and built into your EIF; they also typically have their own `--help` usage.
-
-- **Pipeline**
-  - Provides a CLI to:
-    - Connect host ↔ enclave over VSock
-    - Execute commands inside the enclave
-    - Upload / download files and directories
-  - Usage pattern (conceptual):
-
-    ```bash
-    pipeline --enclave-id <id> \
-             --vsock-port <port> \
-             exec -- <command>
-    ```
-
-  - For details:
-
-    ```bash
-    pipeline --help
-    ```
-
-- **`pf-proxy`**
-  - Multiple modes:
-    - Forward proxy (outbound connections)
-    - Reverse proxy (inbound connections)
-    - Transparent port forwarding / NAT
-  - Configured via CLI flags and/or config files (ports, vsock addresses, NAT rules).
-  - For exact options:
-
-    ```bash
-    pf-proxy --help
-    ```
-
-- **`ra-web-srv`**
-  - Runs inside enclave; CLI/config typically sets:
-    - Listen address / port
-    - TLS key/cert paths
-    - NATS integration (URL, KV bucket)
-    - Paths / sockets for FS monitor integration
-    - NSM device enabling
-    - VRF cipher suite and keys for it
-  - RA service is normally started by `enclave-init` or `init`; for manual usage:
-
-    ```bash
-    ra-web-srv --help
-    ```
-
-- **`fs-monitor`**
-  - Watches FS paths (e.g., `/models`, `/data`) and reports changes.
-  - Configurable via CLI or configuration file (paths, ignore patterns, etc.)
-  - For details:
-
-    ```bash
-    fs-monitor --help
-    ```
-
-Because these components are all Rust binaries in this repo, you can also build & run them individually using Cargo during development:
+#### Example Usage
 
 ```bash
-cargo build -p pipeline
-cargo run -p pipeline -- --help
+# Generate attestation for directory
+curl -k -X POST https://127.0.0.1:8443/generate \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/apps/data"}'
+
+# Get file hash
+curl -k "https://127.0.0.1:8443/hash/?path=/apps/data/file.txt"
+
+# Get attestation document
+curl -k "https://127.0.0.1:8443/doc/?path=/apps/data/file.txt&view=json_hex"
+
+# Verify PCRs against expected values
+curl -k -X POST https://127.0.0.1:8443/verify_pcrs/ \
+  -H "Content-Type: application/json" \
+  -d '{"pcrs": "0: abc123...\n1: def456..."}'
+```
+
+#### Configuration
+
+**File**: `.config/ra_web_srv.config.toml`
+
+```toml
+[ports]
+http = 8080
+https = 8443
+
+[keys]
+sk4proofs = ""  # Auto-generated if empty
+sk4docs = ""
+
+vrf_cipher_suite = "SECP256R1_SHA256_TAI"
+
+[nats]
+nats_persistency_enabled = 1
+nats_url = "nats://127.0.0.1:4222"
+hash_bucket_name = "fs_hashes"
+att_docs_bucket_name = "fs_att_docs"
+persistent_client_name = "ra_web_srv"
 ```
 
 ---
 
-## Reproducible Builds & CI Integration
+### Port Forwarding Proxy (pf-proxy)
 
-The framework’s **reproducible build system** is designed for CI pipelines and supply‑chain integrity:
+**Location**: `pf-proxy/`
 
-- **Reproducible EIFs**:
-  - Builds are deterministic so you can:
-    - Rebuild an EIF from the same source & Dockerfile
-    - Compare resulting hashes to verify integrity
+Bidirectional network proxy bridging TCP connections over VSOCK.
 
-- **CI integration**:
-  - `rbuilds.sh` is scriptable and has an automation shell interface
-  - You can run internal commands from GitHub Actions or other CI, e.g.:
+#### Binaries
 
-    ```bash
-    { echo "make_all"; } | ./rbuilds/rbuilds.sh
-    ```
+| Binary | Direction | Description |
+|--------|-----------|-------------|
+| `ip-to-vsock` | Host → Enclave | Forward host TCP to enclave VSOCK |
+| `vsock-to-ip` | Enclave → Host | Forward enclave VSOCK to host TCP |
+| `ip-to-vsock-transparent` | Host → Enclave | Transparent TCP forwarding |
+| `vsock-to-ip-transparent` | Enclave → Host | Transparent VSOCK forwarding |
+| `transparent-port-to-vsock` | Host → Enclave | Port-based transparent proxy |
 
-- **Release semantics** (from docs’ changelog):
-  - `0.1.0` – Pipeline SLC protocol
-  - `0.2.0` – Reproducible builds for EIF images
-  - `0.3.0` – Forward proxies & networking stack
-  - `0.4.0` – New updated reproducible build system
-  - `0.5.0` – Reverse proxies (including transparent port‑to‑vsock)
-  - `0.6.0` – Reference applications bundle (inference server, fine‑tuning / OML server, X agent)
-  - `0.7.0` - RA Web Servcer and VRF proofs for file hashes (SHA3-512) crypto-scheme for authenticated integrity checks
-  - `0.8.0` - FS monitor (ramdisk CoW hashing layer for integrity checks and attestation for external data)
-  - `0.9.0` – New Enclave's Init System written in Rust
+#### Usage
 
-In CI, you would typically:
+```bash
+# Host side: Forward local port 8080 to enclave
+ip-to-vsock --listen-ip 0.0.0.0 --listen-port 8080 \
+            --vsock-cid 127 --vsock-port 8080
 
-1. Check out repo
-2. Run `rbuilds.sh` to produce EIFs
-3. Store EIF plus its hash and build logs as artifacts
-4. Optionally, spin up an enclave and use `ra-web-srv` from CI to produce attestation docs
+# Enclave side: Forward VSOCK to internal service
+vsock-to-ip --vsock-port 8080 \
+            --target-ip 127.0.0.1 --target-port 8080
+```
 
 ---
 
-## Reference Applications in Detail
+### File System Monitor (fs-monitor)
 
-> All apps live under `reference_apps/` and each has its own `TEE_rbuilds_setup.md` for precise steps.
+**Location**: `fs-monitor/`
 
-### `fingerprinting_server`
+Real-time file system integrity monitoring using inotify events.
 
-- **Purpose:**
-  Confidential **model fingerprinting** service that computes fingerprints based on the **OML** (Open Monetizable Loyal principle) fingerprinting library.
-  A model fingerprinting (rights protection with DRM, Digital Rights Management, prompt injection into model layers) service built with using the OML (Open Monetizable Loyal) principle for fingerprinting.
+#### Features
+- Recursive directory monitoring
+- Pattern-based file exclusion (`.fsignore`)
+- SHA3-512 hashing
+- NATS KV persistence
+- Debounced event processing
 
-- **Enclave value‑add:**
-  - Fingerprinting logic, model weights, and input data all live inside a TEE.
-  - Can be combined with RA to prove where/what model was used.
+#### Usage
 
----
+```bash
+fs-monitor --directory "/apps/" \
+           --ignore-file ".fsignore" \
+           --nats-url "nats://127.0.0.1:4222" \
+           --kv-bucket-name "fs_hashes"
+```
 
-### `inference_server`
+#### Ignore File Format
 
-- **Purpose:**
-  Generic **inference server** that runs local ML models inside an enclave.
-  Suitable for building mid-size LLM and SLM models inferense for confidential agents and agentic setup environments.
+**File**: `.fsignore`
 
-- **Features (depending on branch / config):**
-  - Serves HTTP / gRPC endpoints via reverse proxy
-  - Pulls models or data from S3 via forward proxy (optional)
-
----
-
-### `X_Agent`
-
-- **Purpose:**
-  Chat agent that interacts with **X (Twitter)** users, demonstrating real‑world external integrations.
-
-- **Showcases:**
-  - Using proxies for outbound social‑media API calls
-  - Using RA + FS monitor to attest configuration, API keys (via KMS), and logs
-  - EIF attestation walkthrough (in the X Agent docs section)
-
-In all cases:
-
-- Use the specific app’s `TEE_rbuilds_setup.md` as your source of truth for:
-  - Which Dockerfile to build
-  - Which `rbuilds` command sequence to use
-  - How to expose the app (ports, proxies, etc.)
+```
+# Comments start with #
+*.log
+*.tmp
+.git/
+node_modules/
+target/
+```
 
 ---
 
-## Changelog (High Level)
+### Enclave Init System (enclave-init)
 
-From the docs’ summarized changelog:
+**Location**: `enclave-init/`
 
-- **0.1.0** – Pipeline SLC (secure local channel) protocol; host↔enclave file transfer and remote command exec; container‑like UX
-- **0.2.0** – Reproducible builds framework for customized EIF images (“just use your app Dockerfile and build enclave”)
-- **0.3.0** – Forward / transparent proxies and port‑forwarding for TCP/UDP (HTTP(S), DNS, etc.); full networking stack for enclave apps
-- **0.4.0** – Updated reproducible build system for EIFs
-- **0.5.0** – Reverse proxies, including transparent port‑to‑vsock, enabling confidential services hosted in enclaves
-- **0.6.0** – Reference applications: inference server, fine‑tuning server (OML), X agent
-- **0.7.0** – Web protocol for RA with VRF proofs, multi‑threaded runtime, hot cache + NATS DB KV storage, mass attestation doc production
-- **0.8.0** – File system monitor (fs‑monitor) fully integrated for automatic attestation docs generation
-- **0.9.0** – New Enclave's Init System written in Rust
+Lightweight PID 1 process for managing services inside the enclave.
 
-(For exact version tagging, refer to GitHub releases.)
+#### Features
+- Service dependency resolution (before, after, requires)
+- Automatic service restart policies
+- Signal handling (SIGCHLD, SIGTERM, SIGHUP)
+- Service logging with rotation
+- Control socket (Unix & VSOCK)
+- Process management
+
+#### Service File Format
+
+**Location**: `/etc/init.d/*.service`
+
+```toml
+[Service]
+ExecStart = "/apps/my-service --config /apps/.config/service.toml"
+Environment = ["LOG_LEVEL=info", "PORT=8080"]
+WorkingDirectory = "/apps"
+Restart = "on-failure"
+RestartSec = 5
+ServiceEnable = true
+
+# Dependencies
+After = ["network.service", "nats.service"]
+Before = []
+Requires = ["nats.service"]
+RequiredBy = []
+```
+
+#### Restart Policies
+
+| Policy | Description |
+|--------|-------------|
+| `no` | Never restart |
+| `always` | Always restart regardless of exit code |
+| `on-failure` | Restart only on non-zero exit code |
+| `on-success` | Restart only on zero exit code |
+
+#### Control Interface
+
+The init system exposes a JSON-RPC control interface:
+
+```bash
+# Via Unix socket
+echo '{"ServiceList":{}}' | nc -U /run/init.sock
+
+# Via VSOCK from host
+echo '{"ServiceStart":{"name":"myservice"}}' | nc vsock:3:1234
+```
+
+#### Available Commands
+
+- `Ping` / `Pong`
+- `ListServices`
+- `ServiceStatus { name }`
+- `ServiceStart { name }`
+- `ServiceStop { name }`
+- `ServiceRestart { name }`
+- `ServiceEnable { name }`
+- `ServiceDisable { name }`
+- `ServiceLogs { name, lines }`
+- `ProcessList`
+- `ProcessStart { command, args, env }`
+- `ProcessStop { pid }`
+- `SystemStatus`
+- `SystemReload`
+- `SystemShutdown`
 
 ---
 
-## Roadmap (High Level)
+### Enclave Engine
 
-Planned / in‑progress items from the Roadmap docs:
+**Location**: `enclave-engine/`
 
-- **0.10.0** – Cryptography stack for SLC buffer & content encryption
-- **0.11.0** – KMS integration for key storage; potential TPM integration for local key storage
-- **0.12.0** – Advanced logging & tracing for Pipeline and proxies (web‑RA already uses structured logging)
-- **0.13.0** – Enclaves engine service with Docker‑like web API:
-  - Provisioning EC2 / other instances
-  - Building & deploying enclaves
-  - Integrating with AWS SQS / MQ and CI
-- **0.14.0** – CVM Launcher and Framework port to QEMU VMs with EIF support, qCOW image and PCI device attestation, FS monitoring for qCOW disks
+High-level enclave provisioning and management API.
 
-All roadmap items are subject to change in order and versioning.
+#### Features
+- Enclave lifecycle management
+- Configuration-based provisioning
+- Nitro CLI integration
+- Multi-enclave support
+
+#### Configuration
+
+**File**: `config.yaml`
+
+```yaml
+enclaves:
+  default:
+    cpu_count: 4
+    memory_mb: 4096
+    eif_path: "./enclave.eif"
+    debug_mode: false
+    cid: 127
+```
 
 ---
 
-## Contributing & Development Notes
+## Reproducible Builds Build System (rbuilds)
 
-- The codebase is mostly **Rust** + **Shell**, with some **Docker**, **Python**, **C**, and **Nix**.
+**Location**: `rbuilds/`
 
-### Suggested Dev Setup
+Comprehensive build automation system for reproducible enclave images.
 
-1. Install the Rust toolchain matching `rust-toolchain` in the repo.
-2. Build the Rust workspace:
+### Build Stages
 
-   ```bash
-   cargo build --workspace
-   ```
+| Stage | Command | Description |
+|-------|---------|-------------|
+| Nitro Setup | `make_nitro` | Install Nitro Enclaves CLI, configure allocator |
+| Kernel | `make_kernel` | Build custom Linux kernel with NSM support |
+| Apps | `make_apps` | Build Rust applications (Pipeline, ra-web-srv, etc.) |
+| Init | `make_init` | Build init system (C, Go, or Rust variants) |
+| EIF | `make_eif` | Assemble Enclave Image Format file |
+| All | `make_all` | Full automated build pipeline |
 
-3. For working on individual components:
+### CLI Reference
 
-   ```bash
-   cargo run -p pipeline -- --help
-   cargo test -p pf-proxy
-   ```
+```bash
+# Full syntax
+./rbuilds.sh [OPTIONS] --cmd "COMMAND"
 
-4. For build system changes, focus on `rbuilds/` and `.docker/`, `.linux/`, `.bin/` directories.
+# Options
+--tty                    # Allocate TTY for interactive output
+--debug                  # Enable verbose logging
+--network                # Enable both forward and reverse proxy
+--rev-net                # Enable reverse proxy only
+--fw-net                 # Enable forward proxy only
+--init-c                 # Use C init system
+--init-go                # Use Go init system
+--init-rs                # Use Rust init system
+--kernel VERSION         # Specify kernel version (default: 6.14.5)
+--memory SIZE            # Enclave memory in MiB (default: 838656)
+--cpus COUNT             # Enclave CPU count (default: 64)
+--cid VALUE              # VSOCK CID (default: 127)
+--dockerfile FILE        # Custom dockerfile for rootfs
+```
+
+### Example Build Workflows
+
+```bash
+# Build with networking support
+./rbuilds.sh --tty --debug --network --init-c \
+  --dockerfile ./pipeline-slc-network-al2023.dockerfile \
+  --cmd "make_all" 2>&1 3>&1
+
+# Build individual stages
+./rbuilds.sh --tty --debug --cmd "make_kernel" 2>&1 3>&1
+./rbuilds.sh --tty --debug --cmd "make_apps" 2>&1 3>&1
+./rbuilds.sh --tty --debug --cmd "make_init" 2>&1 3>&1
+./rbuilds.sh --tty --debug --cmd "make_eif" 2>&1 3>&1
+
+# Enclave management
+./rbuilds.sh --cmd "run_eif_image_debugmode_cli" 2>&1 3>&1
+./rbuilds.sh --cmd "list_enclaves" 2>&1 3>&1
+./rbuilds.sh --cmd "attach_console_to_enclave" 2>&1 3>&1
+./rbuilds.sh --cmd "drop_enclave" 2>&1 3>&1
+./rbuilds.sh --cmd "drop_enclaves_all" 2>&1 3>&1
+
+# Cleanup
+./rbuilds.sh --cmd "make_clear" 2>&1 3>&1
+```
+
+### Interactive Mode
+
+```bash
+# Start interactive shell
+./rbuilds.sh
+
+# Commands at prompt
+> help              # Show available commands
+> make all          # Build everything
+> list_enclaves     # List running enclaves
+> q                 # Toggle confirmation prompts
+> lsh               # Enable local shell commands
+> exit              # Exit shell
+```
+
+### Automation Interface
+
+```bash
+# Pipe commands for automation
+{ echo "make_kernel"; echo "make_apps"; } | ./rbuilds.sh 2>&1
+
+# With logging
+{ echo "make all"; } | /usr/bin/time -v -o ./build.log ./rbuilds.sh 2>&1 | tee ./build.output
+```
+
+---
+
+## Configuration
+
+### Directory Structure
+
+```
+/apps/
+├── .config/
+│   ├── pipeline.config.toml
+│   ├── ra_web_srv.config.toml
+│   └── nats.config
+├── .logs/
+├── certs/
+│   ├── cert.pem
+│   └── skey.pem
+├── pipeline
+├── ra-web-srv
+├── fs-monitor
+├── nats-server
+├── init.sh
+└── .fsignore
+```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CERT_DIR` | TLS certificate directory | `./certs/` |
+| `INIT_CONFIG` | Init system config path | `/etc/init.yaml` |
+| `LOG_LEVEL` | Logging verbosity | `info` |
+
+---
+
+## Security
+
+### Attestation Flow
+
+1. **File Hashing**: SHA3-512 hash computed for target files
+2. **VRF Proof Generation**: Deterministic proof using EC-VRF
+3. **NSM Attestation**: Hardware-rooted attestation document from Nitro Security Module
+4. **Certificate Validation**: Full X.509 chain verification against AWS root CA
+
+### PCR Registers
+
+| PCR | Description |
+|-----|-------------|
+| PCR0 | Enclave image hash |
+| PCR1 | Linux kernel and bootstrap hash |
+| PCR2 | Application hash |
+| PCR3 | IAM role hash (if applicable) |
+| PCR4 | Parent instance ID |
+| PCR8 | Signing certificate hash |
+
+### Supported Cipher Suites (VRF)
+
+- `SECP256R1_SHA256_TAI` (default)
+- `SECP384R1_SHA384_TAI`
+- `SECP521R1_SHA512_TAI`
+- `BRAINPOOL_P256R1_SHA256_TAI`
+- And more...
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+#### "Missing configuration file" Error
+
+```bash
+# Create required config directories
+mkdir -p .config/
+cp pipeline/.config/pipeline.config.toml .config/
+```
+
+#### VSOCK Connection Refused
+
+```bash
+# Verify enclave is running
+nitro-cli describe-enclaves
+
+# Check Pipeline server is listening
+./rbuilds.sh --cmd "attach_console_to_enclave"
+# Look for "Pipeline listening on port 53000"
+```
+
+#### Enclave Won't Start
+
+```bash
+# Check allocator status
+systemctl status nitro-enclaves-allocator
+
+# Verify resource allocation
+cat /etc/nitro_enclaves/allocator.yaml
+
+# Check for enough memory/CPUs
+free -h
+nproc
+```
+
+#### PCR Mismatch
+
+```bash
+# Get expected PCRs from EIF build
+cat ./eif/app-builder-secure-enclaves-framework.eif.pcr
+
+# Compare with running enclave
+curl -k https://127.0.0.1:8443/pcrs/
+```
+
+### Debug Mode
+
+```bash
+# Run enclave with debug console
+./rbuilds.sh --debug --cmd "run_eif_image_debugmode_cli"
+
+# View enclave debug output
+nitro-cli console --enclave-name app_builder_secure_enclaves_framework_toolkit
+```
+
+### Logs
+
+```bash
+# Build logs
+cat ./eif/make_build.log
+cat ./eif/run-enclave.log
+
+# Inside enclave
+cat /apps/.logs/pipeline.log
+cat /apps/.logs/ra-web-srv.log
+cat /apps/.logs/fs-monitor.log
+cat /apps/.logs/nats-server.log
+```
+
+---
+
+## Development
+
+### Building from Source
+
+```bash
+# Build all crates
+cargo build --release
+
+# Run tests
+cargo test --all
+
+# Build specific component
+cargo build --release -p pipeline
+cargo build --release -p ra-web-srv
+cargo build --release -p fs-monitor
+cargo build --release -p enclave-init
+```
+
+### Project Layout
+
+```
+secure-enclaves-framework/
+├── pipeline/           # Secure channel protocol
+├── pf-proxy/           # Port forwarding proxies
+├── ra-web-srv/         # Remote attestation server
+├── fs-monitor/         # File system monitoring
+├── enclave-init/       # Init system (Rust)
+├── enclave-engine/     # Enclave management API
+├── rbuilds/            # Build system
+│   ├── rbuilds.sh      # Main build script
+│   ├── init_apps/      # Init source (C, Go)
+│   ├── kernel_config/  # Kernel configurations
+│   ├── enclave.init/   # Runtime scripts
+│   └── *.dockerfile    # Build dockerfiles
+└── docs/               # Documentation
+```
 
 ---
 
@@ -964,3 +775,19 @@ Please ensure:
 
 ---
 
+## Acknowledgments
+
+- AWS Nitro Enclaves team for the underlying TEE infrastructure
+- The Rust community for excellent cryptographic libraries
+- Contributors to the VRF, COSE, and attestation standards
+
+---
+
+## Further Reading
+
+- [AWS Nitro Enclaves Documentation](https://docs.aws.amazon.com/enclaves/)
+- [VSOCK Protocol](https://man7.org/linux/man-pages/man7/vsock.7.html)
+- [COSE (RFC 8152)](https://datatracker.ietf.org/doc/html/rfc8152)
+- [VRF (RFC 9381)](https://datatracker.ietf.org/doc/html/rfc9381)
+
+---
