@@ -4,7 +4,7 @@ pub mod config;
 pub mod cats;
 pub mod vsock;
 
-use cli_parser::{CommandOutput, FileArgs, ListenArgs, RunArgs};
+use cli_parser::{CommandOutput, DirArgs, FileArgs, ListenArgs, RunArgs};
 use crate::config::AppConfig;
 use vsock::{recv_loop, recv_u64, send_loop, send_u64};
 
@@ -16,9 +16,10 @@ use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 use std::cmp::min;
 use std::convert::TryInto;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::path::Path;
 use std::process::Command;
 
 pub const VMADDR_CID_ANY: u32 = 0xFFFFFFFF;
@@ -37,6 +38,8 @@ enum CmdId {
     RecvFile,
     SendFile,
     RunCmdNoWait,
+    SendDir,
+    RecvDir,
 }
 
 struct VsockSocket {
@@ -183,6 +186,11 @@ fn recv_file_server(fd: RawFd, _app_config: &AppConfig) -> Result<(), String> {
     let len_usize = len.try_into().map_err(|err| format!("{:?}", err))?;
     let path = std::str::from_utf8(&path_buf[0..len_usize]).map_err(|err| format!("{:?}", err))?;
 
+    // Create parent directories if they don't exist
+    if let Some(parent) = Path::new(path).parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("Could not create directories {:?}", err))?;
+    }
+
     let mut file = File::create(path).map_err(|err| format!("Could not open file {:?}", err))?;
 
     // receive filesize
@@ -205,6 +213,162 @@ fn recv_file_server(fd: RawFd, _app_config: &AppConfig) -> Result<(), String> {
         print!("\rFile transmission progress (receiving into enclave): {:.3}%", progress as f32 / filesize as f32 * 100.0);
     }
     println!("\nFile transmission (receiving into enclave) finished.");
+
+    Ok(())
+}
+
+/// Helper function to collect all files in a directory recursively
+fn collect_files_recursively(path: &Path, base_path: &Path, files: &mut Vec<(String, String)>) -> Result<(), String> {
+    if path.is_dir() {
+        let entries = fs::read_dir(path)
+            .map_err(|err| format!("Could not read directory {:?}: {:?}", path, err))?;
+
+        for entry in entries {
+            let entry = entry.map_err(|err| format!("Could not read entry: {:?}", err))?;
+            let entry_path = entry.path();
+            collect_files_recursively(&entry_path, base_path, files)?;
+        }
+    } else if path.is_file() {
+        let relative_path = path.strip_prefix(base_path)
+            .map_err(|err| format!("Could not strip prefix: {:?}", err))?;
+        let relative_str = relative_path.to_string_lossy().to_string();
+        let absolute_str = path.to_string_lossy().to_string();
+        files.push((absolute_str, relative_str));
+    }
+    Ok(())
+}
+
+/// Server function to send a directory recursively (enclave -> host)
+fn send_dir_server(fd: RawFd, app_config: &AppConfig) -> Result<(), String> {
+    // recv remote directory path
+    let len = recv_u64(fd)?;
+    let mut path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+    recv_loop(fd, &mut path_buf, len)?;
+    let len_usize = len.try_into().map_err(|err| format!("{:?}", err))?;
+    let remote_dir = std::str::from_utf8(&path_buf[0..len_usize]).map_err(|err| format!("{:?}", err))?;
+
+    let remote_path = Path::new(remote_dir);
+
+    if !remote_path.exists() {
+        // Send 0 files count to indicate error
+        send_u64(fd, 0)?;
+        return Err(format!("Directory does not exist: {}", remote_dir));
+    }
+
+    if !remote_path.is_dir() {
+        send_u64(fd, 0)?;
+        return Err(format!("Path is not a directory: {}", remote_dir));
+    }
+
+    // Collect all files recursively
+    let mut files: Vec<(String, String)> = Vec::new();
+    collect_files_recursively(remote_path, remote_path, &mut files)?;
+
+    // Send number of files
+    let file_count: u64 = files.len().try_into().map_err(|err| format!("{:?}", err))?;
+    send_u64(fd, file_count)?;
+    println!("Sending directory {} with {} files", remote_dir, file_count);
+
+    // Send each file
+    for (absolute_path, relative_path) in files {
+        // Send relative path
+        let path_bytes = relative_path.as_bytes();
+        let path_len: u64 = path_bytes.len().try_into().map_err(|err| format!("{:?}", err))?;
+        send_u64(fd, path_len)?;
+        send_loop(fd, path_bytes, path_len)?;
+
+        // Open and send file
+        let mut file = File::open(&absolute_path)
+            .map_err(|err| format!("Could not open file {:?}", err))?;
+
+        let filesize = file
+            .metadata()
+            .map_err(|err| format!("Could not get file metadata {:?}", err))?
+            .len();
+
+        send_u64(fd, filesize)?;
+        println!("Sending file {} - size {}", relative_path, filesize);
+
+        let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+        let mut progress: u64 = 0;
+        let mut tmpsize: u64;
+
+        while progress < filesize {
+            tmpsize = buf.len().try_into().map_err(|err| format!("{:?}", err))?;
+            tmpsize = min(tmpsize, filesize - progress);
+
+            file.read_exact(&mut buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
+                .map_err(|err| format!("Could not read {:?}", err))?;
+            send_loop(fd, &buf, tmpsize)?;
+            progress += tmpsize;
+        }
+        println!("File {} sent.", relative_path);
+    }
+    println!("\nDirectory transmission (sending from enclave) finished.");
+
+    Ok(())
+}
+
+/// Server function to receive a directory recursively (host -> enclave)
+fn recv_dir_server(fd: RawFd, app_config: &AppConfig) -> Result<(), String> {
+    // recv remote directory path (destination in enclave)
+    let len = recv_u64(fd)?;
+    let mut path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+    recv_loop(fd, &mut path_buf, len)?;
+    let len_usize = len.try_into().map_err(|err| format!("{:?}", err))?;
+    let remote_dir = std::str::from_utf8(&path_buf[0..len_usize]).map_err(|err| format!("{:?}", err))?;
+
+    // Create destination directory
+    fs::create_dir_all(remote_dir)
+        .map_err(|err| format!("Could not create directory {}: {:?}", remote_dir, err))?;
+
+    // Receive number of files
+    let file_count = recv_u64(fd)?;
+    println!("Receiving directory {} with {} files", remote_dir, file_count);
+
+    // Receive each file
+    for _ in 0..file_count {
+        // Receive relative path
+        let path_len = recv_u64(fd)?;
+        let mut rel_path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+        recv_loop(fd, &mut rel_path_buf, path_len)?;
+        let path_len_usize: usize = path_len.try_into().map_err(|err| format!("{:?}", err))?;
+        let relative_path = std::str::from_utf8(&rel_path_buf[0..path_len_usize])
+            .map_err(|err| format!("{:?}", err))?;
+
+        // Construct full path
+        let full_path = Path::new(remote_dir).join(relative_path);
+
+        // Create parent directories
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("Could not create directories {:?}", err))?;
+        }
+
+        // Receive file size
+        let filesize = recv_u64(fd)?;
+        println!("Receiving file {} - size {}", relative_path, filesize);
+
+        // Create and write file
+        let mut file = File::create(&full_path)
+            .map_err(|err| format!("Could not create file {:?}", err))?;
+
+        let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+        let mut progress: u64 = 0;
+        let mut tmpsize: u64;
+
+        while progress < filesize {
+            tmpsize = buf.len().try_into().map_err(|err| format!("{:?}", err))?;
+            tmpsize = min(tmpsize, filesize - progress);
+
+            recv_loop(fd, &mut buf, tmpsize)?;
+            file.write_all(&buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
+                .map_err(|err| format!("Could not write {:?}", err))?;
+            progress += tmpsize;
+        }
+        println!("File {} received.", relative_path);
+    }
+    println!("\nDirectory transmission (receiving into enclave) finished.");
 
     Ok(())
 }
@@ -263,6 +427,16 @@ pub fn listen(args: ListenArgs, app_config: AppConfig) -> Result<(), String> {
                     eprintln!("Error {}", e);
                 }
             }
+            CmdId::SendDir => {
+                if let Err(e) = recv_dir_server(fd, &app_config) {
+                    eprintln!("Error {}", e);
+                }
+            }
+            CmdId::RecvDir => {
+                if let Err(e) = send_dir_server(fd, &app_config) {
+                    eprintln!("Error {}", e);
+                }
+            }
         }
     }
 }
@@ -310,6 +484,12 @@ pub fn run(args: RunArgs, _app_config: AppConfig) -> Result<i32, String> {
 }
 
 pub fn recv_file(args: FileArgs, _app_config: AppConfig) -> Result<(), String> {
+    // Create parent directories if they don't exist
+    if let Some(parent) = Path::new(&args.localfile).parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("Could not create directories {:?}", err))?;
+    }
+
     let mut file = File::create(&args.localfile)
         .map_err(|err| format!("Could not open localfile {:?}", err))?;
     let vsocket = vsock_connect(args.cid, args.port)?;
@@ -398,6 +578,163 @@ pub fn send_file(args: FileArgs, _app_config: AppConfig) -> Result<(), String> {
         print!("\rFile transmission progress (sending to enclave): {:.3}%", progress as f32 / filesize as f32 * 100.0);
     }
     println!("\nFile transmission (sending to enclave) finished.");
+
+    Ok(())
+}
+
+/// Client function to send a directory recursively (host -> enclave)
+pub fn send_dir(args: DirArgs, _app_config: AppConfig) -> Result<(), String> {
+    let local_path = Path::new(&args.localdir);
+
+    if !local_path.exists() {
+        return Err(format!("Local directory does not exist: {}", args.localdir));
+    }
+
+    if !local_path.is_dir() {
+        return Err(format!("Local path is not a directory: {}", args.localdir));
+    }
+
+    let vsocket = vsock_connect(args.cid, args.port)?;
+    let socket_fd = vsocket.as_raw_fd();
+
+    // send command id
+    send_u64(socket_fd, CmdId::SendDir as u64)?;
+
+    // send remote directory path
+    let buf = args.remotedir.as_bytes();
+    let len: u64 = buf.len().try_into().map_err(|err| format!("{:?}", err))?;
+    send_u64(socket_fd, len)?;
+    send_loop(socket_fd, buf, len)?;
+
+    // Collect all files recursively
+    let mut files: Vec<(String, String)> = Vec::new();
+    collect_files_recursively(local_path, local_path, &mut files)?;
+
+    // Send number of files
+    let file_count: u64 = files.len().try_into().map_err(|err| format!("{:?}", err))?;
+    send_u64(socket_fd, file_count)?;
+    println!(
+        "Sending directory {}(sending to {}) - {} files",
+        &args.localdir,
+        &args.remotedir,
+        file_count
+    );
+
+    // Send each file
+    for (absolute_path, relative_path) in files {
+        // Send relative path
+        let path_bytes = relative_path.as_bytes();
+        let path_len: u64 = path_bytes.len().try_into().map_err(|err| format!("{:?}", err))?;
+        send_u64(socket_fd, path_len)?;
+        send_loop(socket_fd, path_bytes, path_len)?;
+
+        // Open and send file
+        let mut file = File::open(&absolute_path)
+            .map_err(|err| format!("Could not open file {:?}", err))?;
+
+        let filesize = file
+            .metadata()
+            .map_err(|err| format!("Could not get file metadata {:?}", err))?
+            .len();
+
+        send_u64(socket_fd, filesize)?;
+        println!("Sending file {} - size {}", relative_path, filesize);
+
+        let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+        let mut progress: u64 = 0;
+        let mut tmpsize: u64;
+
+        while progress < filesize {
+            tmpsize = buf.len().try_into().map_err(|err| format!("{:?}", err))?;
+            tmpsize = min(tmpsize, filesize - progress);
+
+            file.read_exact(&mut buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
+                .map_err(|err| format!("Could not read {:?}", err))?;
+            send_loop(socket_fd, &buf, tmpsize)?;
+            progress += tmpsize;
+        }
+        println!("File {} sent.", relative_path);
+    }
+    println!("\nDirectory transmission (sending to enclave) finished.");
+
+    Ok(())
+}
+
+/// Client function to receive a directory recursively (enclave -> host)
+pub fn recv_dir(args: DirArgs, _app_config: AppConfig) -> Result<(), String> {
+    // Create local directory
+    fs::create_dir_all(&args.localdir)
+        .map_err(|err| format!("Could not create local directory {}: {:?}", args.localdir, err))?;
+
+    let vsocket = vsock_connect(args.cid, args.port)?;
+    let socket_fd = vsocket.as_raw_fd();
+
+    // send command id
+    send_u64(socket_fd, CmdId::RecvDir as u64)?;
+
+    // send remote directory path
+    let buf = args.remotedir.as_bytes();
+    let len: u64 = buf.len().try_into().map_err(|err| format!("{:?}", err))?;
+    send_u64(socket_fd, len)?;
+    send_loop(socket_fd, buf, len)?;
+
+    // Receive number of files
+    let file_count = recv_u64(socket_fd)?;
+
+    if file_count == 0 {
+        return Err(format!("Remote directory is empty or does not exist: {}", args.remotedir));
+    }
+
+    println!(
+        "Receiving directory {}(saving to {}) - {} files",
+        &args.remotedir,
+        &args.localdir,
+        file_count
+    );
+
+    // Receive each file
+    for _ in 0..file_count {
+        // Receive relative path
+        let path_len = recv_u64(socket_fd)?;
+        let mut rel_path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+        recv_loop(socket_fd, &mut rel_path_buf, path_len)?;
+        let path_len_usize: usize = path_len.try_into().map_err(|err| format!("{:?}", err))?;
+        let relative_path = std::str::from_utf8(&rel_path_buf[0..path_len_usize])
+            .map_err(|err| format!("{:?}", err))?;
+
+        // Construct full local path
+        let full_path = Path::new(&args.localdir).join(relative_path);
+
+        // Create parent directories
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("Could not create directories {:?}", err))?;
+        }
+
+        // Receive file size
+        let filesize = recv_u64(socket_fd)?;
+        println!("Receiving file {} - size {}", relative_path, filesize);
+
+        // Create and write file
+        let mut file = File::create(&full_path)
+            .map_err(|err| format!("Could not create file {:?}", err))?;
+
+        let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+        let mut progress: u64 = 0;
+        let mut tmpsize: u64;
+
+        while progress < filesize {
+            tmpsize = buf.len().try_into().map_err(|err| format!("{:?}", err))?;
+            tmpsize = min(tmpsize, filesize - progress);
+
+            recv_loop(socket_fd, &mut buf, tmpsize)?;
+            file.write_all(&buf[..tmpsize.try_into().map_err(|err| format!("{:?}", err))?])
+                .map_err(|err| format!("Could not write {:?}", err))?;
+            progress += tmpsize;
+        }
+        println!("File {} received.", relative_path);
+    }
+    println!("\nDirectory transmission (receiving from enclave) finished.");
 
     Ok(())
 }

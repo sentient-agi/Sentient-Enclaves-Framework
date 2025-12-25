@@ -54,6 +54,25 @@ impl FileArgs {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct DirArgs {
+    pub cid: u32,
+    pub port: u32,
+    pub localdir: String,
+    pub remotedir: String,
+}
+
+impl DirArgs {
+    pub fn new_with(args: &ArgMatches) -> Result<Self, String> {
+        Ok(DirArgs {
+            cid: parse_cid(args)?,
+            port: parse_port(args)?,
+            localdir: parse_localdir(args)?,
+            remotedir: parse_remotedir(args)?,
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CommandOutput {
     pub stdout: String,
@@ -115,5 +134,19 @@ fn parse_remotefile(args: &ArgMatches) -> Result<String, String> {
     let output = args
         .value_of("remotepath")
         .ok_or("Could not find remotepath")?;
+    Ok(String::from(output))
+}
+
+fn parse_localdir(args: &ArgMatches) -> Result<String, String> {
+    let output = args
+        .value_of("localdir")
+        .ok_or("Could not find localdir")?;
+    Ok(String::from(output))
+}
+
+fn parse_remotedir(args: &ArgMatches) -> Result<String, String> {
+    let output = args
+        .value_of("remotedir")
+        .ok_or("Could not find remotedir")?;
     Ok(String::from(output))
 }

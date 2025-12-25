@@ -137,6 +137,70 @@ macro_rules! create_app {
                             .required(true),
                     ),
             )
+            .subcommand(
+                SubCommand::with_name("send-dir")
+                    .about("Send a directory recursively to the enclave")
+                    .arg(
+                        Arg::with_name("port")
+                            .long("port")
+                            .help("port")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("cid")
+                            .long("cid")
+                            .help("cid")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("localdir")
+                            .long("localdir")
+                            .help("local directory path")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("remotedir")
+                            .long("remotedir")
+                            .help("remote directory path in enclave")
+                            .takes_value(true)
+                            .required(true),
+                    ),
+            )
+            .subcommand(
+                SubCommand::with_name("recv-dir")
+                    .about("Receive a directory recursively from the enclave")
+                    .arg(
+                        Arg::with_name("port")
+                            .long("port")
+                            .help("port")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("cid")
+                            .long("cid")
+                            .help("cid")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("localdir")
+                            .long("localdir")
+                            .help("local directory path")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name("remotedir")
+                            .long("remotedir")
+                            .help("remote directory path in enclave")
+                            .takes_value(true)
+                            .required(true),
+                    ),
+            )
             .arg(
                 Arg::with_name("=(^\">,.•.,<\"^)=")
                 .short('g')

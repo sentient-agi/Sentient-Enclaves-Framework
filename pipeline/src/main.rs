@@ -1,8 +1,8 @@
 use std::process::exit;
-use pipeline::cli_parser::{CommandOutput, FileArgs, ListenArgs, RunArgs};
+use pipeline::cli_parser::{CommandOutput, DirArgs, FileArgs, ListenArgs, RunArgs};
 use pipeline::create_app;
 use pipeline::config::AppConfig;
-use pipeline::{listen, recv_file, run, send_file};
+use pipeline::{listen, recv_dir, recv_file, run, send_dir, send_file};
 use pipeline::cats::{GEORGE, PASCAL};
 
 use clap::{App, AppSettings, Arg, SubCommand};
@@ -49,6 +49,14 @@ fn main() {
         Some(("recv-file", args)) => {
             let subcmd_args = FileArgs::new_with(args).unwrap();
             recv_file(subcmd_args, app_config).unwrap();
+        }
+        Some(("send-dir", args)) => {
+            let subcmd_args = DirArgs::new_with(args).unwrap();
+            send_dir(subcmd_args, app_config).unwrap();
+        }
+        Some(("recv-dir", args)) => {
+            let subcmd_args = DirArgs::new_with(args).unwrap();
+            recv_dir(subcmd_args, app_config).unwrap();
         }
         Some(_) | None => {}
     }
