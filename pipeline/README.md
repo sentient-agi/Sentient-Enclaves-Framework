@@ -11,6 +11,7 @@ Pipeline implements a client-server architecture for secure communication:
 - **Server Mode (`listen`)**: Runs inside the enclave, listening for incoming connections
 - **Client Mode (`run`)**: Executes commands remotely via the secure channel
 - **File Transfer**: Secure file send/receive operations between host and enclave
+- **Directory Transfer**: Recursive directory send/receive operations with full directory structure preservation
 
 ### Key Components
 
@@ -152,6 +153,52 @@ pipeline recv-file [OPTIONS] <SOURCE> <DESTINATION>
 pipeline recv-file /enclave/path/output.txt ./local-output.txt
 ```
 
+#### 5. Send Directory
+
+Recursively sends an entire directory structure to the remote endpoint:
+
+```bash
+pipeline send-dir [OPTIONS] --localdir <LOCAL_DIR> --remotedir <REMOTE_DIR>
+```
+
+This mode:
+- Recursively traverses the local directory
+- Preserves the directory structure
+- Transfers all files maintaining their relative paths
+- Creates necessary subdirectories in the enclave automatically
+
+**Example**:
+```bash
+# Send an entire directory to the enclave
+pipeline send-dir --cid 3 --port 5000 --localdir ./my-app --remotedir /enclave/app
+
+# Send model files and configurations
+pipeline send-dir --cid 3 --port 5000 --localdir ./models --remotedir /enclave/models
+```
+
+#### 6. Receive Directory
+
+Recursively receives an entire directory structure from the remote endpoint:
+
+```bash
+pipeline recv-dir [OPTIONS] --localdir <LOCAL_DIR> --remotedir <REMOTE_DIR>
+```
+
+This mode:
+- Recursively traverses the remote directory in the enclave
+- Preserves the directory structure
+- Transfers all files maintaining their relative paths
+- Creates necessary subdirectories locally automatically
+
+**Example**:
+```bash
+# Receive an entire directory from the enclave
+pipeline recv-dir --cid 3 --port 5000 --localdir ./results --remotedir /enclave/output
+
+# Retrieve processed data with full directory structure
+pipeline recv-dir --cid 3 --port 5000 --localdir ./downloaded-data --remotedir /enclave/data
+```
+
 ## Typical Workflow
 
 ### Setup for Enclave Communication
@@ -170,8 +217,66 @@ pipeline run -- /app/process-data --input data.json
 # Send a file into the enclave
 pipeline send-file ./sensitive-data.bin /enclave/input/data.bin
 
+# Send an entire directory into the enclave
+pipeline send-dir --cid 3 --port 5000 --localdir ./app-bundle --remotedir /enclave/app
+
 # Receive processed results
 pipeline recv-file /enclave/output/results.bin ./results.bin
+
+# Receive an entire output directory from the enclave
+pipeline recv-dir --cid 3 --port 5000 --localdir ./output-bundle --remotedir /enclave/output
+```
+
+### Directory Transfer Use Cases
+
+#### Deploying Applications
+```bash
+# Deploy an entire application with all its dependencies
+pipeline send-dir --cid 3 --port 5000 --localdir ./my-application --remotedir /app
+
+# The directory structure is preserved:
+# ./my-application/
+# ├── bin/
+# │   └── app
+# ├── config/
+# │   └── settings.toml
+# └── data/
+#     └── initial-data.json
+#
+# Becomes in enclave:
+# /app/
+# ├── bin/
+# │   └── app
+# ├── config/
+# │   └── settings.toml
+# └── data/
+#     └── initial-data.json
+```
+
+#### Retrieving Logs and Results
+```bash
+# Retrieve all log files from the enclave
+pipeline recv-dir --cid 3 --port 5000 --localdir ./collected-logs --remotedir /var/log/myapp
+
+# Retrieve computation results with full structure
+pipeline recv-dir --cid 3 --port 5000 --localdir ./results --remotedir /enclave/output/experiment-001
+```
+
+#### Model Deployment for ML Workloads
+```bash
+# Send model weights and configuration
+pipeline send-dir --cid 3 --port 5000 --localdir ./ml-models --remotedir /enclave/models
+
+# Structure preserved:
+# ./ml-models/
+# ├── model-v1/
+# │   ├── weights.bin
+# │   ├── config.json
+# │   └── tokenizer/
+# │       └── vocab.txt
+# └── model-v2/
+#     ├── weights.bin
+#     └── config.json
 ```
 
 ## Security Features
@@ -180,6 +285,7 @@ pipeline recv-file /enclave/output/results.bin ./results.bin
 - **Isolated Execution**: Runs within AWS Nitro Enclave's trusted execution environment
 - **VSOCK Transport**: Uses VSOCK for secure, isolated network communication
 - **Configuration Validation**: Validates configuration before establishing connections
+- **Directory Integrity**: Directory transfers maintain complete structure integrity
 
 ## Project Structure
 
@@ -187,7 +293,7 @@ pipeline recv-file /enclave/output/results.bin ./results.bin
 pipeline/
 ├── src/
 │   ├── main.rs          # Entry point and CLI handler
-│   ├── lib.rs           # Core library functions (listen, run, send_file, recv_file)
+│   ├── lib.rs           # Core library functions (listen, run, send_file, recv_file, send_dir, recv_dir)
 │   ├── cli.rs           # CLI app builder
 │   ├── cli_parser.rs    # Argument parsing structures
 │   ├── config.rs        # Configuration management
@@ -213,6 +319,7 @@ Key dependencies include:
 - Configuration file errors: Ensure `.config/pipeline.config.toml` exists and is valid
 - Connection errors: Verify VSOCK connectivity between host and enclave
 - Permission errors: Ensure proper permissions for file operations
+- Directory errors: Verify source directory exists and destination is writable
 
 ## Development
 
@@ -239,10 +346,13 @@ pipeline --"=(^\",..,\"^)="      # Meet Pascal
 1. **"Missing configuration file" error**: Create `.config/pipeline.config.toml` or specify a valid config path
 2. **Connection refused**: Ensure the Pipeline server is running in listen mode
 3. **VSOCK errors**: Verify Nitro Enclave is properly configured and VSOCK support is enabled
+4. **"Directory does not exist" error**: Verify the source directory path is correct
+5. **"Remote directory is empty or does not exist" error**: Verify the remote path exists in the enclave
 
 ## License
 
-This project appears to be part of a larger Secure Enclaves Framework. Check the `LICENSE-APACHE` file in the repository root for licensing information.
+This project is licensed under the **Apache 2.0 License**. See the [`LICENSE-APACHE`](LICENSE-APACHE) file for the details.
+This project appears to be part of a larger Secure Enclaves Framework. Check the [`LICENSE-APACHE`](../LICENSE-APACHE) file in the repository root as well for licensing information.
 
 ## Related Projects
 
@@ -268,8 +378,15 @@ pipeline listen
 
 # 3. From the host, interact with the enclave
 pipeline run -- echo "Hello from enclave"
+
+# Single file operations
 pipeline send-file data.txt /enclave/data.txt
 pipeline recv-file /enclave/result.txt result.txt
+
+# Directory operations (new!)
+pipeline send-dir --cid 3 --port 5000 --localdir ./my-app --remotedir /enclave/app
+pipeline recv-dir --cid 3 --port 5000 --localdir ./output --remotedir /enclave/results
 ```
 
 ---
+
