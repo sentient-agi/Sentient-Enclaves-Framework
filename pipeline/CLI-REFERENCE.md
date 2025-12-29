@@ -8,6 +8,8 @@
   - [run](#run-execute-remote-command)
   - [send-file](#send-file-upload-to-enclave)
   - [recv-file](#recv-file-download-from-enclave)
+  - [send-dir](#send-dir-upload-directory-to-enclave)
+  - [recv-dir](#recv-dir-download-directory-from-enclave)
 - [Configuration File](#configuration-file)
 - [VSOCK Parameters](#vsock-parameters)
 - [Usage Examples](#usage-examples)
@@ -20,6 +22,7 @@
 Pipeline is a **VSOCK-based secure communication protocol** for AWS Nitro Enclaves that enables:
 - Remote command execution inside enclaves
 - Bidirectional file transfer between host and enclave
+- **Recursive directory transfer** between host and enclave (NEW)
 - Encrypted channel communication
 - Secure local channel protocol implementation
 
@@ -87,14 +90,14 @@ pipeline listen --port 5000
 **Behavior:**
 - Opens a VSOCK listener on the specified port
 - Accepts connections from the parent EC2 instance (host)
-- Processes incoming commands and file transfer requests
+- Processes incoming commands, file transfer requests, and directory transfer requests
 - Runs indefinitely until terminated
 - Handles multiple operations sequentially or concurrently (implementation dependent)
 
 **Use Cases:**
 - Running as a daemon inside Nitro Enclave
 - Accepting remote commands from the host EC2 instance
-- Serving as file transfer endpoint
+- Serving as file and directory transfer endpoint
 
 ---
 
@@ -247,7 +250,7 @@ pipeline send-file \
 - Transmits securely over VSOCK encrypted channel
 - Writes to remote filesystem inside enclave
 - Preserves file contents but NOT permissions/metadata
-- Creates parent directories if they don't exist (implementation dependent)
+- Creates parent directories if they don't exist
 
 **Error Conditions:**
 - Local file doesn't exist or isn't readable
@@ -318,12 +321,188 @@ pipeline recv-file \
 - Transmits securely over VSOCK encrypted channel
 - Writes to local host filesystem
 - Overwrites local file if it exists
+- Creates parent directories if they don't exist
 - Preserves file contents
 
 **Error Conditions:**
 - Remote file doesn't exist or isn't readable
 - Local path isn't writable
 - Insufficient disk space on host
+- Connection errors to Pipeline server
+
+---
+
+### `send-dir` (Upload Directory to Enclave)
+
+**Purpose:** Recursively transfer an entire directory from the host to the enclave, preserving the directory structure.
+
+**Syntax:**
+```bash
+pipeline send-dir --cid <CID> --port <PORT> --localdir <LOCAL_DIR> --remotedir <REMOTE_DIR>
+```
+
+#### Options
+
+##### `--cid <CID>`
+**Type:** u32
+**Required:** Yes
+**Description:** VSOCK Context Identifier of the target enclave
+
+##### `--port <PORT>`
+**Type:** u32
+**Required:** Yes
+**Description:** VSOCK port number where Pipeline server is listening
+
+##### `--localdir <LOCAL_DIR>`
+**Type:** String (directory path)
+**Required:** Yes
+**Description:** Path to the source directory on the host filesystem
+
+##### `--remotedir <REMOTE_DIR>`
+**Type:** String (directory path)
+**Required:** Yes
+**Description:** Destination directory path inside the enclave filesystem
+
+#### Examples
+
+```bash
+# Send application bundle
+pipeline send-dir \
+  --cid 3 \
+  --port 5000 \
+  --localdir ./my-application \
+  --remotedir /enclave/app
+
+# Send ML model directory with all weights and configs
+pipeline send-dir \
+  --cid 3 \
+  --port 5000 \
+  --localdir ~/models/llm-v2 \
+  --remotedir /enclave/models/llm-v2
+
+# Send configuration directory
+pipeline send-dir \
+  --cid 3 \
+  --port 5000 \
+  --localdir /etc/myapp \
+  --remotedir /enclave/config
+```
+
+**Behavior:**
+- Recursively traverses the local directory
+- Collects all files with their relative paths
+- Creates the destination directory in the enclave
+- Creates all necessary subdirectories automatically
+- Transfers each file while preserving relative path structure
+- Shows progress for each file transfer
+- Reports total number of files transferred
+
+**Directory Structure Preservation:**
+```
+Local: ./my-app/                    Remote: /enclave/app/
+├── bin/                     ->     ├── bin/
+│   └── app                         │   └── app
+├── config/                  ->     ├── config/
+│   ├── settings.toml               │   ├── settings.toml
+│   └── secrets.json                │   └── secrets.json
+└── data/                    ->     └── data/
+    ├── input/                          ├── input/
+    │   └── data.csv                    │   └── data.csv
+    └── models/                         └── models/
+        └── weights.bin                     └── weights.bin
+```
+
+**Error Conditions:**
+- Local directory doesn't exist
+- Local path is not a directory
+- Insufficient disk space in enclave
+- Permission errors on remote filesystem
+- Connection errors to Pipeline server
+
+---
+
+### `recv-dir` (Download Directory from Enclave)
+
+**Purpose:** Recursively retrieve an entire directory from the enclave to the host, preserving the directory structure.
+
+**Syntax:**
+```bash
+pipeline recv-dir --cid <CID> --port <PORT> --localdir <LOCAL_DIR> --remotedir <REMOTE_DIR>
+```
+
+#### Options
+
+##### `--cid <CID>`
+**Type:** u32
+**Required:** Yes
+**Description:** VSOCK Context Identifier of the target enclave
+
+##### `--port <PORT>`
+**Type:** u32
+**Required:** Yes
+**Description:** VSOCK port number where Pipeline server is listening
+
+##### `--localdir <LOCAL_DIR>`
+**Type:** String (directory path)
+**Required:** Yes
+**Description:** Destination directory path on the host filesystem
+
+##### `--remotedir <REMOTE_DIR>`
+**Type:** String (directory path)
+**Required:** Yes
+**Description:** Path to the source directory inside the enclave filesystem
+
+#### Examples
+
+```bash
+# Retrieve computation results
+pipeline recv-dir \
+  --cid 3 \
+  --port 5000 \
+  --localdir ./results \
+  --remotedir /enclave/output
+
+# Download all logs
+pipeline recv-dir \
+  --cid 3 \
+  --port 5000 \
+  --localdir ./collected-logs \
+  --remotedir /var/log/myapp
+
+# Retrieve processed dataset
+pipeline recv-dir \
+  --cid 3 \
+  --port 5000 \
+  --localdir ~/downloads/processed-data \
+  --remotedir /enclave/data/processed
+```
+
+**Behavior:**
+- Requests directory listing from enclave
+- Creates the local destination directory
+- Creates all necessary subdirectories automatically
+- Transfers each file while preserving relative path structure
+- Shows progress for each file transfer
+- Reports total number of files transferred
+
+**Directory Structure Preservation:**
+```
+Remote: /enclave/output/            Local: ./results/
+├── reports/                 ->     ├── reports/
+│   ├── summary.pdf                 │   ├── summary.pdf
+│   └── detailed.json               │   └── detailed.json
+├── logs/                    ->     ├── logs/
+│   ├── app.log                     │   ├── app.log
+│   └── errors.log                  │   └── errors.log
+└── data/                    ->     └── data/
+    └── output.csv                      └── output.csv
+```
+
+**Error Conditions:**
+- Remote directory doesn't exist
+- Remote directory is empty
+- Insufficient disk space on host
+- Permission errors on local filesystem
 - Connection errors to Pipeline server
 
 ---
@@ -464,28 +643,125 @@ pipeline listen --port 5000
 # 1. Check enclave connectivity
 pipeline run --cid 3 --port 5000 --command "hostname"
 
-# 2. Send input data
+# 2. Send input data (single file)
 pipeline send-file \
   --cid 3 \
   --port 5000 \
   --localpath ./input.json \
   --remotepath /app/data/input.json
 
-# 3. Process data
+# 3. Send entire application directory (NEW!)
+pipeline send-dir \
+  --cid 3 \
+  --port 5000 \
+  --localdir ./my-app \
+  --remotedir /app
+
+# 4. Process data
 pipeline run \
   --cid 3 \
   --port 5000 \
-  --command "/app/bin/processor --input /app/data/input.json --output /app/data/output.json"
+  --command "/app/bin/processor --input /app/data/input.json --output /app/output/"
 
-# 4. Retrieve results
+# 5. Retrieve single result file
 pipeline recv-file \
   --cid 3 \
   --port 5000 \
-  --remotepath /app/data/output.json \
-  --localpath ./output.json
+  --remotepath /app/output/result.json \
+  --localpath ./result.json
 
-# 5. Verify results
-cat output.json
+# 6. Retrieve entire output directory (NEW!)
+pipeline recv-dir \
+  --cid 3 \
+  --port 5000 \
+  --localdir ./output \
+  --remotedir /app/output
+
+# 7. Verify results
+ls -la ./output/
+```
+
+### Directory Transfer Examples
+
+#### Deploy Full Application
+```bash
+#!/bin/bash
+# deploy-app.sh - Deploy complete application to enclave
+
+ENCLAVE_CID=3
+ENCLAVE_PORT=5000
+
+echo "Deploying application to enclave..."
+
+# Send entire application directory
+pipeline send-dir \
+  --cid $ENCLAVE_CID \
+  --port $ENCLAVE_PORT \
+  --localdir ./dist/my-application \
+  --remotedir /app
+
+echo "Starting application..."
+pipeline run \
+  --cid $ENCLAVE_CID \
+  --port $ENCLAVE_PORT \
+  --command "chmod +x /app/bin/* && /app/bin/start.sh" \
+  --no-wait
+
+echo "Application deployed successfully!"
+```
+
+#### Collect All Logs
+```bash
+#!/bin/bash
+# collect-logs.sh - Collect all logs from enclave
+
+ENCLAVE_CID=3
+ENCLAVE_PORT=5000
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_DIR="./logs_$TIMESTAMP"
+
+echo "Collecting logs from enclave..."
+
+pipeline recv-dir \
+  --cid $ENCLAVE_CID \
+  --port $ENCLAVE_PORT \
+  --localdir "$LOG_DIR" \
+  --remotedir /var/log/app
+
+echo "Logs saved to $LOG_DIR"
+ls -la "$LOG_DIR"
+```
+
+#### ML Model Deployment
+```bash
+#!/bin/bash
+# deploy-model.sh - Deploy ML model with all artifacts
+
+ENCLAVE_CID=3
+ENCLAVE_PORT=5000
+MODEL_NAME=$1
+
+if [ -z "$MODEL_NAME" ]; then
+  echo "Usage: deploy-model.sh <model-name>"
+  exit 1
+fi
+
+echo "Deploying model: $MODEL_NAME"
+
+# Send model directory with weights, config, tokenizer, etc.
+pipeline send-dir \
+  --cid $ENCLAVE_CID \
+  --port $ENCLAVE_PORT \
+  --localdir "./models/$MODEL_NAME" \
+  --remotedir "/enclave/models/$MODEL_NAME"
+
+# Verify deployment
+pipeline run \
+  --cid $ENCLAVE_CID \
+  --port $ENCLAVE_PORT \
+  --command "ls -la /enclave/models/$MODEL_NAME"
+
+echo "Model $MODEL_NAME deployed successfully!"
 ```
 
 ### Automation Script Example
@@ -497,18 +773,20 @@ cat output.json
 ENCLAVE_CID=3
 ENCLAVE_PORT=5000
 
-# Deploy application files
+# Deploy application files (directory transfer)
 echo "Deploying application..."
-pipeline send-file --cid $ENCLAVE_CID --port $ENCLAVE_PORT \
-  --localpath ./app.bin --remotepath /app/app.bin
+pipeline send-dir --cid $ENCLAVE_CID --port $ENCLAVE_PORT \
+  --localdir ./app --remotedir /app
 
-pipeline send-file --cid $ENCLAVE_CID --port $ENCLAVE_PORT \
-  --localpath ./config.toml --remotepath /app/config.toml
+# Deploy configuration files
+echo "Deploying configuration..."
+pipeline send-dir --cid $ENCLAVE_CID --port $ENCLAVE_PORT \
+  --localdir ./config --remotedir /app/config
 
 # Run application
 echo "Starting application..."
 pipeline run --cid $ENCLAVE_CID --port $ENCLAVE_PORT \
-  --command "chmod +x /app/app.bin && /app/app.bin --config /app/config.toml" \
+  --command "chmod +x /app/bin/* && /app/bin/app --config /app/config/settings.toml" \
   --no-wait
 
 echo "Application started in background"
@@ -532,12 +810,21 @@ check_enclave() {
 # Verify connectivity
 check_enclave
 
-# Send file with error handling
-if pipeline send-file --cid 3 --port 5000 \
-    --localpath ./data.bin --remotepath /enclave/data.bin; then
-    echo "File transferred successfully"
+# Send directory with error handling
+if pipeline send-dir --cid 3 --port 5000 \
+    --localdir ./data --remotedir /enclave/data; then
+    echo "Directory transferred successfully"
 else
-    echo "ERROR: File transfer failed"
+    echo "ERROR: Directory transfer failed"
+    exit 1
+fi
+
+# Receive directory with error handling
+if pipeline recv-dir --cid 3 --port 5000 \
+    --localdir ./results --remotedir /enclave/output; then
+    echo "Results retrieved successfully"
+else
+    echo "ERROR: Failed to retrieve results"
     exit 1
 fi
 ```
@@ -555,12 +842,19 @@ declare -A ENCLAVES=(
     ["enclave-3"]="5:5002"
 )
 
-# Execute command on all enclaves
+# Deploy to all enclaves
 for name in "${!ENCLAVES[@]}"; do
     IFS=':' read -r cid port <<< "${ENCLAVES[$name]}"
 
-    echo "Executing on $name (CID: $cid, Port: $port)"
-    pipeline run --cid "$cid" --port "$port" --command "$1"
+    echo "Deploying to $name (CID: $cid, Port: $port)"
+
+    # Deploy application
+    pipeline send-dir --cid "$cid" --port "$port" \
+        --localdir ./app --remotedir /app
+
+    # Start application
+    pipeline run --cid "$cid" --port "$port" \
+        --command "/app/bin/start.sh" --no-wait
 done
 ```
 
@@ -601,47 +895,66 @@ These commands output to stdout and exit with code 0, making them perfect for:
 
 ## Common Use Cases
 
-### 1. Secure Computation
+### 1. Secure Computation with Directories
 ```bash
-# Send sensitive data
-pipeline send-file --cid 3 --port 5000 \
-  --localpath ./sensitive.dat --remotepath /secure/input.dat
+# Send entire input dataset directory
+pipeline send-dir --cid 3 --port 5000 \
+  --localdir ./datasets/experiment-001 --remotedir /secure/input
 
 # Process in isolation
 pipeline run --cid 3 --port 5000 \
-  --command "/secure/compute --input /secure/input.dat --output /secure/result.dat"
+  --command "/secure/compute --input-dir /secure/input --output-dir /secure/output"
 
-# Retrieve results only
-pipeline recv-file --cid 3 --port 5000 \
-  --remotepath /secure/result.dat --localpath ./result.dat
+# Retrieve all results
+pipeline recv-dir --cid 3 --port 5000 \
+  --localdir ./results/experiment-001 --remotedir /secure/output
 ```
 
-### 2. Log Collection
+### 2. Application Deployment
 ```bash
-# Fetch logs periodically
+# Deploy entire application with all dependencies
+pipeline send-dir --cid 3 --port 5000 \
+  --localdir ./dist/my-secure-app --remotedir /app
+
+# Set permissions and start
+pipeline run --cid 3 --port 5000 \
+  --command "chmod -R +x /app/bin && /app/bin/start.sh"
+```
+
+### 3. Log Collection
+```bash
+# Fetch all logs periodically
 while true; do
-    pipeline recv-file --cid 3 --port 5000 \
-      --remotepath /var/log/app.log \
-      --localpath "/logs/app-$(date +%s).log"
-    sleep 300  # Every 5 minutes
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    pipeline recv-dir --cid 3 --port 5000 \
+      --localdir "/logs/snapshot_$TIMESTAMP" \
+      --remotedir /var/log/app
+    sleep 3600  # Every hour
 done
-```
-
-### 3. Health Monitoring
-```bash
-# Check enclave health
-pipeline run --cid 3 --port 5000 --command "systemctl status my-app"
-echo "Health check exit code: $?"
 ```
 
 ### 4. Configuration Updates
 ```bash
-# Update configuration without restart
-pipeline send-file --cid 3 --port 5000 \
-  --localpath ./new-config.toml --remotepath /app/config.toml
+# Update entire configuration directory
+pipeline send-dir --cid 3 --port 5000 \
+  --localdir ./new-config --remotedir /app/config
 
+# Reload application
 pipeline run --cid 3 --port 5000 \
   --command "killall -HUP app"  # Reload config
+```
+
+### 5. Backup and Restore
+```bash
+# Backup entire data directory from enclave
+pipeline recv-dir --cid 3 --port 5000 \
+  --localdir "./backups/$(date +%Y%m%d)" \
+  --remotedir /enclave/data
+
+# Restore from backup
+pipeline send-dir --cid 3 --port 5000 \
+  --localdir ./backups/20240115 \
+  --remotedir /enclave/data
 ```
 
 ---
@@ -674,12 +987,35 @@ EOF
 
 ### Permission Errors
 
-**Problem:** Cannot read/write files
+**Problem:** Cannot read/write files or directories
 
 **Solutions:**
-1. Check file permissions in enclave
+1. Check file/directory permissions in enclave
 2. Verify paths are absolute or relative correctly
-3. Ensure parent directories exist
+3. Ensure parent directories exist (they are created automatically for files)
+
+### Directory Transfer Issues
+
+**Problem:** `Local directory does not exist` error
+
+**Solutions:**
+1. Verify the local directory path is correct
+2. Use absolute paths if relative paths are ambiguous
+3. Check that the path points to a directory, not a file
+
+**Problem:** `Remote directory is empty or does not exist` error
+
+**Solutions:**
+1. Verify the remote directory exists in the enclave
+2. Check if the directory contains any files
+3. Ensure proper permissions on the remote directory
+
+**Problem:** Directory transfer seems slow
+
+**Solutions:**
+1. Large directories with many small files may take longer due to per-file overhead
+2. Consider archiving large directories before transfer if speed is critical
+3. Check network/VSOCK throughput
 
 ### Command Execution Failures
 
@@ -715,8 +1051,12 @@ pipeline --config dev.toml run --command "app --mode development"
 # .gitlab-ci.yml example
 deploy-to-enclave:
   script:
-    - pipeline send-file --cid 3 --port 5000 --localpath ./app --remotepath /app/app
+    # Deploy entire application directory
+    - pipeline send-dir --cid 3 --port 5000 --localdir ./dist --remotedir /app
+    # Restart application
     - pipeline run --cid 3 --port 5000 --command "systemctl restart app"
+    # Collect deployment logs
+    - pipeline recv-dir --cid 3 --port 5000 --localdir ./deploy-logs --remotedir /var/log/deploy
 ```
 
 ### Security Considerations
@@ -725,6 +1065,7 @@ deploy-to-enclave:
 2. **Encryption:** Communication is encrypted via the cryptography module
 3. **Access Control:** Only the host can communicate with its enclaves
 4. **Audit Logging:** Implement logging on both sides for audit trails
+5. **Directory Integrity:** All files in directory transfers maintain their integrity
 
 ---
 
@@ -736,6 +1077,8 @@ Pipeline provides a **secure, efficient, and easy-to-use** interface for enclave
 - **Command Execution (`run`):** Execute commands remotely with or without waiting
 - **File Upload (`send-file`):** Securely transfer files to enclave
 - **File Download (`recv-file`):** Retrieve files from enclave
+- **Directory Upload (`send-dir`):** Recursively transfer directories to enclave (NEW)
+- **Directory Download (`recv-dir`):** Recursively retrieve directories from enclave (NEW)
 - **Configuration:** Flexible TOML-based configuration
 - **VSOCK Protocol:** Native enclave communication support
 
