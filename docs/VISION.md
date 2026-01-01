@@ -42,13 +42,16 @@ The framework provides a **"Docker Engine for Enclaves"** paradigm:
 - **Vsock communication** - Secure host-enclave IPC
 - **Signal handling** - Proper process management and graceful shutdowns
 
-### **3. Multi-Threaded Runtime & Web API**
+### **3. Multi-Threaded Runtime & Web API for attestation**
 
 The **`ra-web-srv`** component provides:
-- **High-performance multi-threaded runtime** using Tokio
-- **RESTful API** for enclave provisioning and management
 - **Remote attestation endpoints** - Secure identity verification
+- **RESTful API** for enclave attestation:
+  - base image PCR hashes
+  - attestation docs for base running image
+  - attestation docs for FS files, providing base image PCRs and file hashes wrapped into VRF proofs (enclave's unique key pair based hashes)
 - **TLS/mTLS support** - Encrypted communications
+- **High-performance multi-threaded runtime** using Tokio
 - **Concurrent request handling** - Scalable enclave operations
 - **Health monitoring** - Status endpoints and metrics
 
@@ -58,7 +61,7 @@ The **`ra-web-srv`** component provides:
 - **Remote attestation integration** - Hardware-backed trust
 - **PCR (Platform Configuration Register) validation**
 - **Attestation document verification**
-- **Secure key management** - Integration with enclave KMS
+- **Secure key management** - Integration with enclave KMS/HSM, cloud KMS/HSM/TPM
 - **Certificate-based authentication**
 
 #### **Isolation & Hardening:**
@@ -80,8 +83,12 @@ This is a **game-changer** for enclave security:
 ### **6. Network Abstraction Layer**
 
 The **`pf-proxy`** component enables:
-- **Transparent port forwarding** - Enclave services accessible from host
-- **Vsock-to-TCP bridging** - Seamless protocol translation
+- **Enclave's networking** (for enclave image with specific kernel build):
+  - access to host network and cloud network services for network enabled applications
+  - download content into enclave (open source model from HuggingFace, for instance)
+  - transfer encrypted content from enclave (fine-tuned model to AWS S3 bucket, for instance)
+- **Transparent port forwarding** - Enclave services/apps accessible from host
+- **Vsock-to-TCP and TCP-to-Vsock bridging (including transparent transfer, port forwarding and full-cone NAT)** - Seamless protocol translation
 - **Multiple connection handling** - Concurrent sessions
 - **Connection pooling** - Efficient resource utilization
 - **Dynamic routing** - Flexible network topologies
@@ -90,10 +97,13 @@ The **`pf-proxy`** component enables:
 
 #### **Developer Experience:**
 - **Local development mode** - Test without full enclave deployment
-- **Hot-reload support** via `fs-monitor` - Rapid iteration
+- **Hot-reload support** via `fs-monitor` (online FS changes tracking in enclave's runtime) - Rapid iteration
 - **Comprehensive logging** - Structured tracing with `tracing` crate
-- **CLI reference documentation** - Self-documenting tools
-- **Example reference apps** - Quick-start templates
+- **CLI reference documentation**:
+  - Self-documenting tools
+  - exhaustive comprehensive documentation for every component
+  - Quick Start Reference Guide for beginners
+- **Example reference apps** - Quick-start templates for in-enclave apps
 
 #### **Operations:**
 - **Zero-downtime updates** - Rolling enclave updates
@@ -119,6 +129,9 @@ Based on the architecture, the future **Enclave Engine** will provide:
 
 ### **1. Unified Management Plane**
 - **Single binary daemon** - Like `dockerd` but for enclaves
+- **YAML based configurations**:
+  - human-readable configurations for provisioning and deployment of enclaves
+  - integrated CVM Launcher support for different CVM backends (AWS Nitro Enclaves with CPU TEE only and KVM/QEMU based CVMs with CPU+GPU TEE support)
 - **RESTful API** - Programmatic control
 - **gRPC interface** - High-performance RPC
 - **WebSocket support** - Real-time updates
@@ -132,12 +145,12 @@ Based on the architecture, the future **Enclave Engine** will provide:
 
 ### **3. Advanced Networking**
 - **Virtual networks** - Isolated enclave networks
-- **Service mesh** - Secure inter-enclave communication
+- **Service mesh** - Secure inter-enclave communication (will involve PRE protocol with delegated decrytion + BLS based KMS)
 - **DNS integration** - Name-based service resolution
 - **Firewall rules** - Fine-grained traffic control
 
 ### **4. Storage Management**
-- **Persistent volumes** - Data survival across restarts
+- **Persistent volumes** - Data presistence = survival across restarts
 - **Encrypted storage** - At-rest encryption
 - **Snapshot support** - Point-in-time recovery
 - **Volume plugins** - Extensible storage backends
@@ -161,9 +174,9 @@ Based on the architecture, the future **Enclave Engine** will provide:
 ### **vs Traditional Containers (Docker):**
 ✅ Hardware-backed isolation (TEE)
 ✅ Cryptographic attestation
-✅ Memory encryption at runtime
+✅ Memory encryption at runtime (on a hardware level: CPU + CPU Memory)
 ✅ CPU-level security guarantees
-✅ No kernel access from enclave
+✅ No kernel access from/to enclave
 
 ### **vs Other Enclave Solutions:**
 ✅ Complete lifecycle management (not just runtime)
@@ -185,9 +198,9 @@ Based on the architecture, the future **Enclave Engine** will provide:
 - **Zero-copy operations** - Efficient data handling with `bytes` crate
 
 ### **Reliability:**
-- **Process supervision** - Automatic restarts
-- **Graceful shutdown** - Clean resource cleanup
-- **Error handling** - Comprehensive error types with `thiserror`
+- **Process supervision (Init System)** - Automatic restarts
+- **Graceful shutdown (Init System)** - Clean resource cleanup
+- **Error handling** - Comprehensive error types with `anyhow` + `thiserror`
 - **State persistence** - Configuration and metadata durability
 
 ### **Scalability:**
