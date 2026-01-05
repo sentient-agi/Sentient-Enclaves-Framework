@@ -1,500 +1,296 @@
-# Sentient Enclaves Framework - Quick Start Guide
+# Sentient Enclaves Framework – Quickstart Guide
 
-## 🚀 From Zero to Enclave in Minutes
+This guide is for **application developers** who want to run their apps inside **AWS Nitro Enclaves** using the Secure Enclaves Framework and its **reproducible build system** (`rbuilds.sh`).
 
-This guide will help you get started with the Sentient Enclaves Framework, whether you're new to secure enclaves or an experienced developer looking to build confidential applications.
-
----
-
-## What is the Sentient Enclaves Framework?
-
-The Sentient Enclaves Framework is a comprehensive toolkit for building, deploying, and running secure applications inside AWS Nitro Enclaves. Think of it as a complete development platform that handles all the complexity of:
-
-- **Building reproducible enclave images** - Same inputs always produce the same output
-- **Secure communication** - Encrypted channels between your application and the outside world
-- **Remote attestation** - Cryptographic proof that your code is running unmodified
-- **Service management** - A lightweight init system designed for enclaves
+It focuses on:
+- Why this framework is useful for you.
+- The minimal steps to go from **Dockerfile → EIF → running enclave**.
+- How to plug in your app without touching low-level kernel / Nitro plumbing.
 
 ---
 
-## Why Use This Framework?
+## 1. Why Use This Framework?
 
-### For Beginners
+### Advantages for App Developers
 
-| Challenge | Our Solution |
-|-----------|--------------|
-| "Enclaves are complex" | One-command build system handles everything |
-| "I don't know where to start" | Guided setup with sensible defaults |
-| "Documentation is scattered" | Everything in one place with examples |
+- **You stay at the Dockerfile level**
+  Describe your app in a Dockerfile; the framework takes care of:
+  - Building a Nitro-ready Linux kernel.
+  - Packaging your app + dependencies into an EIF (enclave image file for AWS Nitro Enclaves run-time).
+  - Bootstrapping VSock secure local channel, VSock networking and proxies, attestation, and FS monitoring.
 
-### For Advanced Users
+- **Consistent, reproducible builds**
+  `rbuilds.sh` pins toolchains and structure so the same inputs yield the same enclave image. This helps with:
+  - Compliance and audits.
+  - Debugging (no "works only on my machine" EIFs).
+  - Attestation and long-term reproducibility.
 
-| Feature | Benefit |
-|---------|---------|
-| **Reproducible builds** | Deterministic PCR values for audit and verification |
-| **Modular architecture** | Swap components, customize kernel, extend functionality |
-| **Production-ready tools** | Battle-tested remote attestation, file monitoring, networking |
-| **Automation-friendly** | CI/CD integration via command-line interface |
+- **Batteries included**:
+  - Secure Local Channel (SLC) over VSock for commands execution, file and directory transfer, to/from enclave.
+  - Forward / reverse / transparent proxies for enclave networking.
+  - Attestation web server integrated into the enclave.
+  - File system monitor (per-file attestation of runtime data).
 
----
+- **Evolvable init system**:
+  - Today: stable C/clang-based init.
+  - In testing: Rust-based `enclave-init` with better supervision, logging, and safety.
+  - You don’t need to implement PID 1; the framework does.
 
-## Prerequisites
+### When You Should Use It
 
-### Hardware Requirements
+Use this framework if you:
 
-- **EC2 Instance**: Nitro Enclave-enabled instance type
-  - Recommended: `c5.xlarge`, `c5.2xlarge`, `m5.xlarge`, `m5.2xlarge` or larger
-  - Minimum: 4 vCPUs, 8GB RAM (for basic builds)
-  - Production: 16+ vCPUs, 32GB+ RAM (for faster builds)
-
-### Software Requirements
-
-- **Operating System**: Amazon Linux 2023 (recommended) or Amazon Linux 2
-- **Docker**: For isolated build environments
-- **Git**: For cloning the repository
-
----
-
-## Part 1: Quick Start (For Beginners)
-
-### Step 1: Launch an EC2 Instance
-
-1. Log into AWS Console
-2. Launch an EC2 instance with:
-   - AMI: Amazon Linux 2023
-   - Instance type: `c5.2xlarge` (or any Nitro Enclave-enabled type)
-   - Enable "Nitro Enclaves" in advanced settings
-
-### Step 2: Clone and Setup
-
-```bash
-# Connect to your instance
-ssh -i your-key.pem ec2-user@your-instance-ip
-
-# Clone the repository
-git clone https://github.com/sentient-agi/sentient-enclaves-framework.git
-cd sentient-enclaves-framework/rbuilds
-
-# Install Nitro Enclaves (automatic setup)
-./rbuilds.sh --cmd "make_nitro"
-
-# Reboot when prompted (required for Nitro allocator)
-```
-
-### Step 3: Build Everything (One Command)
-
-After rebooting, reconnect and run:
-
-```bash
-cd sentient-enclaves-framework/rbuilds
-
-# Create output directory and build everything
-mkdir -vp ./eif/
-./rbuilds.sh --tty --network --init-c --cmd "make_all" 2>&1 3>&1
-```
-
-☕ **This takes 20-30 minutes.** The build system will:
-1. Build a custom Linux kernel with NSM support
-2. Compile all Rust applications
-3. Build the init system
-4. Create the enclave image (EIF)
-5. Launch the enclave with debug console
-
-### Step 4: Verify It's Working
-
-When the enclave boots, you'll see debug output. From another terminal:
-
-```bash
-# List running enclaves
-./rbuilds.sh --cmd "list_enclaves"
-
-# You should see your enclave listed with status "RUNNING"
-```
-
-### Step 5: Interact with Your Enclave
-
-```bash
-# From the host, run a command inside the enclave
-./sentient-enclaves-framework/pipeline run -- ls -la /apps/
-
-# Send a file to the enclave
-./sentient-enclaves-framework/pipeline send-file ./test.txt /apps/test.txt
-
-# Retrieve a file from the enclave
-./sentient-enclaves-framework/pipeline recv-file /apps/test.txt ./retrieved.txt
-```
-
-🎉 **Congratulations!** You have a working enclave!
+- Need to run sensitive workloads in AWS Nitro Enclaves.
+- Want a **repeatable way** to build enclave images from your app's Dockerfile.
+- Don't want to maintain custom kernels, initramfs, Nitro wiring, and VSock plumbing yourself.
 
 ---
 
-## Part 2: Understanding What You Built
+## 2. Core Concepts (60‑second mental model)
 
-### What's Inside Your Enclave?
-
-```
-/apps/
-├── pipeline          # Secure communication server (VSOCK)
-├── ra-web-srv        # Remote attestation HTTPS API
-├── fs-monitor        # File system integrity monitor
-├── nats-server       # Message bus for internal services
-├── .config/          # Configuration files
-├── certs/            # TLS certificates
-└── .logs/            # Application logs
-```
-
-### Key Services
-
-| Service | Purpose | Port |
-|---------|---------|------|
-| `pipeline` | Host ↔ Enclave communication | VSOCK 53000 |
-| `ra-web-srv` | Remote attestation API | HTTPS 8443 |
-| `nats-server` | Internal message bus | 4222 |
-| `fs-monitor` | File integrity monitoring | - |
+- **Dockerfile** – describes your app environment (OS, deps, binaries). This is your main responsibility.
+- **`rbuilds.sh`** – orchestrator that:
+  - Builds a Nitro-ready kernel.
+  - Builds the init system + enclave services (framework components).
+  - Export Docker container image and convert it into `initramfs` (enclave kernel ramdisk) CPIO format.
+  - Assembles everything into an **EIF**.
+  - Provides commands to run and manage enclaves.
+- **EIF (Enclave Image File)** – the final image Nitro Enclaves run.
+- **Pipeline VSock Secure Local Channel** - how you interact with enclave for run commands and file/directory transfers (for UX similar to `docker exec` and `docker cp`).
+- **VSock & Proxies** – how the enclave talks (indirectly) to the outside world.
+- **Attestation & FS monitor** – how the enclave proves what it’s running and what data it touches.
 
 ---
 
-## Part 3: Developer Quick Reference
+## 3. Prerequisites
 
-### Build Commands
+On an AWS EC2 instance that supports **Nitro Enclaves**:
 
-```bash
-# Full build (everything)
-./rbuilds.sh --tty --network --init-c --cmd "make_all" 2>&1 3>&1
+- Nitro Enclaves enabled on the instance.
+- A modern Linux (e.g., Amazon Linux 2023).
+- `docker` (or compatible container runtime).
+- `nitro-cli` installed and working.
+- Basic shell tools: `bash`, `time`, `tee`.
 
-# Individual stages
-./rbuilds.sh --cmd "make_kernel"    # Build custom kernel
-./rbuilds.sh --cmd "make_apps"      # Build Rust applications
-./rbuilds.sh --cmd "make_init"      # Build init system
-./rbuilds.sh --cmd "make_eif"       # Build enclave image
-
-# With networking support
-./rbuilds.sh --network --cmd "make_all" 2>&1 3>&1
-
-# Without networking (smaller, more secure)
-./rbuilds.sh --init-c --cmd "make_all" 2>&1 3>&1
-```
-
-### Enclave Management
+Clone the repo and move into it:
 
 ```bash
-# Run enclave (debug mode with console)
-./rbuilds.sh --network --cmd "run_eif_image_debugmode_cli" 2>&1 3>&1
-
-# Run enclave (production mode)
-./rbuilds.sh --network --cmd "run_eif_image" 2>&1 3>&1
-
-# Attach to running enclave's console
-./rbuilds.sh --cmd "attach_console_to_enclave"
-
-# List all running enclaves
-./rbuilds.sh --cmd "list_enclaves"
-
-# Stop specific enclave
-./rbuilds.sh --cmd "drop_enclave"
-
-# Stop all enclaves
-./rbuilds.sh --cmd "drop_enclaves_all"
-
-# Cleanup build artifacts
-./rbuilds.sh --cmd "make_clear"
-```
-
-### Pipeline Commands (Host ↔ Enclave)
-
-```bash
-# Execute command inside enclave
-./pipeline run -- /path/to/command --args
-
-# Execute without waiting for output
-./pipeline run --no-wait -- /path/to/command
-
-# Send file to enclave
-./pipeline send-file local_file.txt /enclave/path/file.txt
-
-# Receive file from enclave
-./pipeline recv-file /enclave/path/file.txt local_file.txt
-```
-
-### Remote Attestation API
-
-```bash
-# Generate attestation for files
-curl -k -X POST https://127.0.0.1:8443/generate \
-  -H "Content-Type: application/json" \
-  -d '{"path": "/apps/"}'
-
-# Get file hash
-curl -k "https://127.0.0.1:8443/hash/?path=/apps/pipeline"
-
-# Get attestation document
-curl -k "https://127.0.0.1:8443/doc/?path=/apps/pipeline&view=json_hex"
-
-# Get PCR values
-curl -k "https://127.0.0.1:8443/pcrs/"
-
-# Verify hash
-curl -k -X POST https://127.0.0.1:8443/verify_hash/ \
-  -H "Content-Type: application/json" \
-  -d '{"file_path": "/apps/pipeline", "sha3_hash": "..."}'
+git clone https://github.com/sentient-agi/Sentient-Enclaves-Framework.git
+cd Sentient-Enclaves-Framework
 ```
 
 ---
 
-## Part 4: Advanced Configuration
+## 4. TL;DR Flow
 
-### CLI Options Reference
+1. **Write a Dockerfile** for your app (e.g., `my-app-enclave.dockerfile`).
+2. **Run `rbuilds.sh`** to build everything:
+   - Kernel, init and system services, framework components, your apps and services, EIF, enclave.
+3. **Run the enclave** (debug or normal mode).
+4. **Attach to the enclave console**, test your app, iterate.
 
-```bash
-./rbuilds.sh [OPTIONS] --cmd "COMMAND"
+Everything else (VSock, SLC, proxies, attestation, FS monitor) is handled by the framework.
 
-# Display Options
---tty                    # Allocate TTY for interactive output
---debug                  # Enable verbose logging
--q, --question           # Ask before each step
+---
 
-# Build Options
---network                # Enable networking (forward + reverse proxy)
---rev-net                # Enable reverse proxy only
---fw-net                 # Enable forward proxy only
---init-c                 # Use C init system (default)
---init-go                # Use Go init system
---init-rs                # Use Rust init system
---dockerfile FILE        # Custom dockerfile for rootfs
+## 5. Step-by-Step: From Dockerfile to Running Enclave
 
-# Kernel Options
---kernel VERSION         # Kernel version (default: 6.14.5)
---user NAME              # Build user (default: sentient_build)
---host NAME              # Build host (default: sentient_builder)
+### Step 1 – Create your app Dockerfile
 
-# Enclave Options
---memory SIZE            # Memory in MiB (default: 262144)
---cpus COUNT             # CPU count (default: 16)
---cid VALUE              # VSOCK CID (default: 127)
-```
-
-### Custom Dockerfile
-
-Create your own enclave environment:
+Example skeleton (`my-app-enclave.dockerfile`):
 
 ```dockerfile
-# my-app.dockerfile
 FROM amazonlinux:2023
 
-# Install your dependencies
-RUN dnf install -y python3 nodejs
+# System deps
+RUN yum update -y && \
+    yum install -y python3 git && \
+    yum clean all
 
-# Copy your application
-COPY ./my-app /apps/my-app
+# App code
+WORKDIR /app
+COPY . /app
 
-# Set permissions
-RUN chmod +x /apps/my-app/*
+# Install app dependencies (example)
+RUN pip3 install -r requirements.txt
+
+# Default command (can be overridden by framework env/cmd)
+CMD ["python3", "main.py"]
 ```
 
-Build with your dockerfile:
+Keep it minimal; the framework will add kernel, init, and infrastructure around it.
+
+---
+
+### Step 2 – Build all stages (kernel, init & services, framework components/apps, rootfs, your app, EIF, enclave)
+
+From repo root:
 
 ```bash
-./rbuilds.sh --tty --network --init-c \
-  --dockerfile ./my-app.dockerfile \
-  --cmd "make_all" 2>&1 3>&1
+mkdir -vp ./eif/; \
+/usr/bin/time -v -o ./eif/make_build.log \
+./rbuilds/rbuilds.sh \
+  --tty \
+  --debug \
+  --dockerfile ./my-app-enclave.dockerfile \
+  --network \
+  --init-c \
+  --cmd "make_all" \
+  2>&1 3>&1 | tee ./eif/make_build.output
 ```
 
-### Configuration Files
+What this does for you:
 
-#### Pipeline Configuration
-**File**: `.config/pipeline.config.toml`
-```toml
-cid = 127
-port = 53000
+- Compiles a Nitro-ready kernel.
+- Builds the SLC, proxies, attestation server, FS monitor.
+- Builds the init system.
+- Packages them with your app (in `rootfs`) into an EIF.
+- Prepares the enclave configuration.
+
+You end up with:
+
+- Logs under `./eif/`.
+- One or more `*.eif` files you can run.
+
+---
+
+### Step 3 – Run the enclave
+
+Debug mode (recommended for first run):
+
+```bash
+./rbuilds/rbuilds.sh --tty --debug --network --init-c \
+  --cmd "run_eif_image_debugmode_cli" 2>&1 3>&1
 ```
 
-#### Remote Attestation Configuration
-**File**: `.config/ra_web_srv.config.toml`
-```toml
-[ports]
-http = 8080
-https = 8443
+Normal mode:
 
-[keys]
-sk4proofs = ""  # Auto-generated if empty
-sk4docs = ""
-vrf_cipher_suite = "SECP256R1_SHA256_TAI"
+```bash
+./rbuilds/rbuilds.sh --tty --debug --network --init-c \
+  --cmd "run_eif_image" 2>&1 3>&1
+```
 
-[nats]
-nats_persistency_enabled = 1
-nats_url = "nats://127.0.0.1:4222"
-hash_bucket_name = "fs_hashes"
-att_docs_bucket_name = "fs_att_docs"
+Behind the scenes this:
+
+- Creates an enclave from the EIF.
+- Boots the custom kernel.
+- Starts init, which brings up SLC, proxies, attestation server, FS monitor, and your app.
+
+---
+
+### Step 4 – Inspect and manage enclaves
+
+Attach to a running enclave’s console:
+
+```bash
+./rbuilds/rbuilds.sh --tty --debug --network --init-c \
+  --cmd "attach_console_to_enclave" 2>&1 3>&1
+```
+
+List enclaves:
+
+```bash
+./rbuilds/rbuilds.sh --tty --debug --network --init-c \
+  --cmd "list_enclaves" 2>&1 3>&1
+```
+
+Drop one enclave:
+
+```bash
+./rbuilds/rbuilds.sh --tty --debug --network --init-c \
+  --cmd "drop_enclave" 2>&1 3>&1
+```
+
+Drop all enclaves:
+
+```bash
+./rbuilds/rbuilds.sh --tty --debug --network --init-c \
+  --cmd "drop_enclaves_all" 2>&1 3>&1
 ```
 
 ---
 
-## Part 5: Understanding Reproducible Builds
+## 6. How To Customize App Behavior
 
-### Why Reproducibility Matters
+### Control the main command
 
-Reproducible builds ensure that:
-- **Same source = Same binary** - Every build produces identical output
-- **Verifiable PCRs** - The enclave's identity can be verified
-- **Audit trail** - Anyone can reproduce and verify builds
-- **Trust** - Users can verify they're running the expected code
+Inside the enclave rootfs, the framework uses `rbuilds/rootfs_base/cmd` and environment variables (from `rbuilds/rootfs_base/env`) to define the **primary application command**.
 
-### PCR (Platform Configuration Registers)
+Common patterns:
 
-| PCR | Description | Use Case |
-|-----|-------------|----------|
-| PCR0 | Enclave image hash | Verify correct image |
-| PCR1 | Kernel + bootstrap hash | Verify kernel integrity |
-| PCR2 | Application hash | Verify app code |
-| PCR8 | Signing certificate | Verify signer identity |
+- Keep your Dockerfile’s default `CMD` simple (e.g., `main.py`).
+- Override or extend behavior using the framework’s `cmd` and `env` files when you need more control:
+  - Different app entrypoint in different environments.
+  - Extra flags or configuration.
+- Or add your app `CMD` (or `ENTRY`) and `ENV` from Dockerfile directives/commands into [`rbuilds/enclave.init/init.sh`](rbuilds/enclave.init/init.sh) init shell script using Bash equivalent commands (`env KEY=VALUE your_app_cmd --key value`).
 
-### Verifying Build Reproducibility
+**Note:**
+See [`enclave-init/README.md`](enclave-init/README.md), which describes new way of launching apps in enclaves using new Enclave's Init system service files with syntax similar to `systemd` services.
 
-```bash
-# Build twice and compare PCRs
-./rbuilds.sh --cmd "make_all" 2>&1 3>&1
+### Using the Secure Local Channel (SLC)
 
-# PCRs are saved in:
-cat ./eif/init_c_eif/app-builder-secure-enclaves-framework.eif.pcr
+Once the enclave is running:
 
-# Compare with expected values
-curl -k "https://127.0.0.1:8443/pcrs/"
-```
+- SLC lets you **execute commands inside the enclave** from the host (over VSock).
+- You can also **upload/download files and directories** via SLC.
 
----
+This is useful for:
 
-## Part 6: Troubleshooting
+- Pushing updated configs or models into the enclave.
+- Pulling logs or outputs out without exposing direct network access.
 
-### Common Issues
-
-#### "Nitro Enclaves not enabled"
-```bash
-# Check if running on supported instance type
-aws ec2 describe-instance-types --instance-types $(curl -s http://169.254.169.254/latest/meta-data/instance-type) \
-  --query 'InstanceTypes[].NitroEnclavesSupport.Enabled'
-
-# Should return: "supported"
-```
-
-#### "Not enough memory"
-```bash
-# Check allocator configuration
-cat /etc/nitro_enclaves/allocator.yaml
-
-# Modify memory allocation
-sudo vi /etc/nitro_enclaves/allocator.yaml
-# Set: memory_mib: 4096 (or more)
-
-# Restart allocator
-sudo systemctl restart nitro-enclaves-allocator
-```
-
-#### "Connection refused" to enclave
-```bash
-# Verify enclave is running
-nitro-cli describe-enclaves
-
-# Check Pipeline server is listening (in debug console)
-# Look for: "Pipeline listening on port 53000"
-
-# Verify CID matches configuration
-cat .config/pipeline.config.toml
-```
-
-#### Build fails with "out of disk space"
-```bash
-# Clean Docker resources
-docker system prune -a
-
-# Clean build artifacts
-./rbuilds.sh --cmd "make_clear"
-
-# Check disk space
-df -h
-```
-
-### Debug Mode
-
-```bash
-# Run with verbose output
-./rbuilds.sh --tty --debug --cmd "make_all" 2>&1 3>&1
-
-# View build logs
-cat ./eif/make_build.log
-cat ./eif/run-enclave.log
-
-# View enclave debug console
-./rbuilds.sh --cmd "attach_console_to_enclave"
-
-# View application logs (inside enclave via Pipeline)
-./pipeline run -- cat /apps/.logs/ra-web-srv.log
-```
+(Refer to the SLC-specific docs for exact CLI usage in [pipeline/README.md](pipeline/README.md) and [pipeline/CLI-REFERENCE.md](pipeline/CLI-REFERENCE.md).)
 
 ---
 
-## Part 7: Next Steps
+## 7. Why Reproducible Builds Matter (and How You Benefit)
 
-### Learn More
+Even if you "just want to ship features", reproducible builds are a big deal in enclaves:
 
-1. **Explore the Components**
-   - Read `pipeline/README.md` and `pipeline/CLI-REFERENCE.md` for VSock secure local channel communication details
-   - Read `pf-proxy/README.md` and `pf-proxy/CLI-REFERENCE.md` for VSock proxy enclave's networking
-   - Read `rbuilds/README.md` for enclave's reproducible image build system reference
-   - Read `ra-web-srv/README.md` for attestation API reference
-   - Read `fs-monitor/README.md` for file integrity monitoring usage and CoW FS layer for enclave's ramdisk
-   - Read `enclave-init/README.md` for init system configuration and usage
-   - Read `enclave-engine/README.md` for enclave's provisioning system and usage of CVM launcher for KVM/QEMU
+- **Verifiable Attestation**
+  The attestation document includes hashes of your kernel, init, and rootfs. Reproducible builds mean a verifier can:
+  - Rebuild from source.
+  - Get the same measurement.
+  - Confidently say "this enclave is running the code we reviewed".
 
-2. **Build Your Own Application**
-   - Create a custom Dockerfile
-   - Add your application to `/apps/`
-   - Configure services in init system
+- **Easy rollback / roll-forward**
+  If a change breaks something, you can rebuild the previous version and get the **exact same EIF** as before.
 
-3. **Production Deployment**
-   - Remove debug mode
-   - Configure proper TLS certificates
-   - Set up IAM roles for KMS integration
-   - Configure networking as needed
+- **Auditability & compliance**
+  Regulated environments (finance, healthcare, etc.) care about **deterministic artifacts**. Having a reproducible pipeline is a huge plus.
 
-### Resources
+- **Debugging without guesswork**
+  "It works on my machine" doesn’t cut it for enclaves. Reproducibility lets you:
+  - Reproduce bugs across environments.
+  - Share exact build inputs with other teams.
 
-- [AWS Nitro Enclaves Documentation](https://docs.aws.amazon.com/enclaves/)
-- [VSOCK Protocol Reference](https://man7.org/linux/man-pages/man7/vsock.7.html)
-- Project documentation in `docs/` directory
+And you get all of this **without having to maintain the build system yourself** – it’s baked into `rbuilds.sh`.
 
 ---
 
-## Quick Command Cheat Sheet
+## 8. Next Steps & Deeper Dives
 
-```bash
-# === SETUP ===
-./rbuilds.sh --cmd "make_nitro"           # Install Nitro Enclaves
+Once you have the basic flow working:
 
-# === BUILD ===
-./rbuilds.sh --network --cmd "make_all"   # Build everything
-./rbuilds.sh --cmd "make_kernel"          # Just kernel
-./rbuilds.sh --cmd "make_apps"            # Just applications
-./rbuilds.sh --cmd "make_eif"             # Just EIF image
+- Read the main `rbuilds.sh` README for:
+  - Full stage breakdown (`make_kernel`, `make_apps`, `make_init`, `make_eif`, `make_enclave`).
+  - Advanced automation shell usage.
+- Explore the **Rust `enclave-init`** if you:
+  - Want more structured service management.
+  - Care about advanced logging and health checks.
+- Integrate the **attestation web server** with your backend:
+  - Verify enclave measurements.
+  - Validate that specific models / data were loaded.
 
-# === RUN ===
-./rbuilds.sh --network --cmd "run_eif_image_debugmode_cli"  # Debug mode
-./rbuilds.sh --network --cmd "run_eif_image"                # Production
+**Note:**
+Every component of Enclaves Frmaework has its own `README` and documentation with reference guide, placed in the corresponding component directory, so please refer to it.
 
-# === MANAGE ===
-./rbuilds.sh --cmd "list_enclaves"        # List running
-./rbuilds.sh --cmd "attach_console_to_enclave"  # View output
-./rbuilds.sh --cmd "drop_enclave"         # Stop enclave
-./rbuilds.sh --cmd "drop_enclaves_all"    # Stop all
+For most app developers, however, the core loop is:
 
-# === INTERACT ===
-./pipeline run -- <command>               # Run command in enclave
-./pipeline send-file <src> <dst>          # Send file to enclave
-./pipeline recv-file <src> <dst>          # Get file from enclave
+1. Edit Dockerfile.
+2. `rbuilds.sh --cmd make_all`.
+3. `rbuilds.sh --cmd run_eif_image_debugmode_cli`.
+4. Test, iterate, repeat.
 
-# === CLEANUP ===
-./rbuilds.sh --cmd "make_clear"           # Remove build containers
-```
+That’s enough to start shipping enclave-based applications with strong security guarantees (via attestation, FS granular proofs and hashing) and a robust, reproducible build story.
 
----
-
-**Happy Building!** 🔐
