@@ -1,0 +1,140 @@
+# Enclave Engine Configuration Example
+
+# General configuration
+general:
+  name: secure-enclave-gpu
+  backend: qemu  # Options: qemu, nitro
+
+# QEMU/KVM Backend Configuration
+qemu:
+  vm:
+    name: confidential-vm-h100
+    memory: 16384  # MB
+    cpus: 8
+    disk: /path/to/encrypted_disk.qcow2
+    kernel: /path/to/linux/arch/x86/boot/compressed/vmlinux
+    initrd: /path/to/initramfs.img
+    cmdline: console=ttyS0 loglevel=7
+    qemu_binary: /usr/bin/qemu-system-x86_64
+
+  # Confidential Computing Technology
+  confidential:
+    technology: amd-sev-snp  # Options: intel-tdx, amd-sev, amd-sev-snp
+    firmware: /usr/share/OVMF/OVMF_CODE.fd
+    id_key: /path/to/ark_cert.der  # For SEV-SNP
+    measurement: sha256:1234567890abcdef...  # Optional
+
+  # GPU Passthrough Configuration
+  gpu:
+    enable: true
+    vendor: nvidia  # Options: nvidia, amd
+    # Multiple GPU BDF addresses for multi-GPU passthrough
+    devices:
+      - "0000:0a:00.0"  # First H100 GPU
+      - "0000:0b:00.0"  # Second H100 GPU
+      # Note: NVIDIA H100/H200 TEE currently doesn't support multi-GPU
+      # but configuration supports it for future compatibility
+
+# AWS Nitro Enclaves Backend Configuration
+nitro:
+  enclave_name: nitro-secure-enclave
+  cpu_count: 4
+  memory_mib: 4096
+  eif_path: /path/to/enclave.eif
+  vsock:
+    cid: 16  # Context ID for VSock
+    port: 5000  # Port for VSock communication
+  debug_mode: false
+  # Note: AWS Nitro Enclaves don't support GPU TEE yet
+
+# NUMA Configuration
+numa:
+  enable: true
+  nodes:
+    - node_id: 0
+      cpus: [0, 1, 2, 3, 4, 5, 6, 7]
+      memory_gb: 32
+      gpus:
+        - "0000:0a:00.0"
+    - node_id: 1
+      cpus: [8, 9, 10, 11, 12, 13, 14, 15]
+      memory_gb: 32
+      gpus:
+        - "0000:0b:00.0"
+
+# Hugepages Configuration
+hugepages:
+  enable: true
+  page_size_kb: 2048  # Options: 2048 (2MB), 1048576 (1GB)
+  num_pages: 2048  # Number of hugepages
+  mount_point: /mnt/hugepages  # Optional mount point
+
+---
+# Alternative Configuration: Nitro Enclaves
+
+general:
+  name: nitro-enclave-prod
+  backend: nitro
+
+nitro:
+  enclave_name: production-enclave
+  cpu_count: 8
+  memory_mib: 8192
+  eif_path: /opt/enclaves/production.eif
+  vsock:
+    cid: 20
+    port: 8000
+  debug_mode: false
+
+numa:
+  enable: true
+  nodes:
+    - node_id: 0
+      cpus: [0, 1, 2, 3, 4, 5, 6, 7]
+      memory_gb: 16
+
+hugepages:
+  enable: true
+  page_size_kb: 1048576  # 1GB pages
+  num_pages: 8
+
+---
+# Alternative Configuration: Intel TDX
+
+general:
+  name: tdx-secure-vm
+  backend: qemu
+
+qemu:
+  vm:
+    name: tdx-confidential-vm
+    memory: 32768
+    cpus: 16
+    disk: /vms/tdx-vm.qcow2
+    kernel: /boot/tdx-kernel
+    initrd: /boot/tdx-initrd
+    cmdline: console=ttyS0 root=/dev/vda1
+    qemu_binary: /usr/bin/qemu-system-x86_64
+
+  confidential:
+    technology: intel-tdx
+    firmware: /usr/share/OVMF/OVMF.fd
+
+  gpu:
+    enable: true
+    vendor: nvidia
+    devices:
+      - "0000:0a:00.0"
+
+numa:
+  enable: true
+  nodes:
+    - node_id: 0
+      cpus: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+      memory_gb: 64
+      gpus: ["0000:0a:00.0"]
+
+hugepages:
+  enable: true
+  page_size_kb: 2048
+  num_pages: 4096
