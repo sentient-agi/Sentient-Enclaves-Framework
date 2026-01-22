@@ -1,4 +1,4 @@
-use log::error;
+use tracing::error;
 
 pub trait ExitGracefully<T, E> {
     fn ok_or_exit(self, message: &str) -> T;
@@ -9,7 +9,7 @@ impl<T, E: std::fmt::Debug> ExitGracefully<T, E> for Result<T, E> {
         match self {
             Ok(val) => val,
             Err(err) => {
-                error!("{:?}: {}", err, message);
+                error!(error = ?err, message = %message, "Fatal error, exiting");
                 std::process::exit(1);
             }
         }
@@ -20,7 +20,7 @@ impl<T, E: std::fmt::Debug> ExitGracefully<T, E> for Result<T, E> {
 macro_rules! create_app {
     () => {
         App::new("Pipeline Vsock Communication Protocol")
-            .about("Pipeline vsock secure local channel communication protocol that provides remote control of enclave via running commands inside the enclave and provides bidirectional files transmission into/from encalve's FS.")
+            .about("Pipeline vsock secure local channel communication protocol that provides remote control of enclave via running commands inside the enclave and provides bidirectional files and directories transmission into/from encalve's FS.")
             .setting(AppSettings::ArgRequiredElseHelp)
             .version(env!("CARGO_PKG_VERSION"))
             .arg(
