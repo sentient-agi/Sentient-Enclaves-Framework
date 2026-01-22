@@ -20,3 +20,10 @@ async-trait = "0.1"
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[profile.release]
+strip = true
+lto = true
+panic = "abort"
+codegen-units = 1
+opt-level = "z"

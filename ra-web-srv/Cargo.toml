@@ -39,3 +39,10 @@ vrf = { git = "https://github.com/andrcmdr/vrf-rs.git", tag = "0.3.0" }
 # vrf = { path = "../../vrf", version = "0.3.0" }
 async-nats = "0.42"
 bytes = "1.10"
+
+[profile.release]
+strip = true
+lto = true
+panic = "abort"
+codegen-units = 1
+opt-level = "z"

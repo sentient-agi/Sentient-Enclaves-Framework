@@ -172,20 +172,20 @@ Based on the architecture, the future **Enclave Engine** will provide:
 ## 🎯 **Key Differentiators**
 
 ### **vs Traditional Containers (Docker):**
-✅ Hardware-backed isolation (TEE)
-✅ Cryptographic attestation
-✅ Memory encryption at runtime (on a hardware level: CPU + CPU Memory)
-✅ CPU-level security guarantees
-✅ No kernel access from/to enclave
+- ✅ Hardware-backed isolation (TEE)
+- ✅ Cryptographic attestation
+- ✅ Memory encryption at runtime (on a hardware level: CPU + CPU Memory)
+- ✅ CPU-level security guarantees
+- ✅ No kernel access from/to enclave
 
 ### **vs Other Enclave Solutions:**
-✅ Complete lifecycle management (not just runtime)
-✅ Developer-friendly abstractions
-✅ Reproducible builds (supply chain security)
-✅ Modern Rust implementation (safety + performance)
-✅ Docker-like UX (low learning curve)
-✅ Multi-threaded runtime (high throughput)
-✅ Extensible architecture (plugin system)
+- ✅ Complete lifecycle management (not just runtime)
+- ✅ Developer-friendly abstractions
+- ✅ Reproducible builds (supply chain security)
+- ✅ Modern Rust implementation (safety + performance)
+- ✅ Docker-like UX (low learning curve)
+- ✅ Multi-threaded runtime (high throughput)
+- ✅ Extensible architecture (plugin system)
 
 ---
 

@@ -18,3 +18,10 @@ uuid = { version = "1.16.0", features = ["v4"] }
 notify-debouncer-full = "0.5.0"
 async-nats = "0.42"
 bytes = "1.10.1"
+
+[profile.release]
+strip = true
+lto = true
+panic = "abort"
+codegen-units = 1
+opt-level = "z"
