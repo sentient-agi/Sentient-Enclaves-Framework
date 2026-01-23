@@ -42,7 +42,7 @@ fn main() -> Result<()> {
         exit(output.rc.unwrap_or_default());
     };
 
-    let default_config_path = format!("./.config/{}.config.toml", env!("CARGO_CRATE_NAME"));
+    let default_config_path = format!("./.config/{}.config.yaml", env!("CARGO_CRATE_NAME"));
     let config_path: &String = args
         .get_one("config")
         .unwrap_or(&default_config_path);
@@ -52,7 +52,7 @@ fn main() -> Result<()> {
     let raw_config_string = std::fs::read_to_string(config_path)
         .with_context(|| format!("Missing '{}' configuration file", config_path))?;
 
-    let app_config: AppConfig = toml::from_str(raw_config_string.as_str())
+    let app_config: AppConfig = serde_yaml::from_str(raw_config_string.as_str())
         .with_context(|| format!("Failed to parse '{}' configuration file", config_path))?;
 
     info!(cid = app_config.cid, port = app_config.port, "Configuration loaded");
