@@ -1,2 +1,27 @@
+# Pipeline configuration file
+
+# Connection settings
 cid: 127
 port: 53000
+
+# Buffer configuration (all optional - defaults shown)
+buffers:
+  # Files send and receive buffer size in bytes (default: 7340032 = 7 MiB)
+  # Tunable from 8192 up to 10485760 bytes (10 MiB) or more for best throughput
+  # Should be less than stack size (see: ulimit -sS and ulimit -sH)
+  buf_max_len_file_io: 7340032
+
+  # Buffer for file path in bytes (default: 8192)
+  buf_max_len_file_path: 8192
+
+  # Buffer for shell commands in bytes (default: 8192)
+  buf_max_len_cmd: 8192
+
+  # Buffer for shell commands output to STDOUT in bytes (default: 10240)
+  buf_max_len_cmd_io: 10240
+
+  # Socket listen backlog (default: 128)
+  backlog: 128
+
+  # Maximum connection retry attempts (default: 10)
+  max_connection_attempts: 10

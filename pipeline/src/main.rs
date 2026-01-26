@@ -7,7 +7,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use pipeline::cats::{GEORGE, PASCAL};
 use pipeline::cli_parser::{CommandOutput, DirArgs, FileArgs, ListenArgs, RunArgs};
-use pipeline::config::AppConfig;
+use pipeline::config::{self, AppConfig};
 use pipeline::create_app;
 use pipeline::{listen, recv_dir, recv_file, run, send_dir, send_file};
 
@@ -43,19 +43,28 @@ fn main() -> Result<()> {
     };
 
     let default_config_path = format!("./.config/{}.config.yaml", env!("CARGO_CRATE_NAME"));
-    let config_path: &String = args
-        .get_one("config")
-        .unwrap_or(&default_config_path);
+    let config_path: &String = args.get_one("config").unwrap_or(&default_config_path);
 
     debug!(config_path = %config_path, "Loading configuration");
 
-    let raw_config_string = std::fs::read_to_string(config_path)
-        .with_context(|| format!("Missing '{}' configuration file", config_path))?;
+    // Load and set the runtime configuration
+    let app_config: AppConfig = config::load_config_from_path(config_path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let app_config: AppConfig = serde_yaml::from_str(raw_config_string.as_str())
-        .with_context(|| format!("Failed to parse '{}' configuration file", config_path))?;
+    // Set the runtime config so that buffer sizes are available globally
+    config::set_runtime_config(app_config.clone());
 
-    info!(cid = app_config.cid, port = app_config.port, "Configuration loaded");
+    info!(
+        cid = app_config.cid,
+        port = app_config.port,
+        buf_file_io = app_config.buffers.buf_max_len_file_io,
+        buf_file_path = app_config.buffers.buf_max_len_file_path,
+        buf_cmd = app_config.buffers.buf_max_len_cmd,
+        buf_cmd_io = app_config.buffers.buf_max_len_cmd_io,
+        backlog = app_config.buffers.backlog,
+        max_conn_attempts = app_config.buffers.max_connection_attempts,
+        "Configuration loaded and applied"
+    );
 
     match args.subcommand() {
         Some(("listen", sub_args)) => {

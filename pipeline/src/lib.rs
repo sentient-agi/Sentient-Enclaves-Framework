@@ -25,15 +25,8 @@ use std::path::Path;
 use std::process::Command;
 use tracing::{debug, error, info};
 
+/// Vsock CID for binding to any address
 pub const VMADDR_CID_ANY: u32 = 0xFFFFFFFF;
-// Buffer size is tunable from 8192 and for up to 10485760 bytes == 10 MiBs or more, for best throughput.
-// Should be less than stack size. See `ulimit -sS` and `ulimit -sH` for current stack size soft and hard limits, correspondingly.
-pub const BUF_MAX_LEN_FILE_IO: usize = 7340032; // Files send and receive buffer.
-pub const BUF_MAX_LEN_FILE_PATH: usize = 8192; // Buffer for file path.
-pub const BUF_MAX_LEN_CMD: usize = 8192; // Buffer for shell commands.
-pub const BUF_MAX_LEN_CMD_IO: usize = 10240; // Buffer for shell commands output to STDOUT.
-pub const BACKLOG: usize = 128;
-pub const MAX_CONNECTION_ATTEMPTS: usize = 10;
 
 #[derive(Debug, Clone, FromPrimitive)]
 enum CmdId {
@@ -76,12 +69,13 @@ impl AsRawFd for VsockSocket {
 }
 
 fn vsock_connect(cid: u32, port: u32) -> Result<VsockSocket> {
-    info!(cid = cid, port = port, "Attempting vsock connection");
+    let max_attempts = config::max_connection_attempts();
+    info!(cid = cid, port = port, max_attempts = max_attempts, "Attempting vsock connection");
     let sockaddr = VsockAddr::new(cid, port);
     let mut err_msg = String::new();
 
-    for i in 0..MAX_CONNECTION_ATTEMPTS {
-        debug!(attempt = i + 1, max_attempts = MAX_CONNECTION_ATTEMPTS, "Connection attempt");
+    for i in 0..max_attempts {
+        debug!(attempt = i + 1, max_attempts = max_attempts, "Connection attempt");
 
         let vsocket = VsockSocket::new(
             socket(
@@ -121,9 +115,11 @@ fn vsock_connect(cid: u32, port: u32) -> Result<VsockSocket> {
 fn run_cmd_server(fd: RawFd, no_wait: bool, _app_config: &AppConfig) -> Result<()> {
     debug!(fd = fd, no_wait = no_wait, "Running command server");
 
+    let buf_cmd_size = config::buf_max_len_cmd();
+
     // recv command
     let len = recv_u64(fd)?;
-    let mut buf = [0u8; BUF_MAX_LEN_CMD];
+    let mut buf = vec![0u8; buf_cmd_size];
     recv_loop(fd, &mut buf, len)?;
 
     let len_usize: usize = len.try_into().map_err(|e| {
@@ -193,9 +189,12 @@ fn run_cmd_server(fd: RawFd, no_wait: bool, _app_config: &AppConfig) -> Result<(
 fn send_file_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
     debug!(fd = fd, "Starting send file server");
 
+    let buf_file_path_size = config::buf_max_len_file_path();
+    let buf_file_io_size = config::buf_max_len_file_io();
+
     // recv file path
     let len = recv_u64(fd)?;
-    let mut path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+    let mut path_buf = vec![0u8; buf_file_path_size];
     recv_loop(fd, &mut path_buf, len)?;
 
     let len_usize: usize = len.try_into().map_err(|e| {
@@ -235,7 +234,7 @@ fn send_file_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
     info!(path = %path, size = filesize, "Sending file from enclave");
 
     // send file
-    let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+    let mut buf = vec![0u8; buf_file_io_size];
     let mut progress: u64 = 0;
     let mut tmpsize: u64;
 
@@ -274,9 +273,12 @@ fn send_file_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
 fn recv_file_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
     debug!(fd = fd, "Starting receive file server");
 
+    let buf_file_path_size = config::buf_max_len_file_path();
+    let buf_file_io_size = config::buf_max_len_file_io();
+
     // recv file path
     let len = recv_u64(fd)?;
-    let mut path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+    let mut path_buf = vec![0u8; buf_file_path_size];
     recv_loop(fd, &mut path_buf, len)?;
 
     let len_usize: usize = len.try_into().map_err(|e| {
@@ -317,7 +319,7 @@ fn recv_file_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
     info!(path = %path, size = filesize, "Receiving file into enclave");
 
     // receive file
-    let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+    let mut buf = vec![0u8; buf_file_io_size];
     let mut progress: u64 = 0;
     let mut tmpsize: u64;
 
@@ -405,9 +407,12 @@ fn collect_files_recursively(
 fn send_dir_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
     debug!(fd = fd, "Starting send directory server");
 
+    let buf_file_path_size = config::buf_max_len_file_path();
+    let buf_file_io_size = config::buf_max_len_file_io();
+
     // recv remote directory path
     let len = recv_u64(fd)?;
-    let mut path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+    let mut path_buf = vec![0u8; buf_file_path_size];
     recv_loop(fd, &mut path_buf, len)?;
 
     let len_usize: usize = len.try_into().map_err(|e| {
@@ -491,7 +496,7 @@ fn send_dir_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
         send_u64(fd, filesize)?;
         info!(path = %relative_path, size = filesize, "Sending file");
 
-        let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+        let mut buf = vec![0u8; buf_file_io_size];
         let mut progress: u64 = 0;
         let mut tmpsize: u64;
 
@@ -530,9 +535,12 @@ fn send_dir_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
 fn recv_dir_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
     debug!(fd = fd, "Starting receive directory server");
 
+    let buf_file_path_size = config::buf_max_len_file_path();
+    let buf_file_io_size = config::buf_max_len_file_io();
+
     // recv remote directory path (destination in enclave)
     let len = recv_u64(fd)?;
-    let mut path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+    let mut path_buf = vec![0u8; buf_file_path_size];
     recv_loop(fd, &mut path_buf, len)?;
 
     let len_usize: usize = len.try_into().map_err(|e| {
@@ -566,7 +574,7 @@ fn recv_dir_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
 
         // Receive relative path
         let path_len = recv_u64(fd)?;
-        let mut rel_path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+        let mut rel_path_buf = vec![0u8; buf_file_path_size];
         recv_loop(fd, &mut rel_path_buf, path_len)?;
 
         let path_len_usize: usize = path_len.try_into().map_err(|e| {
@@ -609,7 +617,7 @@ fn recv_dir_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
             }
         })?;
 
-        let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+        let mut buf = vec![0u8; buf_file_io_size];
         let mut progress: u64 = 0;
         let mut tmpsize: u64;
 
@@ -646,7 +654,8 @@ fn recv_dir_server(fd: RawFd, _app_config: &AppConfig) -> Result<()> {
 }
 
 pub fn listen(args: ListenArgs, app_config: AppConfig) -> Result<()> {
-    info!(port = args.port, "Starting listener");
+    let backlog = config::backlog();
+    info!(port = args.port, backlog = backlog, "Starting listener");
 
     let socket_fd = socket(
         AddressFamily::Vsock,
@@ -666,7 +675,7 @@ pub fn listen(args: ListenArgs, app_config: AppConfig) -> Result<()> {
         PipelineError::SocketError(format!("Bind failed: {}", err))
     })?;
 
-    listen_vsock(socket_fd, BACKLOG).map_err(|err| {
+    listen_vsock(socket_fd, backlog).map_err(|err| {
         error!(error = %err, "Failed to listen on socket");
         PipelineError::SocketError(format!("Listen failed: {}", err))
     })?;
@@ -749,6 +758,8 @@ pub fn listen(args: ListenArgs, app_config: AppConfig) -> Result<()> {
 pub fn run(args: RunArgs, _app_config: AppConfig) -> Result<i32> {
     info!(cid = args.cid, port = args.port, command = %args.command, no_wait = args.no_wait, "Running command");
 
+    let buf_cmd_io_size = config::buf_max_len_cmd_io();
+
     let vsocket = vsock_connect(args.cid, args.port)?;
     let socket_fd = vsocket.as_raw_fd();
 
@@ -771,7 +782,7 @@ pub fn run(args: RunArgs, _app_config: AppConfig) -> Result<i32> {
     send_loop(socket_fd, buf, len)?;
 
     // recv command output
-    let mut buf = [0u8; BUF_MAX_LEN_CMD_IO];
+    let mut buf = vec![0u8; buf_cmd_io_size];
     let len = recv_u64(socket_fd)?;
     let mut json_output = String::new();
     let mut to_recv = len;
@@ -779,7 +790,7 @@ pub fn run(args: RunArgs, _app_config: AppConfig) -> Result<i32> {
     debug!(total_len = len, "Receiving command output");
 
     while to_recv > 0 {
-        let recv_len = min(BUF_MAX_LEN_CMD_IO as u64, to_recv);
+        let recv_len = min(buf_cmd_io_size as u64, to_recv);
         recv_loop(socket_fd, &mut buf, recv_len)?;
         to_recv -= recv_len;
 
@@ -814,6 +825,8 @@ pub fn run(args: RunArgs, _app_config: AppConfig) -> Result<i32> {
 
 pub fn recv_file(args: FileArgs, _app_config: AppConfig) -> Result<()> {
     info!(cid = args.cid, port = args.port, local = %args.localfile, remote = %args.remotefile, "Receiving file from enclave");
+
+    let buf_file_io_size = config::buf_max_len_file_io();
 
     // Create parent directories if they don't exist
     if let Some(parent) = Path::new(&args.localfile).parent() {
@@ -863,7 +876,7 @@ pub fn recv_file(args: FileArgs, _app_config: AppConfig) -> Result<()> {
     );
 
     // receive file
-    let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+    let mut buf = vec![0u8; buf_file_io_size];
     let mut progress: u64 = 0;
     let mut tmpsize: u64;
 
@@ -902,6 +915,8 @@ pub fn recv_file(args: FileArgs, _app_config: AppConfig) -> Result<()> {
 
 pub fn send_file(args: FileArgs, _app_config: AppConfig) -> Result<()> {
     info!(cid = args.cid, port = args.port, local = %args.localfile, remote = %args.remotefile, "Sending file to enclave");
+
+    let buf_file_io_size = config::buf_max_len_file_io();
 
     let mut file = File::open(&args.localfile).map_err(|err| {
         error!(path = %args.localfile, error = %err, "Failed to open local file");
@@ -950,7 +965,7 @@ pub fn send_file(args: FileArgs, _app_config: AppConfig) -> Result<()> {
     );
 
     // send file
-    let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+    let mut buf = vec![0u8; buf_file_io_size];
     let mut progress: u64 = 0;
     let mut tmpsize: u64;
 
@@ -989,6 +1004,8 @@ pub fn send_file(args: FileArgs, _app_config: AppConfig) -> Result<()> {
 /// Client function to send a directory recursively (host -> enclave)
 pub fn send_dir(args: DirArgs, _app_config: AppConfig) -> Result<()> {
     info!(cid = args.cid, port = args.port, local = %args.localdir, remote = %args.remotedir, "Sending directory to enclave");
+
+    let buf_file_io_size = config::buf_max_len_file_io();
 
     let local_path = Path::new(&args.localdir);
 
@@ -1079,7 +1096,7 @@ pub fn send_dir(args: DirArgs, _app_config: AppConfig) -> Result<()> {
         send_u64(socket_fd, filesize)?;
         info!(path = %relative_path, size = filesize, "Sending file");
 
-        let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+        let mut buf = vec![0u8; buf_file_io_size];
         let mut progress: u64 = 0;
         let mut tmpsize: u64;
 
@@ -1117,6 +1134,9 @@ pub fn send_dir(args: DirArgs, _app_config: AppConfig) -> Result<()> {
 /// Client function to receive a directory recursively (enclave -> host)
 pub fn recv_dir(args: DirArgs, _app_config: AppConfig) -> Result<()> {
     info!(cid = args.cid, port = args.port, local = %args.localdir, remote = %args.remotedir, "Receiving directory from enclave");
+
+    let buf_file_path_size = config::buf_max_len_file_path();
+    let buf_file_io_size = config::buf_max_len_file_io();
 
     // Create local directory
     debug!(path = %args.localdir, "Creating local directory");
@@ -1170,7 +1190,7 @@ pub fn recv_dir(args: DirArgs, _app_config: AppConfig) -> Result<()> {
 
         // Receive relative path
         let path_len = recv_u64(socket_fd)?;
-        let mut rel_path_buf = [0u8; BUF_MAX_LEN_FILE_PATH];
+        let mut rel_path_buf = vec![0u8; buf_file_path_size];
         recv_loop(socket_fd, &mut rel_path_buf, path_len)?;
 
         let path_len_usize: usize = path_len.try_into().map_err(|e| {
@@ -1213,7 +1233,7 @@ pub fn recv_dir(args: DirArgs, _app_config: AppConfig) -> Result<()> {
             }
         })?;
 
-        let mut buf = [0u8; BUF_MAX_LEN_FILE_IO];
+        let mut buf = vec![0u8; buf_file_io_size];
         let mut progress: u64 = 0;
         let mut tmpsize: u64;
 
