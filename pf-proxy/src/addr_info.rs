@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
+use tracing::{debug, info};
 
 pub trait AddrInfo: Debug {
     fn local_addr(&self) -> Result<SocketAddr, io::Error>;
@@ -31,13 +32,18 @@ impl AddrInfo for TcpStream {
         use std::os::unix::io::AsRawFd;
 
         let fd = self.as_raw_fd();
+        debug!("Attempting to get original destination from fd={}", fd);
         let ret = unsafe { linux::so_original_dst(fd) };
+        match &ret {
+            Ok(addr) => debug!("Successfully retrieved original destination: {:?}", addr),
+            Err(e) => debug!("Failed to retrieve original destination: {:?}", e),
+        }
         ret.ok()
     }
 
     #[cfg(not(target_os = "linux"))]
     fn get_original_dst(&self) -> Option<SocketAddr> {
-        println!("Non Linux system, no support for SO_ORIGINAL_DST");
+        info!("Non Linux system, no support for SO_ORIGINAL_DST");
         None
     }
 }
@@ -47,8 +53,11 @@ mod linux {
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
     use std::os::unix::io::RawFd;
     use std::{io, mem};
+    use tracing::{debug, error};
 
     pub unsafe fn so_original_dst(fd: RawFd) -> io::Result<SocketAddr> {
+        debug!("Calling getsockopt with SO_ORIGINAL_DST on fd={}", fd);
+
         let mut sockaddr: libc::sockaddr_storage = mem::zeroed();
         let mut socklen: libc::socklen_t = mem::size_of::<libc::sockaddr_storage>() as u32;
 
@@ -61,10 +70,11 @@ mod linux {
         );
         if ret != 0 {
             let e = io::Error::last_os_error();
-            println!("failed to read SO_ORIGINAL_DST: {:?}", e);
+            error!("Failed to read SO_ORIGINAL_DST: {:?}", e);
             return Err(e);
         }
 
+        debug!("getsockopt succeeded, parsing socket address with socklen={}", socklen);
         mk_addr(&sockaddr, socklen)
     }
 
@@ -73,6 +83,7 @@ mod linux {
     fn mk_addr(storage: &libc::sockaddr_storage, len: libc::socklen_t) -> io::Result<SocketAddr> {
         match storage.ss_family as libc::c_int {
             libc::AF_INET => {
+                debug!("Parsing AF_INET address");
                 assert!(len as usize >= mem::size_of::<libc::sockaddr_in>());
 
                 let sa = {
@@ -88,9 +99,12 @@ mod linux {
                     bits as u8,
                 );
                 let port = sa.sin_port;
-                Ok(SocketAddr::V4(SocketAddrV4::new(ip, ntoh16(port))))
+                let addr = SocketAddr::V4(SocketAddrV4::new(ip, ntoh16(port)));
+                debug!("Parsed IPv4 address: {:?}", addr);
+                Ok(addr)
             }
             libc::AF_INET6 => {
+                debug!("Parsing AF_INET6 address");
                 assert!(len as usize >= mem::size_of::<libc::sockaddr_in6>());
 
                 let sa = {
@@ -113,17 +127,22 @@ mod linux {
                 let port = sa.sin6_port;
                 let flowinfo = sa.sin6_flowinfo;
                 let scope_id = sa.sin6_scope_id;
-                Ok(SocketAddr::V6(SocketAddrV6::new(
+                let addr = SocketAddr::V6(SocketAddrV6::new(
                     ip,
                     ntoh16(port),
                     flowinfo,
                     scope_id,
-                )))
+                ));
+                debug!("Parsed IPv6 address: {:?}", addr);
+                Ok(addr)
             }
-            _ => Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid argument",
-            )),
+            other => {
+                error!("Invalid address family: {}", other);
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid argument",
+                ))
+            }
         }
     }
 

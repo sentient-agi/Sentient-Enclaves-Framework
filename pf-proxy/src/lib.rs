@@ -4,6 +4,7 @@ pub mod utils {
     use std::num::ParseIntError;
 
     use tokio_vsock::VsockAddr;
+    use tracing::debug;
 
     #[derive(thiserror::Error, Debug)]
     pub enum VsockAddrParseError {
@@ -16,11 +17,18 @@ pub mod utils {
     }
 
     pub fn split_vsock(addr: &str) -> Result<VsockAddr, VsockAddrParseError> {
+        debug!("Parsing vsock address: {}", addr);
+
         let (cid, port) = addr
             .split_once(':')
             .ok_or(VsockAddrParseError::SplitError)?;
+
+        debug!("Split vsock address into cid='{}' and port='{}'", cid, port);
+
         let cid = cid.parse().map_err(VsockAddrParseError::CidParseError)?;
         let port = port.parse().map_err(VsockAddrParseError::PortParseError)?;
+
+        debug!("Parsed vsock address: cid={}, port={}", cid, port);
 
         Ok(VsockAddr::new(cid, port))
     }
