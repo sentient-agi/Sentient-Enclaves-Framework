@@ -6,24 +6,31 @@ description = "Remote attestation web-server for Sentient Enclaves Framework"
 
 [[bin]]
 name = "ra-web-srv"
-path = "src/ra-web-srv.rs"
+path = "src/main.rs"
+
+[[bin]]
+name = "ra-web-srv-legacy"
+path = "src/bin/ra-web-srv.rs"
 
 [[bin]]
 name = "mt-runtime"
 path = "mt-runtime/mt-runtime.rs"
 
+[lib]
+path = "src/lib.rs"
+
 [dependencies]
 # Web framework
-axum = { version = "0.8" }
-axum-extra = { version = "0.10" }
+axum = { version = "0.8", features = ["macros"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
 axum-server = { version = "0.7", features = ["tls-openssl"] }
-axum-macros = "0.5"
 
 # Serialization
-serde = { version = ">=1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "0.11"
 serde_cbor = "0.11"
-serde_json = { version = ">=1.0" }
+serde_json = "1.0"
+# serde_yaml = "0.9"
 toml = "0.8"
 hex = "0.4"
 bytes = "1.11"
@@ -51,6 +58,15 @@ async-nats = "0.42"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Utilities
+
+[dev-dependencies]
+tempfile = "3.23"
 
 [profile.release]
 strip = true
