@@ -2,6 +2,7 @@
 name = "ra-web-srv"
 version = "0.9.0"
 edition = "2021"
+description = "Remote attestation web-server for Sentient Enclaves Framework"
 
 [[bin]]
 name = "ra-web-srv"
@@ -12,33 +13,44 @@ name = "mt-runtime"
 path = "mt-runtime/mt-runtime.rs"
 
 [dependencies]
+# Web framework
 axum = { version = "0.8" }
 axum-extra = { version = "0.10" }
 axum-server = { version = "0.7", features = ["tls-openssl"] }
 axum-macros = "0.5"
+
+# Serialization
 serde = { version = ">=1.0", features = ["derive"] }
-serde_json = { version = ">=1.0" }
 serde_bytes = "0.11"
 serde_cbor = "0.11"
-futures = "0.3"
-tokio = { version = "1.44", features = ["full"] }
-async-std = "1.13"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_json = { version = ">=1.0" }
+toml = "0.8"
 hex = "0.4"
+bytes = "1.11"
+
+# Cryptography
 # sha3 = "0.11.0-pre.4"
 sha3 = "0.10.8"
-rand_core = { version = "0.6.4", features = ["getrandom"] }
-aws-nitro-enclaves-nsm-api = { git = "https://github.com/andrcmdr/aws-nitro-enclaves-nsm-api.git", branch = "main", version = "0.4.0" }
-aws-nitro-enclaves-cose = { git = "https://github.com/andrcmdr/aws-nitro-enclaves-cose.git", branch = "main", version = "0.5.2", features = ["key_openssl_pkey"] }
-toml = "0.8"
-parking_lot = "0.12"
 openssl = { version = "0.10", features = ["vendored"] }
 # vrf = { git = "https://github.com/andrcmdr/vrf-rs.git", branch = "main", version = "0.3.0" }
 vrf = { git = "https://github.com/andrcmdr/vrf-rs.git", tag = "0.3.0" }
 # vrf = { path = "../../vrf", version = "0.3.0" }
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+
+# AWS Nitro Enclaves SDK
+aws-nitro-enclaves-nsm-api = { git = "https://github.com/andrcmdr/aws-nitro-enclaves-nsm-api.git", branch = "main", version = "0.4.0" }
+aws-nitro-enclaves-cose = { git = "https://github.com/andrcmdr/aws-nitro-enclaves-cose.git", branch = "main", version = "0.5.2", features = ["key_openssl_pkey"] }
+
+# Async
+futures = "0.3"
+tokio = { version = "1.48", features = ["full"] }
+async-std = "1.13"
+parking_lot = "0.12"
 async-nats = "0.42"
-bytes = "1.10"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 strip = true
