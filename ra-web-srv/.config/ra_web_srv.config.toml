@@ -1,3 +1,5 @@
+# Remote Attestation Web Server Configuration
+
 nsm_fd = "nsm"
 vrf_cipher_suite = "SECP256R1_SHA256_TAI"
 
