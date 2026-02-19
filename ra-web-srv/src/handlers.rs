@@ -45,16 +45,18 @@ pub async fn generate_handler(
         Ok(metadata) => metadata,
         Err(e) => {
             error!("Path not found '{}': {}", path_str, e);
-            return (StatusCode::NOT_FOUND, json!({"error": format!("Path not found: {}", e)}).to_string());
+            return (
+                StatusCode::NOT_FOUND,
+                json!({"error": format!("Path not found: {}", e)}).to_string(),
+            );
         }
     };
 
     let is_dir = metadata.is_dir();
     let state_clone = state.clone();
 
-    let path_str_clone = path_str.clone();
     tokio::spawn(async move {
-        let path_buf = StdPath::new(&path_str_clone).to_path_buf();
+        let path_buf = StdPath::new(&path_str).to_path_buf();
         if let Err(e) = visit_files_recursively(&path_buf, state_clone).await {
             error!("Error processing path '{}': {:?}", path_buf.display(), e);
         }
@@ -66,7 +68,10 @@ pub async fn generate_handler(
         "Started processing file"
     };
 
-    (StatusCode::ACCEPTED, json!({"status": message, "path": path_str}).to_string())
+    (
+        StatusCode::ACCEPTED,
+        json!({"status": message, "path": payload.path}).to_string(),
+    )
 }
 
 /// Recursively visit files and generate attestation documents
@@ -205,10 +210,13 @@ pub async fn ready_handler(
             "sha3_hash": hex::encode(results.get(&file_path).unwrap_or(&vec![])),
             "status": "Ready",
         });
-        return (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
-            error!("Error formatting to JSON: {}", e);
-            json!({"error": format!("JSON format error: {}", e)}).to_string()
-        }));
+        return (
+            StatusCode::OK,
+            serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
+                error!("Error formatting to JSON: {}", e);
+                json!({"error": format!("JSON format error: {}", e)}).to_string()
+            }),
+        );
     }
 
     let tasks = server_state.tasks.lock().await;
@@ -217,20 +225,26 @@ pub async fn ready_handler(
             "file_path": file_path,
             "status": "Processing",
         });
-        return (StatusCode::PROCESSING, serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
-            error!("Error formatting to JSON: {}", e);
-            json!({"error": format!("JSON format error: {}", e)}).to_string()
-        }));
+        return (
+            StatusCode::PROCESSING,
+            serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
+                error!("Error formatting to JSON: {}", e);
+                json!({"error": format!("JSON format error: {}", e)}).to_string()
+            }),
+        );
     }
 
     let json_value = json!({
         "file_path": file_path,
         "status": "Not found",
     });
-    (StatusCode::NOT_FOUND, serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
-        error!("Error formatting to JSON: {}", e);
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
+            error!("Error formatting to JSON: {}", e);
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// Readiness handler for batch status check
@@ -281,10 +295,13 @@ pub async fn readiness(
         "processing": processing_items,
     });
 
-    (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-        error!("Error formatting to JSON: {}", e);
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::OK,
+        serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+            error!("Error formatting to JSON: {}", e);
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// Hash handler for retrieving file hash
@@ -311,17 +328,26 @@ pub async fn hash_handler(
                 "file_path": file_path,
                 "sha3_hash": hex::encode(hash),
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
-                error!("Error formatting to JSON: {}", e);
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
+                    error!("Error formatting to JSON: {}", e);
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         None => {
             let tasks = state.tasks.lock().await;
             if tasks.contains_key(&file_path) {
-                (StatusCode::ACCEPTED, json!({"status": "Processing", "file_path": file_path}).to_string())
+                (
+                    StatusCode::ACCEPTED,
+                    json!({"status": "Processing", "file_path": file_path}).to_string(),
+                )
             } else {
-                (StatusCode::NOT_FOUND, json!({"status": "Not found", "file_path": file_path}).to_string())
+                (
+                    StatusCode::NOT_FOUND,
+                    json!({"status": "Not found", "file_path": file_path}).to_string(),
+                )
             }
         }
     }
@@ -353,17 +379,26 @@ pub async fn proof_handler(
                 "vrf_proof": att_data.vrf_proof,
                 "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
-                error!("Error formatting to JSON: {}", e);
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
+                    error!("Error formatting to JSON: {}", e);
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         None => {
             let tasks = state.tasks.lock().await;
             if tasks.contains_key(&file_path) {
-                (StatusCode::ACCEPTED, json!({"status": "Processing", "file_path": file_path}).to_string())
+                (
+                    StatusCode::ACCEPTED,
+                    json!({"status": "Processing", "file_path": file_path}).to_string(),
+                )
             } else {
-                (StatusCode::NOT_FOUND, json!({"status": "Not found", "file_path": file_path}).to_string())
+                (
+                    StatusCode::NOT_FOUND,
+                    json!({"status": "Not found", "file_path": file_path}).to_string(),
+                )
             }
         }
     }
@@ -410,19 +445,29 @@ pub async fn doc_handler(
                 "sha3_hash": att_data.sha3_hash,
                 "vrf_proof": att_data.vrf_proof,
                 "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
-                "att_doc": serde_json::from_str::<serde_json::Value>(&att_doc_formatted).unwrap_or(serde_json::Value::String(att_doc_formatted)),
+                "att_doc": serde_json::from_str::<serde_json::Value>(&att_doc_formatted)
+                    .unwrap_or(serde_json::Value::String(att_doc_formatted)),
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
-                error!("Error formatting to JSON: {}", e);
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&json_value).unwrap_or_else(|e| {
+                    error!("Error formatting to JSON: {}", e);
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         None => {
             let tasks = state.tasks.lock().await;
             if tasks.contains_key(&file_path) {
-                (StatusCode::ACCEPTED, json!({"status": "Processing", "file_path": file_path}).to_string())
+                (
+                    StatusCode::ACCEPTED,
+                    json!({"status": "Processing", "file_path": file_path}).to_string(),
+                )
             } else {
-                (StatusCode::NOT_FOUND, json!({"status": "Not found", "file_path": file_path}).to_string())
+                (
+                    StatusCode::NOT_FOUND,
+                    json!({"status": "Not found", "file_path": file_path}).to_string(),
+                )
             }
         }
     }
@@ -462,10 +507,13 @@ pub async fn hashes(
         "hashes": results,
     });
 
-    (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-        error!("Error formatting to JSON: {}", e);
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::OK,
+        serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+            error!("Error formatting to JSON: {}", e);
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// Proofs handler for retrieving all proofs matching a path
@@ -505,10 +553,13 @@ pub async fn proofs(
         "proofs": results,
     });
 
-    (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-        error!("Error formatting to JSON: {}", e);
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::OK,
+        serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+            error!("Error formatting to JSON: {}", e);
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// Docs handler for retrieving all attestation documents matching a path
@@ -545,7 +596,8 @@ pub async fn docs(
                 "sha3_hash": att_data.sha3_hash,
                 "vrf_proof": att_data.vrf_proof,
                 "vrf_cipher_suite": att_data.vrf_cipher_suite.to_string(),
-                "att_doc": serde_json::from_str::<serde_json::Value>(&att_doc_formatted).unwrap_or(serde_json::Value::String(att_doc_formatted)),
+                "att_doc": serde_json::from_str::<serde_json::Value>(&att_doc_formatted)
+                    .unwrap_or(serde_json::Value::String(att_doc_formatted)),
             }))
         })
         .collect();
@@ -555,10 +607,13 @@ pub async fn docs(
         "documents": results,
     });
 
-    (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-        error!("Error formatting to JSON: {}", e);
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::OK,
+        serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+            error!("Error formatting to JSON: {}", e);
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// Pubkeys handler for retrieving public keys
@@ -586,20 +641,24 @@ pub async fn pubkeys(
     let skey4proofs_pubkey_result = (|| -> Result<Vec<u8>, String> {
         let skey4proofs_pkey = PKey::private_key_from_pem(skey4proofs_bytes.as_slice())
             .map_err(|e| format!("Failed to parse proofs private key: {}", e))?;
-        let skey4proofs_eckey = skey4proofs_pkey.ec_key()
+        let skey4proofs_eckey = skey4proofs_pkey
+            .ec_key()
             .map_err(|e| format!("Failed to get EC key for proofs: {}", e))?;
 
         let alg = openssl::ec::EcGroup::from_curve_name(cipher)
             .map_err(|e| format!("Failed to get EC group: {}", e))?;
-        let skey4proofs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key())
-            .map_err(|e| format!("Failed to create public key: {}", e))?;
+        let skey4proofs_ec_pubkey =
+            openssl::ec::EcKey::from_public_key(&alg, skey4proofs_eckey.public_key())
+                .map_err(|e| format!("Failed to create public key: {}", e))?;
         let skey4proofs_pkey_pubkey = PKey::from_ec_key(skey4proofs_ec_pubkey)
             .map_err(|e| format!("Failed to convert to PKey: {}", e))?;
 
         match fmt.as_str() {
-            "der" => skey4proofs_pkey_pubkey.public_key_to_der()
+            "der" => skey4proofs_pkey_pubkey
+                .public_key_to_der()
                 .map_err(|e| format!("Failed to convert to DER: {}", e)),
-            _ => skey4proofs_pkey_pubkey.public_key_to_pem()
+            _ => skey4proofs_pkey_pubkey
+                .public_key_to_pem()
                 .map_err(|e| format!("Failed to convert to PEM: {}", e)),
         }
     })();
@@ -609,41 +668,43 @@ pub async fn pubkeys(
     let skey4docs_pubkey_result = (|| -> Result<Vec<u8>, String> {
         let skey4docs_pkey = PKey::private_key_from_pem(skey4docs_bytes.as_slice())
             .map_err(|e| format!("Failed to parse docs private key: {}", e))?;
-        let skey4docs_eckey = skey4docs_pkey.ec_key()
+        let skey4docs_eckey = skey4docs_pkey
+            .ec_key()
             .map_err(|e| format!("Failed to get EC key for docs: {}", e))?;
 
         let alg = openssl::ec::EcGroup::from_curve_name(openssl::nid::Nid::SECP521R1)
             .map_err(|e| format!("Failed to get EC group: {}", e))?;
-        let skey4docs_ec_pubkey = openssl::ec::EcKey::from_public_key(&alg, skey4docs_eckey.public_key())
-            .map_err(|e| format!("Failed to create public key: {}", e))?;
+        let skey4docs_ec_pubkey =
+            openssl::ec::EcKey::from_public_key(&alg, skey4docs_eckey.public_key())
+                .map_err(|e| format!("Failed to create public key: {}", e))?;
         let skey4docs_pkey_pubkey = PKey::from_ec_key(skey4docs_ec_pubkey)
             .map_err(|e| format!("Failed to convert to PKey: {}", e))?;
 
         match fmt.as_str() {
-            "der" => skey4docs_pkey_pubkey.public_key_to_der()
+            "der" => skey4docs_pkey_pubkey
+                .public_key_to_der()
                 .map_err(|e| format!("Failed to convert to DER: {}", e)),
-            _ => skey4docs_pkey_pubkey.public_key_to_pem()
+            _ => skey4docs_pkey_pubkey
+                .public_key_to_pem()
                 .map_err(|e| format!("Failed to convert to PEM: {}", e)),
         }
     })();
 
     let response = match (skey4proofs_pubkey_result, skey4docs_pubkey_result) {
-        (Ok(proofs_pubkey), Ok(docs_pubkey)) => {
-            match view.as_str() {
-                "string" | "text" => {
-                    json!({
-                        "pubkey4proofs": String::from_utf8_lossy(&proofs_pubkey).to_string(),
-                        "pubkey4docs": String::from_utf8_lossy(&docs_pubkey).to_string(),
-                    })
-                }
-                _ => {
-                    json!({
-                        "pubkey4proofs": hex::encode(&proofs_pubkey),
-                        "pubkey4docs": hex::encode(&docs_pubkey),
-                    })
-                }
+        (Ok(proofs_pubkey), Ok(docs_pubkey)) => match view.as_str() {
+            "string" | "text" => {
+                json!({
+                    "pubkey4proofs": String::from_utf8_lossy(&proofs_pubkey).to_string(),
+                    "pubkey4docs": String::from_utf8_lossy(&docs_pubkey).to_string(),
+                })
             }
-        }
+            _ => {
+                json!({
+                    "pubkey4proofs": hex::encode(&proofs_pubkey),
+                    "pubkey4docs": hex::encode(&docs_pubkey),
+                })
+            }
+        },
         (Err(e1), Err(e2)) => {
             error!("Failed to get both public keys: {}, {}", e1, e2);
             json!({"error": format!("Failed to get public keys: {}, {}", e1, e2)})
@@ -658,10 +719,13 @@ pub async fn pubkeys(
         }
     };
 
-    (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-        error!("Error formatting to JSON: {}", e);
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::OK,
+        serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+            error!("Error formatting to JSON: {}", e);
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// NSM description handler
@@ -694,14 +758,20 @@ pub async fn nsm_desc(
                 description.max_pcrs
             );
 
-            (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-                error!("Error formatting to JSON: {}", e);
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+                    error!("Error formatting to JSON: {}", e);
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         Err(e) => {
             error!("Failed to get NSM description: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to get NSM description: {}", e)}).to_string())
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to get NSM description: {}", e)}).to_string(),
+            )
         }
     }
 }
@@ -725,14 +795,20 @@ pub async fn rng_seq(
                 "length": sequence.len(),
                 "random_hex": hex::encode(&sequence),
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-                error!("Error formatting to JSON: {}", e);
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+                    error!("Error formatting to JSON: {}", e);
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         Err(e) => {
             error!("Failed to get random sequence: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to get random sequence: {}", e)}).to_string())
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to get random sequence: {}", e)}).to_string(),
+            )
         }
     }
 }
@@ -750,7 +826,10 @@ pub async fn get_pcrs(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to get attestation document: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to get attestation document: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to get attestation document: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -758,7 +837,10 @@ pub async fn get_pcrs(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse COSE document: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to parse COSE document: {:?}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to parse COSE document: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -766,7 +848,10 @@ pub async fn get_pcrs(
         Ok(result) => result,
         Err(e) => {
             error!("Failed to get payload: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to get payload: {:?}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to get payload: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -774,7 +859,11 @@ pub async fn get_pcrs(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse attestation document: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to parse attestation document: {:?}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to parse attestation document: {:?}", e)})
+                    .to_string(),
+            );
         }
     };
 
@@ -789,10 +878,13 @@ pub async fn get_pcrs(
         "pcrs": pcrs,
     });
 
-    (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-        error!("Error formatting to JSON: {}", e);
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::OK,
+        serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+            error!("Error formatting to JSON: {}", e);
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// Verify PCRs handler
@@ -808,7 +900,10 @@ pub async fn verify_pcrs(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to get attestation document: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to get attestation document: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to get attestation document: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -816,7 +911,10 @@ pub async fn verify_pcrs(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse COSE document: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to parse COSE document: {:?}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to parse COSE document: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -824,7 +922,10 @@ pub async fn verify_pcrs(
         Ok(result) => result,
         Err(e) => {
             error!("Failed to get payload: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to get payload: {:?}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to get payload: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -832,7 +933,11 @@ pub async fn verify_pcrs(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse attestation document: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to parse attestation document: {:?}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to parse attestation document: {:?}", e)})
+                    .to_string(),
+            );
         }
     };
 
@@ -856,10 +961,13 @@ pub async fn verify_pcrs(
         "actual_pcrs": pcrs_fmt,
     });
 
-    (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-        error!("Error formatting to JSON: {}", e);
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::OK,
+        serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+            error!("Error formatting to JSON: {}", e);
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// Verify hash handler
@@ -874,19 +982,28 @@ pub async fn verify_hash(
     let metadata = match tokio::fs::metadata(path).await {
         Ok(m) => m,
         Err(e) => {
-            return (StatusCode::NOT_FOUND, json!({"error": format!("File not found: {}", e)}).to_string());
+            return (
+                StatusCode::NOT_FOUND,
+                json!({"error": format!("File not found: {}", e)}).to_string(),
+            );
         }
     };
 
     if metadata.is_dir() {
-        return (StatusCode::BAD_REQUEST, json!({"error": "Path is a directory, expected a file"}).to_string());
+        return (
+            StatusCode::BAD_REQUEST,
+            json!({"error": "Path is a directory, expected a file"}).to_string(),
+        );
     }
 
     let hash = match hash_file(&payload.file_path) {
         Ok(h) => h,
         Err(e) => {
             error!("Failed to hash file '{}': {}", payload.file_path, e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to hash file: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to hash file: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -905,10 +1022,13 @@ pub async fn verify_hash(
         },
     });
 
-    (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-        error!("Error formatting to JSON: {}", e);
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::OK,
+        serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+            error!("Error formatting to JSON: {}", e);
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// Verify proof handler
@@ -922,7 +1042,10 @@ pub async fn verify_proof(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to decode user_data: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid user_data hex: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid user_data hex: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -930,7 +1053,10 @@ pub async fn verify_proof(
         Ok(data) => data,
         Err(e) => {
             error!("Failed to parse user_data: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid user_data format: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid user_data format: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -938,7 +1064,10 @@ pub async fn verify_proof(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to decode public_key: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid public_key hex: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid public_key hex: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -946,7 +1075,10 @@ pub async fn verify_proof(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to decode vrf_proof: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid vrf_proof hex: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid vrf_proof hex: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -959,7 +1091,10 @@ pub async fn verify_proof(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to serialize proof data: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to serialize proof data: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to serialize proof data: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -974,20 +1109,26 @@ pub async fn verify_proof(
                 "valid": true,
                 "message": message,
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-                error!("Error formatting to JSON: {}", e);
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+                    error!("Error formatting to JSON: {}", e);
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         Err(message) => {
             let response = json!({
                 "valid": false,
                 "message": message,
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-                error!("Error formatting to JSON: {}", e);
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+                    error!("Error formatting to JSON: {}", e);
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
     }
 }
@@ -995,9 +1136,12 @@ pub async fn verify_proof(
 /// Check certificate validity
 fn check_cert_validity(cert: &X509) -> Result<bool, String> {
     let now = SystemTime::now();
-    let since_epoch = now.duration_since(UNIX_EPOCH).map_err(|e| format!("Time error: {}", e))?;
+    let since_epoch = now
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("Time error: {}", e))?;
     let seconds_since_epoch = since_epoch.as_secs() as i64;
-    let now_asn1 = Asn1Time::from_unix(seconds_since_epoch).map_err(|e| format!("ASN1 time error: {}", e))?;
+    let now_asn1 =
+        Asn1Time::from_unix(seconds_since_epoch).map_err(|e| format!("ASN1 time error: {}", e))?;
 
     let not_before_valid = match cert.not_before().compare(&now_asn1) {
         Ok(ord) => !ord.is_gt(),
@@ -1023,7 +1167,10 @@ pub async fn verify_doc(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to decode cose_doc_bytes: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid cose_doc_bytes hex: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid cose_doc_bytes hex: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -1031,7 +1178,10 @@ pub async fn verify_doc(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse COSE document: {:?}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid COSE document: {:?}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid COSE document: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -1039,7 +1189,10 @@ pub async fn verify_doc(
         Ok(result) => result,
         Err(e) => {
             error!("Failed to get payload: {:?}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Failed to get payload: {:?}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Failed to get payload: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -1047,7 +1200,10 @@ pub async fn verify_doc(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse attestation document: {:?}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid attestation document: {:?}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid attestation document: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -1056,7 +1212,10 @@ pub async fn verify_doc(
         Ok(c) => c,
         Err(e) => {
             error!("Failed to parse certificate: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid certificate: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid certificate: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -1064,7 +1223,10 @@ pub async fn verify_doc(
         Ok(pk) => pk,
         Err(e) => {
             error!("Failed to get certificate public key: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to get public key: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to get public key: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -1074,22 +1236,31 @@ pub async fn verify_doc(
                 "valid": true,
                 "message": "Attestation document signature is valid",
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         Ok(false) => {
             let response = json!({
                 "valid": false,
                 "message": "Attestation document signature is invalid",
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         Err(e) => {
             error!("Signature verification error: {:?}", e);
-            (StatusCode::BAD_REQUEST, json!({"error": format!("Verification error: {:?}", e)}).to_string())
+            (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Verification error: {:?}", e)}).to_string(),
+            )
         }
     }
 }
@@ -1105,7 +1276,10 @@ pub async fn verify_cert_valid(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to decode cose_doc_bytes: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid cose_doc_bytes hex: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid cose_doc_bytes hex: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -1113,7 +1287,10 @@ pub async fn verify_cert_valid(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse COSE document: {:?}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid COSE document: {:?}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid COSE document: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -1121,7 +1298,10 @@ pub async fn verify_cert_valid(
         Ok(result) => result,
         Err(e) => {
             error!("Failed to get payload: {:?}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Failed to get payload: {:?}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Failed to get payload: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -1129,7 +1309,10 @@ pub async fn verify_cert_valid(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse attestation document: {:?}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid attestation document: {:?}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid attestation document: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -1138,11 +1321,15 @@ pub async fn verify_cert_valid(
         Ok(c) => c,
         Err(e) => {
             error!("Failed to parse certificate: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid certificate: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid certificate: {}", e)}).to_string(),
+            );
         }
     };
 
-    let cert_info = cert.to_text()
+    let cert_info = cert
+        .to_text()
         .map(|b| String::from_utf8_lossy(&b).to_string())
         .unwrap_or_else(|_| "Unable to extract certificate info".to_string());
 
@@ -1151,7 +1338,10 @@ pub async fn verify_cert_valid(
         Ok(pk) => pk,
         Err(e) => {
             error!("Failed to get certificate public key: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to get public key: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to get public key: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -1159,10 +1349,14 @@ pub async fn verify_cert_valid(
         Ok(valid) => valid,
         Err(e) => {
             error!("Certificate signature verification failed: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({
-                "error": format!("Certificate signature verification failed: {}", e),
-                "certificate_info": cert_info,
-            }).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({
+                    "error": format!("Certificate signature verification failed: {}", e),
+                    "certificate_info": cert_info,
+                })
+                .to_string(),
+            );
         }
     };
 
@@ -1202,9 +1396,12 @@ pub async fn verify_cert_valid(
         }),
     };
 
-    (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-        json!({"error": format!("JSON format error: {}", e)}).to_string()
-    }))
+    (
+        StatusCode::OK,
+        serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+            json!({"error": format!("JSON format error: {}", e)}).to_string()
+        }),
+    )
 }
 
 /// Verify certificate bundle handler
@@ -1218,7 +1415,10 @@ pub async fn verify_cert_bundle(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Failed to decode cose_doc_bytes: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid cose_doc_bytes hex: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid cose_doc_bytes hex: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -1226,7 +1426,10 @@ pub async fn verify_cert_bundle(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse COSE document: {:?}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid COSE document: {:?}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid COSE document: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -1234,7 +1437,10 @@ pub async fn verify_cert_bundle(
         Ok(result) => result,
         Err(e) => {
             error!("Failed to get payload: {:?}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Failed to get payload: {:?}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Failed to get payload: {:?}", e)}).to_string(),
+            );
         }
     };
 
@@ -1242,13 +1448,19 @@ pub async fn verify_cert_bundle(
         Ok(doc) => doc,
         Err(e) => {
             error!("Failed to parse attestation document: {:?}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid attestation document: {:?}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid attestation document: {:?}", e)}).to_string(),
+            );
         }
     };
 
     if attestation_doc.cabundle.is_empty() {
         error!("CA bundle is empty");
-        return (StatusCode::BAD_REQUEST, json!({"error": "CA bundle is empty"}).to_string());
+        return (
+            StatusCode::BAD_REQUEST,
+            json!({"error": "CA bundle is empty"}).to_string(),
+        );
     }
 
     // Parse end-entity certificate
@@ -1257,14 +1469,20 @@ pub async fn verify_cert_bundle(
         Ok(c) => c,
         Err(e) => {
             error!("Failed to parse end-entity certificate: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid certificate: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid certificate: {}", e)}).to_string(),
+            );
         }
     };
 
     // Check end-entity certificate validity
     if let Err(e) = check_cert_validity(&end_cert) {
         error!("End-entity certificate validity check failed: {}", e);
-        return (StatusCode::BAD_REQUEST, json!({"error": format!("Certificate validity check failed: {}", e)}).to_string());
+        return (
+            StatusCode::BAD_REQUEST,
+            json!({"error": format!("Certificate validity check failed: {}", e)}).to_string(),
+        );
     }
 
     // Parse CA bundle
@@ -1272,7 +1490,10 @@ pub async fn verify_cert_bundle(
         Some((root, rest)) => (root.to_vec(), rest),
         None => {
             error!("CA bundle is empty");
-            return (StatusCode::BAD_REQUEST, json!({"error": "CA bundle is empty"}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": "CA bundle is empty"}).to_string(),
+            );
         }
     };
 
@@ -1280,14 +1501,20 @@ pub async fn verify_cert_bundle(
         Ok(c) => c,
         Err(e) => {
             error!("Failed to parse root certificate: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid root certificate: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Invalid root certificate: {}", e)}).to_string(),
+            );
         }
     };
 
     // Check root certificate validity
     if let Err(e) = check_cert_validity(&root_cert) {
         error!("Root certificate validity check failed: {}", e);
-        return (StatusCode::BAD_REQUEST, json!({"error": format!("Root certificate validity check failed: {}", e)}).to_string());
+        return (
+            StatusCode::BAD_REQUEST,
+            json!({"error": format!("Root certificate validity check failed: {}", e)}).to_string(),
+        );
     }
 
     // Build certificate store with root certificate
@@ -1295,13 +1522,19 @@ pub async fn verify_cert_bundle(
         Ok(b) => b,
         Err(e) => {
             error!("Failed to create certificate store builder: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to create store: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to create store: {}", e)}).to_string(),
+            );
         }
     };
 
     if let Err(e) = store_builder.add_cert(root_cert) {
         error!("Failed to add root certificate to store: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to add root cert: {}", e)}).to_string());
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({"error": format!("Failed to add root cert: {}", e)}).to_string(),
+        );
     }
 
     let store = store_builder.build();
@@ -1311,7 +1544,10 @@ pub async fn verify_cert_bundle(
         Ok(s) => s,
         Err(e) => {
             error!("Failed to create certificate stack: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to create stack: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to create stack: {}", e)}).to_string(),
+            );
         }
     };
 
@@ -1320,18 +1556,29 @@ pub async fn verify_cert_bundle(
             Ok(c) => c,
             Err(e) => {
                 error!("Failed to parse intermediate certificate: {}", e);
-                return (StatusCode::BAD_REQUEST, json!({"error": format!("Invalid intermediate certificate: {}", e)}).to_string());
+                return (
+                    StatusCode::BAD_REQUEST,
+                    json!({"error": format!("Invalid intermediate certificate: {}", e)})
+                        .to_string(),
+                );
             }
         };
 
         if let Err(e) = check_cert_validity(&cert) {
             error!("Intermediate certificate validity check failed: {}", e);
-            return (StatusCode::BAD_REQUEST, json!({"error": format!("Intermediate certificate validity check failed: {}", e)}).to_string());
+            return (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Intermediate certificate validity check failed: {}", e)})
+                    .to_string(),
+            );
         }
 
         if let Err(e) = intermediate_stack.push(cert) {
             error!("Failed to add intermediate certificate: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to add intermediate cert: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to add intermediate cert: {}", e)}).to_string(),
+            );
         }
     }
 
@@ -1340,11 +1587,15 @@ pub async fn verify_cert_bundle(
         Ok(c) => c,
         Err(e) => {
             error!("Failed to create store context: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, json!({"error": format!("Failed to create context: {}", e)}).to_string());
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": format!("Failed to create context: {}", e)}).to_string(),
+            );
         }
     };
 
-    let verification_result = ctx.init(&store, &end_cert, &intermediate_stack, |ctx| ctx.verify_cert());
+    let verification_result =
+        ctx.init(&store, &end_cert, &intermediate_stack, |ctx| ctx.verify_cert());
 
     match verification_result {
         Ok(true) => {
@@ -1352,9 +1603,12 @@ pub async fn verify_cert_bundle(
                 "valid": true,
                 "message": "Certificate chain verification successful",
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         Ok(false) => {
             let error_string = ctx.error().error_string();
@@ -1363,13 +1617,19 @@ pub async fn verify_cert_bundle(
                 "message": "Certificate chain verification failed",
                 "error_detail": error_string,
             });
-            (StatusCode::OK, serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
-                json!({"error": format!("JSON format error: {}", e)}).to_string()
-            }))
+            (
+                StatusCode::OK,
+                serde_json::to_string_pretty(&response).unwrap_or_else(|e| {
+                    json!({"error": format!("JSON format error: {}", e)}).to_string()
+                }),
+            )
         }
         Err(e) => {
             error!("Certificate chain verification error: {}", e);
-            (StatusCode::BAD_REQUEST, json!({"error": format!("Verification error: {}", e)}).to_string())
+            (
+                StatusCode::BAD_REQUEST,
+                json!({"error": format!("Verification error: {}", e)}).to_string(),
+            )
         }
     }
 }
