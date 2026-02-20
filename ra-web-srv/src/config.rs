@@ -61,7 +61,7 @@ impl AppConfig {
             }
         })?;
 
-        let config = toml::from_str::<Config>(raw_config_string.as_str()).map_err(|e| {
+        let config = serde_yaml::from_str::<Config>(raw_config_string.as_str()).map_err(|e| {
             error!("Failed to parse config file '{}': {}", config_path, e);
             ConfigError::ParseError {
                 path: config_path.to_string(),
@@ -81,12 +81,12 @@ impl AppConfig {
         info!("Saving configuration to: {}", path);
 
         let config = self.inner.read();
-        let toml_str = toml::to_string(&*config).map_err(|e| {
+        let yaml_str = serde_yaml::to_string(&*config).map_err(|e| {
             error!("Failed to serialize config: {}", e);
             ConfigError::SerializeError(e.to_string())
         })?;
 
-        fs::write(path, toml_str).map_err(|e| {
+        fs::write(path, yaml_str).map_err(|e| {
             error!("Failed to write config file '{}': {}", path, e);
             ConfigError::WriteError {
                 path: path.to_string(),

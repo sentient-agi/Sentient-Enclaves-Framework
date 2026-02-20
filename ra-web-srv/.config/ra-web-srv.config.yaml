@@ -1,0 +1,20 @@
+# Remote Attestation Web Server Configuration
+
+nsm_fd: "nsm"
+
+ports:
+  http: 8080
+  https: 8443
+
+keys:
+  sk4proofs: null
+  sk4docs: null
+
+vrf_cipher_suite: "SECP256K1_SHA256_TAI"
+
+nats:
+  nats_persistency_enabled: 1
+  nats_url: "nats://127.0.0.1:4222"
+  hash_bucket_name: "fs_hashes"
+  att_docs_bucket_name: "fs_att_docs"
+  persistent_client_name: "ra_web_srv"

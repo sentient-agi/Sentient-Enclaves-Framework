@@ -292,15 +292,9 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
-impl From<toml::de::Error> for AppError {
-    fn from(e: toml::de::Error) -> Self {
-        AppError::ConfigError(format!("TOML parse error: {}", e))
-    }
-}
-
-impl From<toml::ser::Error> for AppError {
-    fn from(e: toml::ser::Error) -> Self {
-        AppError::SerializationError(format!("TOML serialize error: {}", e))
+impl From<serde_yaml::Error> for AppError {
+    fn from(e: serde_yaml::Error) -> Self {
+        AppError::ConfigError(format!("YAML parse error: {}", e))
     }
 }
 
