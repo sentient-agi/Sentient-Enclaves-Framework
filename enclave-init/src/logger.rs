@@ -6,6 +6,14 @@ use std::sync::{Arc, Mutex};
 
 const MAX_MEMORY_LOG_LINES: usize = 100;
 
+/// Log stream subscriber that receives log lines
+pub trait LogSubscriber: Send + Sync + std::fmt::Debug {
+    /// Called when a new log line is available
+    fn on_log(&self, line: &str);
+    /// Check if subscriber is still active
+    fn is_active(&self) -> bool;
+}
+
 #[derive(Debug, Clone)]
 pub struct ServiceLogger {
     log_file: Arc<Mutex<Option<File>>>,
@@ -13,6 +21,8 @@ pub struct ServiceLogger {
     memory_logs: Arc<Mutex<Vec<String>>>,
     max_log_size: u64,
     max_log_files: usize,
+    /// Subscribers for log streaming
+    subscribers: Arc<Mutex<Vec<Arc<dyn LogSubscriber>>>>,
 }
 
 impl ServiceLogger {
@@ -38,7 +48,46 @@ impl ServiceLogger {
             memory_logs: Arc::new(Mutex::new(Vec::with_capacity(MAX_MEMORY_LOG_LINES))),
             max_log_size,
             max_log_files,
+            subscribers: Arc::new(Mutex::new(Vec::new())),
         })
+    }
+
+    /// Subscribe to log stream
+    pub fn subscribe(&self, subscriber: Arc<dyn LogSubscriber>) {
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.push(subscriber);
+        }
+    }
+
+    /// Unsubscribe all inactive subscribers
+    pub fn cleanup_subscribers(&self) {
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.retain(|s| s.is_active());
+        }
+    }
+
+    /// Check if there are active subscribers
+    pub fn has_subscribers(&self) -> bool {
+        if let Ok(subs) = self.subscribers.lock() {
+            subs.iter().any(|s| s.is_active())
+        } else {
+            false
+        }
+    }
+
+    /// Notify all subscribers of a new log line
+    fn notify_subscribers(&self, line: &str) {
+        if let Ok(mut subs) = self.subscribers.lock() {
+            // Clean up inactive subscribers and notify active ones
+            subs.retain(|s| {
+                if s.is_active() {
+                    s.on_log(line);
+                    true
+                } else {
+                    false
+                }
+            });
+        }
     }
 
     pub fn log(&self, message: String) {
@@ -66,8 +115,11 @@ impl ServiceLogger {
             if logs.len() >= MAX_MEMORY_LOG_LINES {
                 logs.remove(0);
             }
-            logs.push(formatted);
+            logs.push(formatted.clone());
         }
+
+        // Notify subscribers (for streaming)
+        self.notify_subscribers(&formatted);
     }
 
     fn rotate_logs(&self) -> Result<()> {

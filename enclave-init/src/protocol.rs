@@ -15,6 +15,19 @@ pub enum Request {
     ServiceLogs { name: String, lines: usize },
     ServiceLogsClear { name: String },
 
+    /// Request to initialize log streaming for a service
+    /// The init system will stream logs to the specified VSock address
+    ServiceLogsStream {
+        name: String,
+        /// VSock CID to stream logs to (the host's perspective CID)
+        vsock_cid: u32,
+        /// VSock port to stream logs to
+        vsock_port: u32,
+    },
+
+    /// Stop streaming logs for a service
+    ServiceLogsStreamStop { name: String },
+
     // Process management
     ProcessList,
     ProcessStatus { pid: i32 },
@@ -38,6 +51,12 @@ pub enum Response {
     ServiceList { services: Vec<ServiceInfo> },
     ServiceStatus { status: ServiceStatus },
     ServiceLogs { logs: Vec<String> },
+    /// Response for log streaming request
+    LogsStreamStarted {
+        service: String,
+        vsock_cid: u32,
+        vsock_port: u32,
+    },
     ProcessList { processes: Vec<ProcessInfo> },
     ProcessStatus { process: ProcessInfo },
     ProcessStarted { pid: i32, message: String },

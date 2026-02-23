@@ -4,9 +4,18 @@ mod protocol;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use config::{ControlProtocol, InitctlConfig};
-use nix::sys::socket::{connect, recv, send, socket, AddressFamily, MsgFlags, SockFlag, SockType, UnixAddr, VsockAddr};
+use nix::sys::socket::{
+    accept, bind, connect, listen, recv, send, socket, AddressFamily, MsgFlags, SockFlag,
+    SockType, UnixAddr, VsockAddr,
+};
 use nix::unistd::close;
 use protocol::{Request, Response};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Write};
+use std::os::unix::io::RawFd;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
 
 #[derive(Parser)]
 #[command(name = "initctl")]
@@ -96,6 +105,30 @@ enum Commands {
         /// Number of lines to show
         #[arg(short = 'n', long, default_value = "50")]
         lines: usize,
+    },
+
+    /// Stream logs of a service in real-time
+    LogsStream {
+        /// Service name
+        #[arg(value_name = "SERVICE")]
+        name: String,
+
+        /// VSock CID to listen on (for receiving logs from enclave)
+        /// Use VMADDR_CID_HOST (2) when running on host
+        #[arg(long, default_value = "2")]
+        listen_cid: u32,
+
+        /// VSock port to listen on
+        #[arg(long, default_value = "9100")]
+        listen_port: u32,
+
+        /// Output file path (optional, default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Follow mode - keep streaming until interrupted
+        #[arg(short, long)]
+        follow: bool,
     },
 
     /// Clear logs of a service
@@ -243,6 +276,169 @@ fn send_request_vsock(cid: u32, port: u32, request: Request) -> Result<Response>
     Ok(response)
 }
 
+/// Listen on VSock for incoming log stream data from enclave
+fn listen_vsock_logs(
+    cid: u32,
+    port: u32,
+    output: Option<String>,
+    running: Arc<AtomicBool>,
+) -> Result<()> {
+    // Create listener socket
+    let socket_fd = socket(
+        AddressFamily::Vsock,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    )
+    .context("Failed to create VSock listener socket")?;
+
+    let addr = VsockAddr::new(cid, port);
+    bind(socket_fd, &addr).context("Failed to bind VSock listener")?;
+    listen(socket_fd, 1).context("Failed to listen on VSock")?;
+
+    eprintln!("Listening for log stream on CID:{} PORT:{}", cid, port);
+
+    // Set up output
+    let mut output_file: Option<File> = output
+        .as_ref()
+        .map(|path| {
+            File::create(path)
+                .with_context(|| format!("Failed to create output file: {}", path))
+        })
+        .transpose()?;
+
+    // Accept connection from enclave
+    let client_fd = accept(socket_fd).context("Failed to accept VSock connection")?;
+    eprintln!("Log stream connection established");
+
+    let mut buffer = vec![0u8; 4096];
+    let mut line_buffer = String::new();
+
+    while running.load(Ordering::Relaxed) {
+        match recv(client_fd, &mut buffer, MsgFlags::empty()) {
+            Ok(0) => {
+                // Connection closed
+                eprintln!("Log stream connection closed by enclave");
+                break;
+            }
+            Ok(n) => {
+                let data = String::from_utf8_lossy(&buffer[..n]);
+                line_buffer.push_str(&data);
+
+                // Process complete lines
+                while let Some(pos) = line_buffer.find('\n') {
+                    let line = &line_buffer[..pos];
+
+                    // Output to file or stdout
+                    if let Some(ref mut file) = output_file {
+                        writeln!(file, "{}", line)?;
+                        file.flush()?;
+                    } else {
+                        println!("{}", line);
+                    }
+
+                    line_buffer = line_buffer[pos + 1..].to_string();
+                }
+            }
+            Err(e) => {
+                if e == nix::errno::Errno::EINTR {
+                    continue;
+                }
+                eprintln!("Error receiving log data: {}", e);
+                break;
+            }
+        }
+    }
+
+    close(client_fd)?;
+    close(socket_fd)?;
+
+    Ok(())
+}
+
+/// Handle the logs-stream command
+fn handle_logs_stream(
+    config: &InitctlConfig,
+    service_name: &str,
+    listen_cid: u32,
+    listen_port: u32,
+    output: Option<String>,
+    follow: bool,
+) -> Result<()> {
+    // Setup signal handling for graceful termination
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        eprintln!("\nInterrupted, stopping log stream...");
+        r.store(false, Ordering::Relaxed);
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    // Start the listener thread first
+    let listen_running = running.clone();
+    let output_clone = output.clone();
+    let listener_handle = thread::spawn(move || {
+        listen_vsock_logs(listen_cid, listen_port, output_clone, listen_running)
+    });
+
+    // Give listener time to start
+    thread::sleep(std::time::Duration::from_millis(100));
+
+    // Send request to init to start streaming to our listener
+    let request = Request::ServiceLogsStream {
+        name: service_name.to_string(),
+        vsock_cid: listen_cid,
+        vsock_port: listen_port,
+    };
+
+    let response = match config.protocol {
+        ControlProtocol::Unix => send_request_unix(&config.unix_socket_path, request)?,
+        ControlProtocol::Vsock => send_request_vsock(config.vsock_cid, config.vsock_port, request)?,
+    };
+
+    match response {
+        Response::LogsStreamStarted { service, vsock_cid, vsock_port } => {
+            eprintln!(
+                "✓ Log streaming initiated for service '{}' (CID:{} PORT:{})",
+                service, vsock_cid, vsock_port
+            );
+        }
+        Response::Error { message } => {
+            running.store(false, Ordering::Relaxed);
+            eprintln!("✗ Error: {}", message);
+            std::process::exit(1);
+        }
+        _ => {
+            running.store(false, Ordering::Relaxed);
+            eprintln!("✗ Unexpected response");
+            std::process::exit(1);
+        }
+    }
+
+    if follow {
+        // Wait for listener thread (until interrupted)
+        if let Err(e) = listener_handle.join() {
+            eprintln!("Listener thread error: {:?}", e);
+        }
+
+        // Send stop streaming request
+        let stop_request = Request::ServiceLogsStreamStop {
+            name: service_name.to_string(),
+        };
+        let _ = match config.protocol {
+            ControlProtocol::Unix => send_request_unix(&config.unix_socket_path, stop_request),
+            ControlProtocol::Vsock => send_request_vsock(config.vsock_cid, config.vsock_port, stop_request),
+        };
+    } else {
+        // Non-follow mode: just setup streaming and exit
+        // The listener will handle incoming data
+        println!("Log streaming configured. Use Ctrl+C to stop in follow mode (-f).");
+    }
+
+    Ok(())
+}
+
 fn format_uptime(secs: u64) -> String {
     let days = secs / 86400;
     let hours = (secs % 86400) / 3600;
@@ -318,6 +514,25 @@ fn main() -> Result<()> {
         config.vsock_port = port;
     }
 
+    // Handle logs-stream command specially
+    if let Commands::LogsStream {
+        ref name,
+        listen_cid,
+        listen_port,
+        ref output,
+        follow,
+    } = cli.command
+    {
+        return handle_logs_stream(
+            &config,
+            name,
+            listen_cid,
+            listen_port,
+            output.clone(),
+            follow,
+        );
+    }
+
     // Handle enable --now specially
     if let Commands::Enable { ref name, now } = cli.command {
         let enable_request = Request::ServiceEnable { name: name.clone() };
@@ -368,6 +583,7 @@ fn main() -> Result<()> {
         Commands::Enable { name, .. } => Request::ServiceEnable { name: name.clone() },
         Commands::Disable { name } => Request::ServiceDisable { name: name.clone() },
         Commands::Logs { name, lines } => Request::ServiceLogs { name: name.clone(), lines: *lines },
+        Commands::LogsStream { .. } => unreachable!(), // Handled above
         Commands::LogsClear { name } => Request::ServiceLogsClear { name: name.clone() },
 
         Commands::Ps(ps_cmd) => match ps_cmd {
@@ -464,6 +680,9 @@ fn main() -> Result<()> {
                     println!("{}", log);
                 }
             }
+        }
+        Response::LogsStreamStarted { service, vsock_cid, vsock_port } => {
+            println!("✓ Log streaming started for service '{}' to CID:{} PORT:{}", service, vsock_cid, vsock_port);
         }
         Response::ProcessList { processes } => {
             if processes.is_empty() {
