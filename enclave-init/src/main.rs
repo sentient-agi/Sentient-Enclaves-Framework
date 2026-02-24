@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use config::InitConfig;
 use dependencies::{DependencyResolver, ServiceDependencies};
-use logger::{Logger, ServiceLogger};
+use logger::{Logger, LogSubscriber, ServiceLogger};
 use nix::errno::Errno;
 use nix::mount::{mount, MsFlags};
 use nix::sys::signal::{
@@ -36,8 +36,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use std::sync::atomic::AtomicUsize;
-
 // Constants
 const DEFAULT_PATH_ENV: &str = "PATH=/sbin:/usr/sbin:/bin:/usr/bin";
 const HEART_BEAT: u8 = 0xB7;
@@ -60,72 +58,6 @@ struct Args {
     #[arg(short, long, env = "INIT_CONFIG", default_value = "/etc/init.yaml")]
     config: String,
 }
-
-/// VSock log stream subscriber - streams logs to a VSock connection
-#[derive(Debug, Clone)]
-struct VsockLogStreamer {
-    socket_fd: RawFd,
-    active: Arc<AtomicBool>,
-    service_name: String,
-}
-
-impl VsockLogStreamer {
-    fn new(cid: u32, port: u32, service_name: &str) -> Result<Self> {
-        let socket_fd = socket(
-            AddressFamily::Vsock,
-            SockType::Stream,
-            SockFlag::empty(),
-            None,
-        ).context("Failed to create VSock socket for log streaming")?;
-
-        let addr = VsockAddr::new(cid, port);
-        connect(socket_fd, &addr).context("Failed to connect to VSock for log streaming")?;
-
-        Logger::info(&format!(
-            "Log streaming connected for service '{}' to CID:{} PORT:{}",
-            service_name, cid, port
-        ));
-
-        Ok(Self {
-            socket_fd,
-            active: Arc::new(AtomicBool::new(true)),
-            service_name: service_name.to_string(),
-        })
-    }
-
-    fn stop(&self) {
-        self.active.store(false, Ordering::Relaxed);
-        let _ = close(self.socket_fd);
-    }
-}
-
-impl Drop for VsockLogStreamer {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
-impl logger::LogSubscriber for VsockLogStreamer {
-    fn on_log(&self, line: &str) {
-        if !self.is_active() {
-            return;
-        }
-
-        // Send log line with newline terminator
-        let data = format!("{}\n", line);
-        if send(self.socket_fd, data.as_bytes(), MsgFlags::empty()).is_err() {
-            // Connection lost, mark as inactive
-            self.active.store(false, Ordering::Relaxed);
-        }
-    }
-
-    fn is_active(&self) -> bool {
-        self.active.load(Ordering::Relaxed)
-    }
-}
-
-// Tracking active streamers per service
-type StreamerMap = Arc<Mutex<HashMap<String, Arc<VsockLogStreamer>>>>;
 
 // Service configuration
 #[derive(Debug, Clone, Deserialize)]
@@ -199,6 +131,78 @@ impl Default for ServiceConfig {
             requires: Vec::new(),
             required_by: Vec::new(),
         }
+    }
+}
+
+/// VSock log stream subscriber - streams logs to a VSock connection on the host.
+struct VsockLogStreamer {
+    socket_fd: RawFd,
+    active: Arc<AtomicBool>,
+    service_name: String,
+    vsock_cid: u32,
+    vsock_port: u32,
+}
+
+impl VsockLogStreamer {
+    fn new(cid: u32, port: u32, service_name: &str) -> Result<Self> {
+        let socket_fd = socket(
+            AddressFamily::Vsock,
+            SockType::Stream,
+            SockFlag::empty(),
+            None,
+        )
+        .context("Failed to create VSock socket for log streaming")?;
+
+        let addr = VsockAddr::new(cid, port);
+        connect(socket_fd, &addr).context(format!(
+            "Failed to connect to VSock CID:{} PORT:{} for log streaming",
+            cid, port
+        ))?;
+
+        Ok(Self {
+            socket_fd,
+            active: Arc::new(AtomicBool::new(true)),
+            service_name: service_name.to_string(),
+            vsock_cid: cid,
+            vsock_port: port,
+        })
+    }
+
+    fn stop(&self) {
+        if self.active.swap(false, Ordering::Relaxed) {
+            let _ = close(self.socket_fd);
+        }
+    }
+
+    fn vsock_cid(&self) -> u32 {
+        self.vsock_cid
+    }
+
+    fn vsock_port(&self) -> u32 {
+        self.vsock_port
+    }
+}
+
+impl Drop for VsockLogStreamer {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+impl LogSubscriber for VsockLogStreamer {
+    fn on_log(&self, line: &str) {
+        if !self.is_active() {
+            return;
+        }
+
+        let data = format!("{}\n", line);
+        if send(self.socket_fd, data.as_bytes(), MsgFlags::empty()).is_err() {
+            self.active.store(false, Ordering::Relaxed);
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
     }
 }
 
@@ -307,6 +311,7 @@ impl ServiceState {
 }
 
 type ServiceMap = Arc<Mutex<HashMap<String, ServiceState>>>;
+type StreamerMap = Arc<Mutex<HashMap<String, Arc<VsockLogStreamer>>>>;
 
 // Operation types
 #[derive(Debug)]
@@ -335,9 +340,7 @@ enum InitOp {
 }
 
 // List of initialization operations
-// const OPS: std::sync::LazyLock<Vec<InitOp>> = std::sync::LazyLock::new(|| vec![
 static OPS: std::sync::LazyLock<Vec<InitOp>> = std::sync::LazyLock::new(|| vec![
-    // mount /proc (which should already exist)
     InitOp::Mount {
         source: "proc",
         target: "/proc",
@@ -345,7 +348,6 @@ static OPS: std::sync::LazyLock<Vec<InitOp>> = std::sync::LazyLock::new(|| vec![
         flags: MsFlags::MS_NODEV | MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
         data: None,
     },
-    // add symlinks in /dev (which is already mounted)
     InitOp::Symlink {
         linkpath: "/dev/fd",
         target: "/proc/self/fd",
@@ -362,7 +364,6 @@ static OPS: std::sync::LazyLock<Vec<InitOp>> = std::sync::LazyLock::new(|| vec![
         linkpath: "/dev/stderr",
         target: "/proc/self/fd/2",
     },
-    // mount tmpfs on /run and /tmp (which should already exist)
     InitOp::Mount {
         source: "tmpfs",
         target: "/run",
@@ -377,7 +378,6 @@ static OPS: std::sync::LazyLock<Vec<InitOp>> = std::sync::LazyLock::new(|| vec![
         flags: MsFlags::MS_NODEV | MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
         data: None,
     },
-    // mount shm and devpts
     InitOp::Mkdir {
         path: "/dev/shm",
         mode: 0o755,
@@ -400,7 +400,6 @@ static OPS: std::sync::LazyLock<Vec<InitOp>> = std::sync::LazyLock::new(|| vec![
         flags: MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
         data: None,
     },
-    // mount /sys (which should already exist)
     InitOp::Mount {
         source: "sysfs",
         target: "/sys",
@@ -1100,7 +1099,6 @@ fn get_system_status(config: &InitConfig, services: &HashMap<String, ServiceStat
     let active_services = services.values().filter(|s| s.is_active()).count();
     let enabled_services = services.values().filter(|s| s.enabled).count();
 
-    // Count total processes
     let total_processes = if let Ok(entries) = fs::read_dir("/proc") {
         entries.filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().parse::<i32>().is_ok())
@@ -1177,7 +1175,6 @@ fn handle_client_request(
     match request {
         Request::Ping => Response::Pong,
 
-        // Service management
         Request::ListServices => {
             let services = services.lock().unwrap();
             let service_list: Vec<ServiceInfo> = services
@@ -1358,18 +1355,37 @@ fn handle_client_request(
             let services = services.lock().unwrap();
             match services.get(&name) {
                 Some(service) => {
-                    // Create streamer
+                    {
+                        let mut streamers_guard = streamers.lock().unwrap();
+                        if let Some(existing) = streamers_guard.get(&name) {
+                            if existing.is_active() {
+                                return Response::Error {
+                                    message: format!(
+                                        "Log streaming already active for service '{}' on CID:{} PORT:{}",
+                                        name,
+                                        existing.vsock_cid(),
+                                        existing.vsock_port()
+                                    ),
+                                };
+                            }
+                            streamers_guard.remove(&name);
+                        }
+                    }
+
                     match VsockLogStreamer::new(vsock_cid, vsock_port, &name) {
                         Ok(streamer) => {
                             let streamer = Arc::new(streamer);
-
-                            // Subscribe to logger
                             service.logger.subscribe(streamer.clone());
 
-                            // Track streamer
-                            if let Ok(mut s) = streamers.lock() {
-                                s.insert(name.clone(), streamer);
+                            {
+                                let mut streamers_guard = streamers.lock().unwrap();
+                                streamers_guard.insert(name.clone(), streamer);
                             }
+
+                            Logger::info(&format!(
+                                "Log streaming started for service '{}' to CID:{} PORT:{}",
+                                name, vsock_cid, vsock_port
+                            ));
 
                             Response::LogsStreamStarted {
                                 service: name,
@@ -1377,9 +1393,15 @@ fn handle_client_request(
                                 vsock_port,
                             }
                         }
-                        Err(e) => Response::Error {
-                            message: format!("Failed to start log streaming: {}", e),
-                        },
+                        Err(e) => {
+                            Logger::error(&format!(
+                                "Failed to start log streaming for '{}': {}",
+                                name, e
+                            ));
+                            Response::Error {
+                                message: format!("Failed to start log streaming: {}", e),
+                            }
+                        }
                     }
                 }
                 None => Response::Error {
@@ -1389,26 +1411,20 @@ fn handle_client_request(
         }
 
         Request::ServiceLogsStreamStop { name } => {
-            // Stop and remove streamer
-            if let Ok(mut s) = streamers.lock() {
-                if let Some(streamer) = s.remove(&name) {
-                    streamer.stop();
-                    Response::Success {
-                        message: format!("Log streaming stopped for service '{}'", name),
-                    }
-                } else {
-                    Response::Error {
-                        message: format!("No active log stream for service '{}'", name),
-                    }
+            let mut streamers_guard = streamers.lock().unwrap();
+            if let Some(streamer) = streamers_guard.remove(&name) {
+                streamer.stop();
+                Logger::info(&format!("Log streaming stopped for service '{}'", name));
+                Response::Success {
+                    message: format!("Log streaming stopped for service '{}'", name),
                 }
             } else {
                 Response::Error {
-                    message: "Internal error accessing streamers".to_string(),
+                    message: format!("No active log stream for service '{}'", name),
                 }
             }
         }
 
-        // Process management
         Request::ProcessList => {
             let services = services.lock().unwrap();
             let service_pids = get_service_pids(&services);
@@ -1457,15 +1473,12 @@ fn handle_client_request(
         }
 
         Request::ProcessRestart { pid } => {
-            // Get process info first
             let service_pids = {
                 let services_guard = services.lock().unwrap();
                 get_service_pids(&services_guard)
             };
 
-            // Check if it's a managed service
             if let Some((service_name, _)) = service_pids.iter().find(|(_, &p)| p == pid) {
-                // Use service restart
                 return handle_client_request(
                     Request::ServiceRestart { name: service_name.clone() },
                     services,
@@ -1502,7 +1515,6 @@ fn handle_client_request(
             }
         }
 
-        // System management
         Request::SystemStatus => {
             let services = services.lock().unwrap();
             Response::SystemStatus {
@@ -1536,7 +1548,7 @@ fn handle_client_request(
     }
 }
 
-fn handle_connection(fd: RawFd, services: &ServiceMap, config: &InitConfig, streamers: StreamerMap) {
+fn handle_connection(fd: RawFd, services: &ServiceMap, config: &InitConfig, streamers: &StreamerMap) {
     let mut buffer = vec![0u8; 8192];
 
     match recv(fd, &mut buffer, MsgFlags::empty()) {
@@ -1544,7 +1556,7 @@ fn handle_connection(fd: RawFd, services: &ServiceMap, config: &InitConfig, stre
             buffer.truncate(n);
             match serde_json::from_slice::<Request>(&buffer) {
                 Ok(request) => {
-                    let response = handle_client_request(request, services, config, &streamers);
+                    let response = handle_client_request(request, services, config, streamers);
                     let response_data = match serde_json::to_vec(&response) {
                         Ok(data) => data,
                         Err(e) => {
@@ -1620,9 +1632,9 @@ fn unix_socket_thread(services: ServiceMap, config: InitConfig, streamers: Strea
             Ok(client_fd) => {
                 let services = services.clone();
                 let config = config.clone();
-                let streamers_for_unix = streamers.clone();
+                let streamers = streamers.clone();
                 thread::spawn(move || {
-                    handle_connection(client_fd, &services, &config, streamers_for_unix);
+                    handle_connection(client_fd, &services, &config, &streamers);
                 });
             }
             Err(e) => {
@@ -1668,9 +1680,9 @@ fn vsock_socket_thread(services: ServiceMap, config: InitConfig, streamers: Stre
             Ok(client_fd) => {
                 let services = services.clone();
                 let config = config.clone();
-                let streamers_for_vsock = streamers.clone();
+                let streamers = streamers.clone();
                 thread::spawn(move || {
-                    handle_connection(client_fd, &services, &config, streamers_for_vsock);
+                    handle_connection(client_fd, &services, &config, &streamers);
                 });
             }
             Err(e) => {
@@ -1727,13 +1739,15 @@ fn main() {
         Logger::warn(&format!("Failed to create log directory after pivot root: {}", e));
     }
 
-    let mut services_map = match load_services(&config) {
+    let services_map: ServiceMap = match load_services(&config) {
         Ok(s) => Arc::new(Mutex::new(s)),
         Err(e) => {
             Logger::error(&format!("Failed to load services: {}", e));
             Arc::new(Mutex::new(HashMap::new()))
         }
     };
+
+    let streamers: StreamerMap = Arc::new(Mutex::new(HashMap::new()));
 
     {
         let services = services_map.lock().unwrap();
@@ -1758,12 +1772,10 @@ fn main() {
         }
     }
 
-    let streamers_for_unix: StreamerMap = Arc::new(Mutex::new(HashMap::new()));
-    let streamers_for_vsock: StreamerMap = Arc::new(Mutex::new(HashMap::new()));
-
     if config.control.unix_socket_enabled {
         let services_for_unix = services_map.clone();
         let config_for_unix = config.clone();
+        let streamers_for_unix = streamers.clone();
         thread::spawn(move || {
             unix_socket_thread(services_for_unix, config_for_unix, streamers_for_unix);
         });
@@ -1772,6 +1784,7 @@ fn main() {
     if config.control.vsock_enabled {
         let services_for_vsock = services_map.clone();
         let config_for_vsock = config.clone();
+        let streamers_for_vsock = streamers.clone();
         thread::spawn(move || {
             vsock_socket_thread(services_for_vsock, config_for_vsock, streamers_for_vsock);
         });
@@ -1781,6 +1794,15 @@ fn main() {
     loop {
         if SIGTERM_RECEIVED.load(Ordering::Relaxed) || SIGINT_RECEIVED.load(Ordering::Relaxed) {
             Logger::info("Shutdown signal received");
+
+            {
+                let mut streamers_guard = streamers.lock().unwrap();
+                for (name, streamer) in streamers_guard.drain() {
+                    Logger::info(&format!("Stopping log streamer for service '{}'", name));
+                    streamer.stop();
+                }
+            }
+
             let mut services = services_map.lock().unwrap();
             shutdown_services(&mut services);
             break;
@@ -1829,6 +1851,17 @@ fn main() {
         {
             let mut services = services_map.lock().unwrap();
             restart_services(&mut services);
+        }
+
+        {
+            let mut streamers_guard = streamers.lock().unwrap();
+            streamers_guard.retain(|name, streamer| {
+                let active = streamer.is_active();
+                if !active {
+                    Logger::debug(&format!("Removing inactive log streamer for '{}'", name));
+                }
+                active
+            });
         }
 
         thread::sleep(Duration::from_millis(100));

@@ -15,15 +15,15 @@ path = "src/initctl.rs"
 
 [dependencies]
 nix = { version = "0.26.4", features = ["signal", "mount", "process", "socket", "fs", "ioctl", "dir"] }
-libc = "0.2.175"
+libc = "0.2.177"
 thiserror = "1.0.69"
-anyhow = "1.0.99"
-log = "0.4.27"
+anyhow = "1.0.100"
+log = "0.4.28"
 toml = "0.8.23"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.143"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 clap = { version = "4.5.53", features = ["derive", "env"] }
-serde_yaml = "0.9"
+serde_yaml = "0.9.34"
 ctrlc = "3.4"
 
 [profile.release]

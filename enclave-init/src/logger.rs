@@ -7,14 +7,14 @@ use std::sync::{Arc, Mutex};
 const MAX_MEMORY_LOG_LINES: usize = 100;
 
 /// Log stream subscriber that receives log lines
-pub trait LogSubscriber: Send + Sync + std::fmt::Debug {
+pub trait LogSubscriber: Send + Sync {
     /// Called when a new log line is available
     fn on_log(&self, line: &str);
     /// Check if subscriber is still active
     fn is_active(&self) -> bool;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ServiceLogger {
     log_file: Arc<Mutex<Option<File>>>,
     log_path: PathBuf,
@@ -23,6 +23,16 @@ pub struct ServiceLogger {
     max_log_files: usize,
     /// Subscribers for log streaming
     subscribers: Arc<Mutex<Vec<Arc<dyn LogSubscriber>>>>,
+}
+
+impl std::fmt::Debug for ServiceLogger {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServiceLogger")
+            .field("log_path", &self.log_path)
+            .field("max_log_size", &self.max_log_size)
+            .field("max_log_files", &self.max_log_files)
+            .finish()
+    }
 }
 
 impl ServiceLogger {
@@ -72,6 +82,13 @@ impl ServiceLogger {
             subs.iter().any(|s| s.is_active())
         } else {
             false
+        }
+    }
+
+    /// Remove a specific subscriber by checking if it's active
+    pub fn remove_inactive_subscribers(&self) {
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.retain(|s| s.is_active());
         }
     }
 

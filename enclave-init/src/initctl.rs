@@ -11,11 +11,11 @@ use nix::sys::socket::{
 use nix::unistd::close;
 use protocol::{Request, Response};
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
-use std::os::unix::io::RawFd;
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "initctl")]
@@ -107,7 +107,7 @@ enum Commands {
         lines: usize,
     },
 
-    /// Stream logs of a service in real-time
+    /// Stream logs of a service in real-time (from enclave to host via VSock)
     LogsStream {
         /// Service name
         #[arg(value_name = "SERVICE")]
@@ -118,7 +118,7 @@ enum Commands {
         #[arg(long, default_value = "2")]
         listen_cid: u32,
 
-        /// VSock port to listen on
+        /// VSock port to listen on for log streaming
         #[arg(long, default_value = "9100")]
         listen_port: u32,
 
@@ -126,7 +126,7 @@ enum Commands {
         #[arg(short, long)]
         output: Option<String>,
 
-        /// Follow mode - keep streaming until interrupted
+        /// Follow mode - keep streaming until interrupted (Ctrl+C)
         #[arg(short, long)]
         follow: bool,
     },
@@ -340,18 +340,23 @@ fn listen_vsock_logs(
                     line_buffer = line_buffer[pos + 1..].to_string();
                 }
             }
+            Err(nix::errno::Errno::EINTR) => {
+                continue;
+            }
+            Err(nix::errno::Errno::EAGAIN) => {
+                // Non-blocking would return this
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            }
             Err(e) => {
-                if e == nix::errno::Errno::EINTR {
-                    continue;
-                }
                 eprintln!("Error receiving log data: {}", e);
                 break;
             }
         }
     }
 
-    close(client_fd)?;
-    close(socket_fd)?;
+    let _ = close(client_fd);
+    let _ = close(socket_fd);
 
     Ok(())
 }
@@ -383,7 +388,7 @@ fn handle_logs_stream(
     });
 
     // Give listener time to start
-    thread::sleep(std::time::Duration::from_millis(100));
+    thread::sleep(Duration::from_millis(100));
 
     // Send request to init to start streaming to our listener
     let request = Request::ServiceLogsStream {
@@ -430,10 +435,15 @@ fn handle_logs_stream(
             ControlProtocol::Unix => send_request_unix(&config.unix_socket_path, stop_request),
             ControlProtocol::Vsock => send_request_vsock(config.vsock_cid, config.vsock_port, stop_request),
         };
+        eprintln!("Log streaming stopped");
     } else {
         // Non-follow mode: just setup streaming and exit
         // The listener will handle incoming data
-        println!("Log streaming configured. Use Ctrl+C to stop in follow mode (-f).");
+        eprintln!("Log streaming configured. Use -f/--follow to stream continuously.");
+        // Wait a bit then exit
+        thread::sleep(Duration::from_secs(2));
+        running.store(false, Ordering::Relaxed);
+        let _ = listener_handle.join();
     }
 
     Ok(())
