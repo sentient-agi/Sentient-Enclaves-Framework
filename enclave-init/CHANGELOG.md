@@ -473,3 +473,101 @@ The process management functionality is fully integrated into control protocol, 
 
 The system tracks which processes are managed as services and provides comprehensive process information including CPU%, memory, state, and parent relationships.
 
+# v0.8.0
+
+## Enclave Init System - Logs streaming and enclave's remote debugging
+
+Added logs aggregation, redirection and streaming for enclave's remote debugging and logging thorugh VSock.
+
+## Changes summary and key features
+
+This version implementation provides:
+
+1. **Protocol extension** - New `ServiceLogsStream` and `ServiceLogsStreamStop` requests
+2. **Subscriber pattern** - `LogSubscriber` trait for extensible log streaming
+3. **VSock streaming** - `VsockLogStreamer` connects from enclave to host listener
+4. **initctl command** - `logs-stream` with `--follow`, `--output`, and VSock configuration
+5. **Graceful handling** - Ctrl+C support, connection cleanup, and error handling
+
+## Usage Examples
+
+### Stream logs to stdout (from host)
+
+```bash
+# Stream logs from 'webapp' service, listening on port 9100
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 \
+    logs-stream webapp --listen-port 9100 --follow
+```
+
+### Stream logs to file
+
+```bash
+# Stream logs to a file
+initctl logs-stream webapp \
+    --listen-cid 2 \
+    --listen-port 9100 \
+    --output /var/log/enclave-webapp.log \
+    --follow
+```
+
+### Configure in `/etc/initctl.yaml`
+
+```yaml
+protocol: vsock
+vsock_cid: 16
+vsock_port: 9001
+```
+
+Then simply:
+
+```bash
+initctl logs-stream webapp --follow
+```
+
+## Architecture Summary
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        HOST                                 │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐     │
+│  │               initctl logs-stream                  │     │
+│  │  1. Creates VSock listener (CID:2 PORT:9100)       │     │
+│  │  2. Sends ServiceLogsStream request to enclave     │     │
+│  │  3. Receives log lines from enclave                │     │
+│  │  4. Outputs to stdout or file                      │     │
+│  └────────────────────────┬───────────────────────────┘     │
+│                           │                                 │
+│                    ┌──────┴──────┐                          │
+│                    │ VSock       │ Port 9100 (log receive)  │
+│                    │ Listen      │                          │
+│                    └──────┬──────┘                          │
+│                           │                                 │
+└───────────────────────────┼─────────────────────────────────┘
+                            │ VSock Connection
+┌───────────────────────────┼─────────────────────────────────┐
+│                    ENCLAVE│                                 │
+│                           │                                 │
+│  ┌────────────────────────┴───────────────────────────┐     │
+│  │                  init (PID 1)                      │     │
+│  │                                                    │     │
+│  │  ServiceLogsStream handler:                        │     │
+│  │  1. Receives request with CID:2 PORT:9100          │     │
+│  │  2. Creates VsockLogStreamer                       │     │
+│  │  3. Connects to host listener                      │     │
+│  │  4. Subscribes to ServiceLogger                    │     │
+│  └─────────────────────────┬──────────────────────────┘     │
+│                            │                                │
+│  ┌─────────────────────────┴──────────────────────────┐     │
+│  │              ServiceLogger                         │     │
+│  │  - Logs to file                                    │     │
+│  │  - Keeps in memory                                 │     │
+│  │  - Notifies VsockLogStreamer subscriber            │     │
+│  └─────────────────────────┬──────────────────────────┘     │
+│                            │                                │
+│                      ┌─────┴─────┐                          │
+│                      │  Service  │ (webapp, etc.)           │
+│                      └───────────┘                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
