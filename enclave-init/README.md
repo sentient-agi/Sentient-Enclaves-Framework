@@ -16,6 +16,7 @@ A robust, systemd-inspired init system designed specifically for AWS Nitro Encla
 - [Service Dependencies](#service-dependencies)
 - [Control Protocols](#control-protocols)
 - [Process Management](#process-management)
+- [Logs Streaming](#logs-streaming)
 - [CLI Reference](#cli-reference)
 - [Usage Guide](#usage-guide)
 - [Advanced Topics](#advanced-topics)
@@ -1090,6 +1091,362 @@ while true; do
     sleep 5
 done
 ```
+
+---
+
+## Logs Streaming
+
+Logs Streaming Feature for Enclave Apps Remote Debugging
+
+### Summary of Changes
+
+This implementation adds **real-time log streaming over VSock** from enclave services to the host. The feature enables operators to monitor service logs in real-time without polling, with logs flowing directly from inside the enclave VM to a listener on the host machine.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `protocol.rs` | Added `ServiceLogsStream` and `ServiceLogsStreamStop` requests, `LogsStreamStarted` response |
+| `logger.rs` | Added `LogSubscriber` trait and subscriber management to `ServiceLogger` |
+| `main.rs` | Added `VsockLogStreamer` struct, `StreamerMap` type, streaming request handlers |
+| `initctl.rs` | Added `LogsStream` command with VSock listener functionality |
+| `Cargo.toml` | Added `ctrlc` dependency for graceful interrupt handling |
+
+---
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              HOST SYSTEM                                │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                    initctl logs-stream                          │    │
+│  │                                                                 │    │
+│  │  1. Creates VSock listener on CID:2 PORT:9100                   │    │
+│  │  2. Sends ServiceLogsStream request to enclave init             │    │
+│  │  3. Accepts connection from enclave                             │    │
+│  │  4. Receives log lines in real-time                             │    │
+│  │  5. Outputs to stdout or file                                   │    │
+│  └───────────────────────────┬─────────────────────────────────────┘    │
+│                              │                                          │
+│                              │ VSock Listener (CID:2 PORT:9100)         │
+│                              ▼                                          │
+│                        ┌───────────┐                                    │
+│                        │  Accept   │ ◄── Incoming connection            │
+│                        │  Logs     │     from enclave                   │
+│                        └─────┬─────┘                                    │
+│                              │                                          │
+│         Control Request      │     Log Data Stream                      │
+│      (ServiceLogsStream)     │     (newline-terminated)                 │
+│              │               │                                          │
+│              ▼               │                                          │
+│  ┌─────────────────┐         │                                          │
+│  │ VSOCK Control   │         │                                          │
+│  │ CID:16 PORT:9001│         │                                          │
+│  └────────┬────────┘         │                                          │
+│           │                  │                                          │
+└───────────┼──────────────────┼──────────────────────────────────────────┘
+            │                  │
+            │ VSock            │ VSock Log Stream
+            │ Control          │
+            ▼                  │
+┌──────────────────────────────┼──────────────────────────────────────────┐
+│           ENCLAVE VM         │                                          │
+│                              │                                          │
+│  ┌───────────────────────────┼──────────────────────────────────────┐   │
+│  │                   init (PID 1)                                   │   │
+│  │                           │                                      │   │
+│  │  ┌────────────────────────┴─────────────────────────────────┐    │   │
+│  │  │              ServiceLogsStream Handler                   │    │   │
+│  │  │                                                          │    │   │
+│  │  │  1. Receives request with target CID:2 PORT:9100         │    │   │
+│  │  │  2. Creates VsockLogStreamer                             │    │   │
+│  │  │  3. Connects to host listener                            │    │   │
+│  │  │  4. Subscribes streamer to ServiceLogger                 │    │   │
+│  │  │  5. Returns LogsStreamStarted response                   │    │   │
+│  │  └──────────────────────────────────────────────────────────┘    │   │
+│  │                                                                  │   │
+│  │  ┌───────────────────────────────────────────────────────────┐   │   │
+│  │  │                   VsockLogStreamer                        │   │   │
+│  │  │                                                           │   │   │
+│  │  │  - Implements LogSubscriber trait                         │   │   │
+│  │  │  - Holds VSock connection to host                         │──────►
+│  │  │  - on_log(): sends formatted line to host                 │   │   │
+│  │  │  - is_active(): checks connection status                  │   │   │
+│  │  └───────────────────────────────────────────────────────────┘   │   │
+│  │                              ▲                                   │   │
+│  │                              │ subscribe()                       │   │
+│  │                              │                                   │   │
+│  │  ┌───────────────────────────┴───────────────────────────────┐   │   │
+│  │  │                   ServiceLogger                           │   │   │
+│  │  │                                                           │   │   │
+│  │  │  - Writes to log file                                     │   │   │
+│  │  │  - Keeps in-memory buffer                                 │   │   │
+│  │  │  - Notifies all subscribers on each log()                 │   │   │
+│  │  └───────────────────────────────────────────────────────────┘   │   │
+│  │                              ▲                                   │   │
+│  │                              │ log("message")                    │   │
+│  │                              │                                   │   │
+│  └──────────────────────────────┼───────────────────────────────────┘   │
+│                                 │                                       │
+│  ┌──────────────────────────────┴────────────────────────────────────┐  │
+│  │                        Service (webapp)                           │  │
+│  │                                                                   │  │
+│  │  - Runs application                                               │  │
+│  │  - Outputs to stdout/stderr                                       │  │
+│  │  - Init captures and logs via ServiceLogger                       │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Data Flow Sequence
+
+```
+Host (initctl)                    Enclave (init)                    Service
+      │                                 │                               │
+      │  1. Start listener              │                               │
+      │     CID:2 PORT:9100             │                               │
+      │                                 │                               │
+      │  2. ServiceLogsStream ─────────►│                               │
+      │     {name, cid:2, port:9100}    │                               │
+      │                                 │                               │
+      │                                 │  3. Create VsockLogStreamer   │
+      │                                 │     Connect to CID:2:9100     │
+      │◄────────────────────────────────│                               │
+      │  (VSock connection established) │                               │
+      │                                 │                               │
+      │◄─────────────────────────────── │  4. LogsStreamStarted         │
+      │                                 │     response                  │
+      │                                 │                               │
+      │                                 │                               │  5. Service
+      │                                 │                               │     outputs
+      │                                 │                               │     log line
+      │                                 │◄──────────────────────────────│
+      │                                 │  6. ServiceLogger.log()       │
+      │                                 │                               │
+      │                                 │  7. Notify subscribers        │
+      │                                 │     (VsockLogStreamer)        │
+      │                                 │                               │
+      │◄────────────────────────────────│  8. Send log line             │
+      │  "[timestamp] log message\n"    │     over VSock                │
+      │                                 │                               │
+      │  9. Output to stdout/file       │                               │
+      │                                 │                               │
+     ~~~                               ~~~                             ~~~
+      │                                 │                               │
+      │  (Ctrl+C pressed)               │                               │
+      │                                 │                               │
+      │  10. ServiceLogsStreamStop ────►│                               │
+      │      {name}                     │                               │
+      │                                 │  11. Stop streamer            │
+      │                                 │      Close connection         │
+      │◄─────────────────────────────── │                               │
+      │  Success response               │                               │
+      │                                 │                               │
+      ▼                                 ▼                               ▼
+```
+
+---
+
+### Logs Streaming Feature CLI Reference
+
+#### New Command: `logs-stream`
+
+Stream logs from a service in real-time via VSock.
+
+```bash
+initctl logs-stream <SERVICE> [OPTIONS]
+```
+
+#### Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--listen-cid <CID>` | | `2` | VSock CID to listen on (VMADDR_CID_HOST) |
+| `--listen-port <PORT>` | | `9100` | VSock port for receiving logs |
+| `--output <PATH>` | `-o` | stdout | Output file path |
+| `--follow` | `-f` | false | Keep streaming until interrupted |
+
+---
+
+### Logs Streaming Feature CLI Examples
+
+#### Basic Usage - Stream to stdout
+
+```bash
+# Stream webapp logs to console (follow mode)
+initctl logs-stream webapp --follow
+
+# Short form
+initctl logs-stream webapp -f
+```
+
+#### Stream to File
+
+```bash
+# Stream logs to a file
+initctl logs-stream webapp --output /var/log/enclave-webapp.log --follow
+
+# Short form
+initctl logs-stream webapp -o /var/log/enclave-webapp.log -f
+```
+
+#### Custom VSock Port
+
+```bash
+# Use custom port for log streaming
+initctl logs-stream webapp --listen-port 9200 --follow
+```
+
+#### Remote Control via VSock (from host to enclave)
+
+```bash
+# Full example with VSOCK protocol to enclave
+initctl --protocol vsock --vsock-cid 16 --vsock-port 9001 \
+    logs-stream webapp --listen-port 9100 --follow
+```
+
+#### Using Configuration File
+
+Create `/etc/initctl.yaml` on host:
+
+```yaml
+protocol: vsock
+vsock_cid: 16
+vsock_port: 9001
+```
+
+Then simply:
+
+```bash
+initctl logs-stream webapp --follow
+```
+
+#### Multiple Services (separate terminals)
+
+```bash
+# Terminal 1 - Stream webapp logs
+initctl logs-stream webapp --listen-port 9100 -f
+
+# Terminal 2 - Stream database logs
+initctl logs-stream database --listen-port 9101 -f
+
+# Terminal 3 - Stream worker logs
+initctl logs-stream worker --listen-port 9102 -f
+```
+
+#### Background Streaming with Output to File
+
+```bash
+# Stream in background, save to file
+nohup initctl logs-stream webapp -o /var/log/webapp.log -f &
+
+# Check the log file
+tail -f /var/log/webapp.log
+```
+
+#### Integration with Log Aggregation
+
+```bash
+# Pipe to external tool (e.g., jq for JSON logs)
+initctl logs-stream webapp -f | jq '.'
+
+# Send to syslog
+initctl logs-stream webapp -f | logger -t enclave-webapp
+
+# Send to remote log collector
+initctl logs-stream webapp -f | nc logserver.example.com 514
+```
+
+---
+
+### Protocol Changes
+
+#### New Request Types
+
+```rust
+/// Request to initialize log streaming for a service
+ServiceLogsStream {
+    name: String,        // Service name
+    vsock_cid: u32,      // Host CID to stream to
+    vsock_port: u32,     // Host port to stream to
+}
+
+/// Stop streaming logs for a service
+ServiceLogsStreamStop {
+    name: String,        // Service name
+}
+```
+
+#### New Response Type
+
+```rust
+/// Response for successful log streaming initialization
+LogsStreamStarted {
+    service: String,     // Service name
+    vsock_cid: u32,      // Connected CID
+    vsock_port: u32,     // Connected port
+}
+```
+
+---
+
+### Logger Subscriber Pattern
+
+The `ServiceLogger` now supports a subscriber pattern for extensible log delivery:
+
+```rust
+/// Trait for log stream subscribers
+pub trait LogSubscriber: Send + Sync {
+    /// Called when a new log line is available
+    fn on_log(&self, line: &str);
+
+    /// Check if subscriber is still active
+    fn is_active(&self) -> bool;
+}
+```
+
+This allows:
+- Multiple simultaneous log consumers
+- Automatic cleanup of inactive subscribers
+- Easy extension for future log delivery mechanisms
+
+---
+
+### Configuration
+
+#### Init Configuration (`/etc/init.yaml`)
+
+No changes required - log streaming uses the existing control socket configuration.
+
+#### Initctl Configuration (`/etc/initctl.yaml`)
+
+Example for host-side configuration:
+
+```yaml
+# Use VSOCK to connect to enclave
+protocol: vsock
+vsock_cid: 16      # Enclave CID
+vsock_port: 9001   # Control port
+
+# Unix socket (for in-enclave use)
+unix_socket_path: /run/init.sock
+```
+
+---
+
+### Error Handling
+
+| Error | Cause | Resolution |
+|-------|-------|------------|
+| `Service not found` | Invalid service name | Check service exists with `initctl list` |
+| `Log streaming already active` | Stream already running | Stop existing stream first or use different port |
+| `Failed to connect to VSock` | Enclave can't reach host | Check VSock configuration and ports |
+| `No active log stream` | Stopping non-existent stream | Stream may have already stopped |
 
 ---
 
@@ -2246,6 +2603,22 @@ For issues, questions, or contributions:
 ---
 
 ## Changelog
+
+### Version 0.8.0
+
+**New Features:**
+- Real-time log streaming over `VSock`
+- `initctl logs-stream` command for continuous log monitoring
+- `LogSubscriber` trait for extensible log delivery
+- `VsockLogStreamer` for enclave-to-host streaming
+- Automatic subscriber cleanup on disconnect
+- Support for streaming to file or stdout
+- Graceful interrupt handling (`Ctrl+C`)
+
+**Protocol Changes:**
+- Added `ServiceLogsStream` request
+- Added `ServiceLogsStreamStop` request
+- Added `LogsStreamStarted` response
 
 ### Version 0.7.0
 
