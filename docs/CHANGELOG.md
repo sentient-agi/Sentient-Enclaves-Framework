@@ -72,6 +72,7 @@
               in enclave's runtime, and cover any run-time FS changes with enclave's attestation.
 
               What's Changed:
+
                 - Introduction of NATS Server as enclave's service bus
                 - Integration of services inside enclave and outside of enclave (cross-enclave integration) in a SOA manner (or in an actor based model)
                 - Integration of RA Web-Server and FS-Monitor, as a CoW FS metadata layer data provider for RA Web-Server
@@ -85,6 +86,7 @@
               service restarts, service dependency management, comprehensive logging, dual-protocol control interfaces (Unix socket and VSOCK), and system-wide process management capabilities.
 
               Key Characteristics and Features:
+
                 - **Minimal footprint**: Small binary size optimized for enclave environments
                 - **Reliable**: Written in Rust with comprehensive error handling
                 - **Non-crashing**: All errors are logged but never crash the init system
@@ -100,22 +102,27 @@
                 - **Remote management**: Control enclave services from host via VSOCK
 
               What's Changed:
+
                 - New Enclave's Init System, written in Rust, for services and processes management in the enclave
                   (from inside the enclave and also from host through VSock) and for managing enclave state.
                 - Covering all crates and Enclaves Framework components with exhaustive comprehensive documentation.
 
 - **0.9.1** - recursive directory transfer implementation for Pipeline SLC.
+
               Old tech debt closed in one of the most earlier components - Pipeline Secure Local Channel implementation:
+
                 - Added recursive directory transfer implementation (through `Pipeline SLC` `VSock` binary protocol)
                   with reporducibility of directory tree structure.
                 - Added new updated comprehensive `README.md` and `CLI-REFERENCE.md` with exhaustive documentation and CLI reference guide
                   for `Pipeline Secure Local Channel` implmentation, covering new feature of recursive directory transfer implementation from/to enclave.
 
               Previously directory transfers been done by Bash script and Pipeline SLC CLI tool:
-                https://github.com/sentient-agi/Sentient-Enclaves-Framework/blob/main/.bin/pipeline-dir
-                https://github.com/sentient-agi/Sentient-Enclaves-Framework/blob/main/.bin/pipeline-dir.sh
+
+                - [pipeline-dir](https://github.com/sentient-agi/Sentient-Enclaves-Framework/blob/main/.bin/pipeline-dir)
+                - [pipeline-dir.sh](https://github.com/sentient-agi/Sentient-Enclaves-Framework/blob/main/.bin/pipeline-dir.sh)
 
 - **0.10.0** - Documentation and papers for:
+
                - Multi-hop encryption/re-encryption and delegated decryption scheme.
                - Vision document about future changes and applicability of the Enclaves Framework.
                - Features document about core features and advantages of the Enclaves Framework.
