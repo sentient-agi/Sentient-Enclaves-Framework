@@ -72,11 +72,11 @@
               in enclave's runtime, and cover any run-time FS changes with enclave's attestation.
 
               What's Changed:
-                * Introduction of NATS Server as enclave's service bus
-                * Integration of services inside enclave and outside of enclave (cross-enclave integration) in a SOA manner (or in an actor based model)
-                * Integration of RA Web-Server and FS-Monitor, as a CoW FS metadata layer data provider for RA Web-Server
-                * NATS KV JetStream buckets (and NATS JetStream objetcts storage/buckets) as persistency layer for services in enclave
-                * Customized attestation documents per file in a granular way, to cover whole enclave's initramfs/ramdisk for any run-time FS changes with enclave's attestation
+                - Introduction of NATS Server as enclave's service bus
+                - Integration of services inside enclave and outside of enclave (cross-enclave integration) in a SOA manner (or in an actor based model)
+                - Integration of RA Web-Server and FS-Monitor, as a CoW FS metadata layer data provider for RA Web-Server
+                - NATS KV JetStream buckets (and NATS JetStream objetcts storage/buckets) as persistency layer for services in enclave
+                - Customized attestation documents per file in a granular way, to cover whole enclave's initramfs/ramdisk for any run-time FS changes with enclave's attestation
 
 - **0.9.0** - New Enclave's Init System, written in Rust, for services and processes management in the enclave (from inside the enclave and also from host through VSock) and for managing enclave state.
               And covering all crates and Enclaves Framework components with exhaustive comprehensive documentation.
@@ -100,9 +100,9 @@
                 - **Remote management**: Control enclave services from host via VSOCK
 
               What's Changed:
-                * New Enclave's Init System, written in Rust, for services and processes management in the enclave
+                - New Enclave's Init System, written in Rust, for services and processes management in the enclave
                   (from inside the enclave and also from host through VSock) and for managing enclave state.
-                * Covering all crates and Enclaves Framework components with exhaustive comprehensive documentation.
+                - Covering all crates and Enclaves Framework components with exhaustive comprehensive documentation.
 
 - **0.9.1** - recursive directory transfer implementation for Pipeline SLC.
               Old tech debt closed in one of the most earlier components - Pipeline Secure Local Channel implementation:
@@ -116,10 +116,10 @@
                 https://github.com/sentient-agi/Sentient-Enclaves-Framework/blob/main/.bin/pipeline-dir.sh
 
 - **0.10.0** - Documentation and papers for:
-               * Multi-hop encryption/re-encryption and delegated decryption scheme.
-               * Vision document about future changes and applicability of the Enclaves Framework.
-               * Features document about core features and advantages of the Enclaves Framework.
-               * UMA, Discrete, Coherent memory architectures for CVMs and future Enclaves Engine.
+               - Multi-hop encryption/re-encryption and delegated decryption scheme.
+               - Vision document about future changes and applicability of the Enclaves Framework.
+               - Features document about core features and advantages of the Enclaves Framework.
+               - UMA, Discrete, Coherent memory architectures for CVMs and future Enclaves Engine.
 
 - **0.11.0** - Enclave Engine initial implementation.
 
