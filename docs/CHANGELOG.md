@@ -135,7 +135,7 @@
 - **0.13.0** - Dynamic buffers set via configuration for Pipeline-SLC
                (this unbound it from system stack size and increase performance for transferring and caching really huge files)
 
-- **0.14.0** - Mmodular RA Web-Server.
+- **0.14.0** - Modular RA Web-Server.
                Proper error handling and structural logging with tracing for RA Web-Server.
                Changing configuration format for RA Web-Server from TOML to YAML.
 
