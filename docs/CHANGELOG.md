@@ -107,7 +107,7 @@
                   (from inside the enclave and also from host through VSock) and for managing enclave state.
                 - Covering all crates and Enclaves Framework components with exhaustive comprehensive documentation.
 
-- **0.9.1** - recursive directory transfer implementation for Pipeline SLC.
+- **0.10.0** - recursive directory transfer implementation for Pipeline SLC.
 
               Old tech debt closed in one of the most earlier components - Pipeline Secure Local Channel implementation:
 
@@ -121,25 +121,31 @@
                 - [pipeline-dir](https://github.com/sentient-agi/Sentient-Enclaves-Framework/blob/main/.bin/pipeline-dir)
                 - [pipeline-dir.sh](https://github.com/sentient-agi/Sentient-Enclaves-Framework/blob/main/.bin/pipeline-dir.sh)
 
-- **0.10.0** - Documentation and papers for:
+- **0.11.0** - Documentation and papers for:
 
                - Multi-hop encryption/re-encryption and delegated decryption scheme.
                - Vision document about future changes and applicability of the Enclaves Framework.
                - Features document about core features and advantages of the Enclaves Framework.
                - UMA, Discrete, Coherent memory architectures for CVMs and future Enclaves Engine.
 
-- **0.11.0** - Enclave Engine initial implementation.
+- **0.12.0** - Enclave Engine initial implementation.
 
-- **0.12.0** - Proper error handling and structural logging with tracing for Pipeline-SLC, PF-Proxies, changing configuration format for these components from TOML to YAML.
+- **0.13.0** - Proper error handling and structural logging with tracing for Pipeline-SLC.
 
-- **0.13.0** - Dynamic buffers set via configuration for Pipeline-SLC
-               (this unbound it from system stack size and increase performance for transferring and caching really huge files)
+- **0.14.0** - Dynamic buffers set via configuration for Pipeline-SLC
+               (this unbound it from system stack size and increase performance for transferring and caching really huge files with a small trade-off on heap allocations)
 
-- **0.14.0** - Modular RA Web-Server.
-               Proper error handling and structural logging with tracing for RA Web-Server.
-               Changing configuration format for RA Web-Server from TOML to YAML.
+               - Change configuration from TOML to YAML format for Pipeline SLC.
+               - Cats ASCII Art Easter Eggs update.
 
-- **0.15.0** - Enclaves remote debugging and logs streaming via **Enclave's Init System** (aggregated logs redirection to VSock).
+- **0.15.0** - Proper error handling and structural logging with tracing for PF-Proxies.
+
+- **0.16.0** - Modular RA Web-Server.
+
+               - Proper error handling and structural logging with tracing for RA Web-Server.
+               - Changing configuration file format for RA Web-Server from TOML to YAML.
+
+- **0.17.0** - Enclaves remote debugging and logs streaming via **Enclave's Init System** (aggregated logs redirection to VSock).
                `Initctl` listening on VSock for redirected logs streaming and output it to stdout and/or output it to file on host.
 
                Added logs aggregation, redirection and streaming for enclave's remote debugging and logging thorugh VSock.
