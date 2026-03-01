@@ -129,6 +129,7 @@
                - UMA, Discrete, Coherent memory architectures for CVMs and future Enclaves Engine.
 
 - **0.12.0** - Enclave Engine initial implementation.
+               Initial codebase publishing for Enclave's Engine, a provisioning service for enclaves (based on KVM/QEMU and AWS Nitro Enclaves backends).
 
 - **0.13.0** - Proper error handling and structural logging with tracing for Pipeline-SLC.
 
