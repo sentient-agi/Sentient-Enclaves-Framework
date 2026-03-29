@@ -1,0 +1,7 @@
+Device class,Representative,Memory type,Usable fast memory (GB),Bandwidth (GB/s),Dense 70B @~4-bit fits,gpt-oss-120b @~4-bit fits,Dense 405B @~4-bit fits,DeepSeek-R1 671B @~4-bit fits,Observed decode example
+Client UMA APU / AI PC,AMD Ryzen AI Max+ 395,LPDDR5X unified,128,256,Yes,Yes,No,No,Llama 70B 4.97 tok/s; GPT-OSS 120B up to 30 tok/s
+Apple UMA workstation,Apple M3 Ultra,Unified memory,512,819,Yes,Yes,Yes,Yes,Llama 70B 14.08 tok/s; Llama 405B 1.96 tok/s; R1 19.89 tok/s
+Server CPU / DDR5,AMD EPYC 9575F platform,12-ch DDR5,512,614,Yes,Yes,Yes,Yes,AmpereOne 512GB example: 70B 3.86 tok/s; 405B 0.90 tok/s; R1 4.18 tok/s
+Consumer GPU / GDDR7,NVIDIA RTX 5090,GDDR7 VRAM,32,1792,No,No,No,No,Very fast only for models that fit; capacity cliff for giant models
+Datacenter GPU / HBM3,NVIDIA H100 SXM,HBM3,80,3350,Yes,Yes,No,No,High-throughput tier when model fully fits
+Datacenter GPU / HBM3E,AMD MI355X,HBM3E,288,8000,Yes,Yes,Yes,No,Highest current single-device fit+speed class in this set
