@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Inference Calculator — Sizing &amp; Performance Envelope</title>
+
+  <!-- React 18 + Babel Standalone (browser-side JSX) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body { background: #08081a; font-family: 'IBM Plex Sans', sans-serif; color: #c4c4d4; }
+    #root { min-height: 100vh; }
+    input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: #1e1e36; border-radius: 3px; outline: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #d4a44a; cursor: pointer; border: 2px solid #08081a; }
+    input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #d4a44a; cursor: pointer; border: 2px solid #08081a; }
+    ::selection { background: #d4a44a40; }
+    .mono { font-family: 'IBM Plex Mono', monospace; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useMemo, useCallback } = React;
+
+// ═══════════════════════════════════════════════════════════════════════
+// PRESETS
+// ═══════════════════════════════════════════════════════════════════════
+
+const MODEL_PRESETS = [
+  { label:"Llama 3.3 70B",     totalP:70,  activeP:70,  decodeP:70,  arch:"Dense" },
+  { label:"Qwen 72B",          totalP:72,  activeP:72,  decodeP:72,  arch:"Dense" },
+  { label:"GPT-OSS 120B",      totalP:120, activeP:120, decodeP:120, arch:"Dense" },
+  { label:"Llama 3.1 405B",    totalP:405, activeP:405, decodeP:405, arch:"Dense" },
+  { label:"Mixtral 8x22B",     totalP:141, activeP:39,  decodeP:39,  arch:"MoE" },
+  { label:"DeepSeek R1 671B",  totalP:671, activeP:37,  decodeP:37,  arch:"MoE" },
+  { label:"Custom",            totalP:70,  activeP:70,  decodeP:70,  arch:"Dense" },
+];
+
+const HW_PRESETS = [
+  { label:"Desktop DDR5 2-ch",         memGB:128,   bwGBs:80,    tflops:2,    eff:0.65 },
+  { label:"Threadripper DDR5 4-ch",    memGB:512,   bwGBs:180,   tflops:6,    eff:0.65 },
+  { label:"EPYC 1S DDR5 8-ch",        memGB:1536,  bwGBs:310,   tflops:12,   eff:0.65 },
+  { label:"EPYC 2S DDR5 24-ch",       memGB:6144,  bwGBs:460,   tflops:24,   eff:0.62 },
+  { label:"2× Xeon 6980P (AMX)",      memGB:4096,  bwGBs:560,   tflops:70,   eff:0.68 },
+  { label:"Apple M4 Max 128GB",       memGB:128,   bwGBs:410,   tflops:18,   eff:0.72 },
+  { label:"Apple M4 Ultra 256GB",     memGB:256,   bwGBs:819,   tflops:36,   eff:0.72 },
+  { label:"AMD Strix Halo 128GB",     memGB:128,   bwGBs:256,   tflops:10,   eff:0.68 },
+  { label:"RTX 4090 (24 GB)",         memGB:24,    bwGBs:1008,  tflops:165,  eff:0.82 },
+  { label:"RTX 5090 (32 GB)",         memGB:32,    bwGBs:1792,  tflops:320,  eff:0.82 },
+  { label:"A100 80GB SXM",            memGB:80,    bwGBs:2039,  tflops:312,  eff:0.85 },
+  { label:"H100 80GB SXM",            memGB:80,    bwGBs:3350,  tflops:990,  eff:0.85 },
+  { label:"H200 141GB SXM",           memGB:141,   bwGBs:4800,  tflops:990,  eff:0.85 },
+  { label:"B200 192GB",               memGB:192,   bwGBs:8000,  tflops:2250, eff:0.85 },
+  { label:"4× H100 NVLink",           memGB:320,   bwGBs:13400, tflops:3960, eff:0.78 },
+  { label:"8× H200 DGX",             memGB:1128,  bwGBs:38400, tflops:7920, eff:0.78 },
+  { label:"Custom",                    memGB:80,    bwGBs:2000,  tflops:500,  eff:0.80 },
+];
+
+// ═══════════════════════════════════════════════════════════════════════
+// CORE MATH
+// ═══════════════════════════════════════════════════════════════════════
+
+function compute(params) {
+  const {
+    totalP, activeP, decodeP, quantBits, kvBits,
+    memGB, bwGBs, tflops, eff,
+    ctxLen, batchSize,
+  } = params;
+
+  // ── Weight memory ──
+  const weightGB = totalP * quantBits / 8; // billion params × bytes/param = GB
+
+  // ── KV cache estimate ──
+  // Approximation: kv_bytes_per_token ≈ activeP^0.58 × 55000 × (kvBits/16)
+  // Calibrated against Llama 7/70/405B real KV sizes
+  const kvBytesPerToken = Math.pow(activeP, 0.58) * 55000 * (kvBits / 16);
+  const kvPerTokenKB = kvBytesPerToken / 1024;
+  const kvTotalGB = (kvBytesPerToken * ctxLen * batchSize) / 1e9;
+
+  // ── Activation / overhead memory (~5-10% of weights) ──
+  const overheadGB = weightGB * 0.08 + 0.5; // fixed + proportional
+
+  // ── Total memory ──
+  const totalMemGB = weightGB + kvTotalGB + overheadGB;
+
+  // ── Fit analysis ──
+  const fits = totalMemGB <= memGB;
+  const memUtil = totalMemGB / memGB;
+  const headroomGB = memGB - totalMemGB;
+
+  // ── Decode throughput (memory-bandwidth-bound) ──
+  // Each decode step reads: decode-equiv weights + KV cache for attention
+  // Bytes per decode step:
+  const decodeBytesWeights = decodeP * quantBits / 8 * 1e9; // bytes
+  const decodeBytesKV = kvBytesPerToken * ctxLen * batchSize; // bytes read for attention
+  // Weight reads dominate for large models; KV attention reads add overhead
+  // Simplified: attention KV read is partial (only current heads), so scale by 0.15
+  const decodeBytesTotal = decodeBytesWeights + decodeBytesKV * 0.15;
+  const decodeStepsPerSec = (bwGBs * 1e9) / decodeBytesTotal * eff;
+  // Each step produces `batchSize` tokens (one per sequence)
+  const decodeTokPerSec = decodeStepsPerSec * batchSize;
+  const decodeTokPerSecPerSeq = decodeStepsPerSec;
+  const decodeLatencyMs = 1000 / decodeTokPerSecPerSeq;
+
+  // ── Prefill throughput (compute-bound for large prompts) ──
+  // FLOPs per token in prefill ≈ 2 × activeP × 1e9
+  // Compute-bound rate:
+  const prefillComputeTokPerSec = (tflops * 1e12) / (2 * activeP * 1e9) * eff;
+  // BW-bound rate (when prompt is short, arithmetic intensity is low):
+  // Amortized: weights read once for all prompt tokens
+  // BW-bound tok/s ≈ (BW / weight_bytes) × prompt_tokens ... but this scales with prompt
+  // Roofline crossover: the prompt length where compute = BW limit
+  const bwBoundPrefillTokPerSec = (bwGBs * 1e9) / (decodeBytesWeights / ctxLen + kvBytesPerToken) * eff;
+  // Actual prefill = min of compute and BW bounds (roofline)
+  const prefillTokPerSec = Math.min(prefillComputeTokPerSec, bwBoundPrefillTokPerSec);
+  const prefillTimeMs = (ctxLen / prefillTokPerSec) * 1000;
+  const ttftMs = prefillTimeMs; // time to first token ≈ prefill time
+
+  // ── Roofline crossover point ──
+  // AI at crossover = tflops / bwGBs (operational intensity in FLOP/byte)
+  const machineAI = (tflops * 1e12) / (bwGBs * 1e9); // FLOP/byte
+  // Model AI at batch B = 2 × activeP × 1e9 × B / (decodeP × quantBits/8 × 1e9)
+  // Crossover batch = machineAI × (decodeP × quantBits/8) / (2 × activeP)
+  const rooflineCrossoverBatch = machineAI * (decodeP * quantBits / 8) / (2 * activeP);
+
+  // ── Arithmetic Intensity ──
+  const decodeAI = (2 * activeP) / (decodeP * quantBits / 8); // FLOP/byte for batch=1
+  const prefillAI = (2 * activeP * ctxLen) / (decodeP * quantBits / 8 + kvBytesPerToken * ctxLen / 1e9); // rough
+
+  // ── Tokens per watt-hour estimate (very rough) ──
+  // Typical: CPU 200-350W, GPU 300-700W, Apple 30-150W
+  // Skip for now, too many assumptions
+
+  return {
+    weightGB, kvPerTokenKB, kvTotalGB, overheadGB, totalMemGB,
+    fits, memUtil, headroomGB,
+    decodeTokPerSec, decodeTokPerSecPerSeq, decodeLatencyMs,
+    prefillTokPerSec, prefillComputeTokPerSec, bwBoundPrefillTokPerSec,
+    prefillTimeMs, ttftMs,
+    rooflineCrossoverBatch, decodeAI, prefillAI, machineAI,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// UI COMPONENTS
+// ═══════════════════════════════════════════════════════════════════════
+
+const C = {
+  bg: "#08081a", card: "#0e0e24", cardBorder: "#1a1a36",
+  accent: "#d4a44a", accentDim: "#d4a44a60",
+  text: "#c4c4d4", textDim: "#6a6a84", textBright: "#e8e8f0",
+  green: "#34c759", red: "#ff453a", orange: "#ff9f0a", blue: "#5b9ef4",
+};
+
+function Section({ title, children, accent }) {
+  return (
+    <div style={{
+      background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 8,
+      padding: "16px 20px", marginBottom: 12,
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+        letterSpacing: "0.08em", color: accent || C.accent, marginBottom: 12,
+      }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function SliderInput({ label, value, onChange, min, max, step, unit, logScale, format }) {
+  const displayVal = format ? format(value) : (Number.isInteger(step) || step >= 1 ? value : value.toFixed(2));
+  const handleSlider = (e) => {
+    let v = parseFloat(e.target.value);
+    if (logScale) v = Math.pow(10, v);
+    onChange(v);
+  };
+  const sliderVal = logScale ? Math.log10(Math.max(value, 0.001)) : value;
+  const sliderMin = logScale ? Math.log10(min) : min;
+  const sliderMax = logScale ? Math.log10(max) : max;
+  const sliderStep = logScale ? 0.01 : step;
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+        <label style={{ fontSize: 11, color: C.textDim, fontWeight: 500 }}>{label}</label>
+        <span className="mono" style={{ fontSize: 12, color: C.textBright, fontWeight: 600 }}>
+          {displayVal}{unit ? ` ${unit}` : ""}
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input
+          type="range"
+          min={sliderMin} max={sliderMax} step={sliderStep}
+          value={sliderVal}
+          onChange={handleSlider}
+          style={{ flex: 1 }}
+        />
+        <input
+          type="number"
+          value={value}
+          onChange={e => onChange(parseFloat(e.target.value) || 0)}
+          style={{
+            width: 72, padding: "4px 6px", fontSize: 11,
+            background: "#14142e", border: `1px solid ${C.cardBorder}`,
+            borderRadius: 4, color: C.textBright, textAlign: "right",
+            fontFamily: "'IBM Plex Mono', monospace",
+          }}
+          min={min} max={max} step={step}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PresetBar({ presets, onSelect, labelKey }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
+      {presets.map((p, i) => (
+        <button key={i} onClick={() => onSelect(p)} style={{
+          padding: "4px 10px", fontSize: 10, fontWeight: 600,
+          background: "#14142e", border: `1px solid ${C.cardBorder}`,
+          borderRadius: 4, color: C.textDim, cursor: "pointer",
+          transition: "all 0.15s",
+        }}
+        onMouseEnter={e => { e.target.style.borderColor = C.accent; e.target.style.color = C.accent; }}
+        onMouseLeave={e => { e.target.style.borderColor = C.cardBorder; e.target.style.color = C.textDim; }}
+        >
+          {p[labelKey || "label"]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Metric({ label, value, unit, color, sub, large }) {
+  return (
+    <div style={{ marginBottom: large ? 16 : 10 }}>
+      <div style={{ fontSize: 10, color: C.textDim, fontWeight: 500, marginBottom: 2 }}>{label}</div>
+      <div className="mono" style={{
+        fontSize: large ? 28 : 18, fontWeight: 700, color: color || C.textBright,
+        lineHeight: 1.1,
+      }}>
+        {typeof value === "number" ? (value >= 1000 ? value.toLocaleString(undefined, { maximumFractionDigits: 0 }) : value >= 10 ? value.toFixed(1) : value.toFixed(2)) : value}
+        {unit && <span style={{ fontSize: large ? 14 : 10, fontWeight: 500, color: C.textDim, marginLeft: 4 }}>{unit}</span>}
+      </div>
+      {sub && <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function Bar({ ratio, color, height = 12 }) {
+  const pct = Math.min(Math.max(ratio, 0), 1) * 100;
+  return (
+    <div style={{ width: "100%", height, background: "#14142e", borderRadius: height / 2, overflow: "hidden" }}>
+      <div style={{
+        width: `${pct}%`, height: "100%", borderRadius: height / 2,
+        background: `linear-gradient(90deg, ${color}88, ${color})`,
+        transition: "width 0.3s ease",
+      }} />
+    </div>
+  );
+}
+
+function MemoryBreakdown({ r, memGB }) {
+  const segs = [
+    { label: "Weights", gb: r.weightGB, color: C.blue },
+    { label: "KV Cache", gb: r.kvTotalGB, color: C.orange },
+    { label: "Overhead", gb: r.overheadGB, color: "#8866cc" },
+  ];
+  const total = r.totalMemGB;
+  return (
+    <div>
+      {/* Stacked bar */}
+      <div style={{ display: "flex", height: 24, borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
+        {segs.map((s, i) => (
+          <div key={i} style={{
+            width: `${(s.gb / memGB) * 100}%`, minWidth: s.gb > 0 ? 2 : 0,
+            background: s.color, position: "relative",
+            borderRight: i < segs.length - 1 ? "1px solid #08081a" : "none",
+          }} title={`${s.label}: ${s.gb.toFixed(1)} GB`} />
+        ))}
+        {/* Remaining capacity */}
+        <div style={{
+          flex: 1, background: "#14142e",
+        }} />
+      </div>
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 8 }}>
+        {segs.map((s, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
+            <span style={{ fontSize: 10, color: C.textDim }}>{s.label}:</span>
+            <span className="mono" style={{ fontSize: 10, color: C.text }}>{s.gb >= 100 ? s.gb.toFixed(0) : s.gb.toFixed(1)} GB</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+        <span style={{ color: C.textDim }}>Total required</span>
+        <span className="mono" style={{ color: C.textBright, fontWeight: 600 }}>{total.toFixed(1)} GB / {memGB} GB</span>
+      </div>
+    </div>
+  );
+}
+
+function RooflineDiagram({ r, batchSize }) {
+  const W = 460, H = 200, PAD = { t: 25, r: 15, b: 35, l: 50 };
+  const pW = W - PAD.l - PAD.r, pH = H - PAD.t - PAD.b;
+
+  // Roofline: y = min(peak_compute, BW × AI)
+  // x-axis: Arithmetic Intensity (FLOP/byte), log scale
+  // y-axis: Performance (GFLOP/s), log scale
+  const aiMin = 0.1, aiMax = 10000;
+  const perfMin = 1, perfMax = Math.max(r.prefillComputeTokPerSec * 4, 10000);
+
+  const lx = (ai) => PAD.l + (Math.log10(Math.max(ai, aiMin)) - Math.log10(aiMin)) / (Math.log10(aiMax) - Math.log10(aiMin)) * pW;
+  const ly = (p) => PAD.t + pH - (Math.log10(Math.max(p, perfMin)) - Math.log10(perfMin)) / (Math.log10(perfMax) - Math.log10(perfMin)) * pH;
+
+  // Machine roofline: y = min(tflops, bw × ai) but in tok/s terms
+  // Decode tok/s = BW / decode_bytes × batch × eff  (BW-bound)
+  // Prefill tok/s = compute / (2×activeP) × eff  (compute-bound)
+  // The crossover AI = peak_tflops / BW
+
+  return (
+    <svg width={W} height={H} style={{ display: "block" }}>
+      {/* Grid */}
+      {[0.1, 1, 10, 100, 1000].map(v => {
+        const x = lx(v);
+        return x >= PAD.l && x <= PAD.l + pW ? (
+          <g key={`gx${v}`}>
+            <line x1={x} y1={PAD.t} x2={x} y2={PAD.t + pH} stroke="#1a1a36" />
+            <text x={x} y={H - 6} fill={C.textDim} fontSize={8} textAnchor="middle" className="mono">{v}</text>
+          </g>
+        ) : null;
+      })}
+      {[1, 10, 100, 1000, 10000].filter(v => v >= perfMin && v <= perfMax).map(v => {
+        const y = ly(v);
+        return y >= PAD.t && y <= PAD.t + pH ? (
+          <g key={`gy${v}`}>
+            <line x1={PAD.l} y1={y} x2={PAD.l + pW} y2={y} stroke="#1a1a36" />
+            <text x={PAD.l - 4} y={y + 3} fill={C.textDim} fontSize={8} textAnchor="end" className="mono">{v >= 1000 ? `${v/1000}k` : v}</text>
+          </g>
+        ) : null;
+      })}
+
+      {/* BW-bound slope */}
+      <line x1={lx(aiMin)} y1={ly(r.decodeTokPerSecPerSeq * aiMin / r.decodeAI)} x2={lx(r.machineAI)} y2={ly(r.prefillComputeTokPerSec)} stroke={C.blue} strokeWidth={2} opacity={0.6} />
+      {/* Compute-bound ceiling */}
+      <line x1={lx(r.machineAI)} y1={ly(r.prefillComputeTokPerSec)} x2={lx(aiMax)} y2={ly(r.prefillComputeTokPerSec)} stroke={C.green} strokeWidth={2} opacity={0.6} />
+
+      {/* Decode operating point */}
+      <circle cx={lx(r.decodeAI)} cy={ly(r.decodeTokPerSecPerSeq)} r={6} fill={C.orange} stroke="#fff" strokeWidth={1.5} />
+      <text x={lx(r.decodeAI) + 10} y={ly(r.decodeTokPerSecPerSeq) - 4} fill={C.orange} fontSize={9} fontWeight={600}>Decode</text>
+
+      {/* Prefill operating point */}
+      {r.prefillAI > 0 && (
+        <>
+          <circle cx={Math.min(lx(r.prefillAI), PAD.l + pW - 5)} cy={ly(r.prefillTokPerSec)} r={6} fill={C.green} stroke="#fff" strokeWidth={1.5} />
+          <text x={Math.min(lx(r.prefillAI), PAD.l + pW - 5) + 10} y={ly(r.prefillTokPerSec) + 4} fill={C.green} fontSize={9} fontWeight={600}>Prefill</text>
+        </>
+      )}
+
+      {/* Machine balance point */}
+      <line x1={lx(r.machineAI)} y1={PAD.t} x2={lx(r.machineAI)} y2={PAD.t + pH} stroke={C.accent} strokeWidth={1} strokeDasharray="4,3" opacity={0.5} />
+
+      {/* Axis labels */}
+      <text x={PAD.l + pW / 2} y={H - 0} fill={C.textDim} fontSize={9} textAnchor="middle">Arithmetic Intensity (FLOP/byte)</text>
+      <text x={8} y={PAD.t + pH / 2} fill={C.textDim} fontSize={9} textAnchor="middle" transform={`rotate(-90, 8, ${PAD.t + pH / 2})`}>tok/s</text>
+    </svg>
+  );
+}
+
+function BatchSweepChart({ params }) {
+  const W = 460, H = 180, PAD = { t: 20, r: 15, b: 30, l: 50 };
+  const pW = W - PAD.l - PAD.r, pH = H - PAD.t - PAD.b;
+
+  const batches = [1, 2, 4, 8, 16, 32, 64, 128];
+  const points = batches.map(b => {
+    const r = compute({ ...params, batchSize: b });
+    return { b, decodeTot: r.decodeTokPerSec, decodePer: r.decodeTokPerSecPerSeq, fits: r.fits };
+  }).filter(p => p.fits);
+
+  if (points.length === 0) return <div style={{ fontSize: 11, color: C.textDim, padding: 8 }}>Model does not fit in memory at any batch size shown.</div>;
+
+  const maxTok = Math.max(...points.map(p => p.decodeTot), 1);
+  const maxB = Math.max(...points.map(p => p.b));
+  const lx = (b) => PAD.l + (Math.log2(b) / Math.log2(maxB || 1)) * pW;
+  const ly = (v) => PAD.t + pH - (v / maxTok) * pH;
+
+  const pathTotal = points.map((p, i) => `${i === 0 ? "M" : "L"} ${lx(p.b)} ${ly(p.decodeTot)}`).join(" ");
+  const pathPer = points.map((p, i) => `${i === 0 ? "M" : "L"} ${lx(p.b)} ${ly(p.decodePer)}`).join(" ");
+
+  return (
+    <svg width={W} height={H} style={{ display: "block" }}>
+      {points.map((p, i) => (
+        <g key={i}>
+          <line x1={lx(p.b)} y1={PAD.t} x2={lx(p.b)} y2={PAD.t + pH} stroke="#1a1a36" />
+          <text x={lx(p.b)} y={H - 6} fill={C.textDim} fontSize={8} textAnchor="middle" className="mono">{p.b}</text>
+        </g>
+      ))}
+      {/* Total throughput line */}
+      <path d={pathTotal} fill="none" stroke={C.accent} strokeWidth={2} />
+      {points.map((p, i) => <circle key={`t${i}`} cx={lx(p.b)} cy={ly(p.decodeTot)} r={4} fill={C.accent} />)}
+      {/* Per-sequence line */}
+      <path d={pathPer} fill="none" stroke={C.blue} strokeWidth={1.5} strokeDasharray="4,3" />
+      {points.map((p, i) => <circle key={`p${i}`} cx={lx(p.b)} cy={ly(p.decodePer)} r={3} fill={C.blue} />)}
+
+      <text x={PAD.l + pW / 2} y={H} fill={C.textDim} fontSize={9} textAnchor="middle">Batch Size</text>
+      <text x={8} y={PAD.t + pH / 2} fill={C.textDim} fontSize={9} textAnchor="middle" transform={`rotate(-90, 8, ${PAD.t + pH / 2})`}>tok/s</text>
+
+      {/* Legend */}
+      <line x1={PAD.l} y1={PAD.t + 4} x2={PAD.l + 16} y2={PAD.t + 4} stroke={C.accent} strokeWidth={2} />
+      <text x={PAD.l + 20} y={PAD.t + 7} fill={C.accent} fontSize={8}>Total throughput</text>
+      <line x1={PAD.l + 120} y1={PAD.t + 4} x2={PAD.l + 136} y2={PAD.t + 4} stroke={C.blue} strokeWidth={1.5} strokeDasharray="4,3" />
+      <text x={PAD.l + 140} y={PAD.t + 7} fill={C.blue} fontSize={8}>Per-sequence</text>
+    </svg>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// MAIN APP
+// ═══════════════════════════════════════════════════════════════════════
+
+function App() {
+  // ── Model params ──
+  const [totalP, setTotalP] = useState(70);
+  const [activeP, setActiveP] = useState(70);
+  const [decodeP, setDecodeP] = useState(70);
+  const [quantBits, setQuantBits] = useState(4);
+  const [kvBits, setKvBits] = useState(16);
+
+  // ── Hardware params ──
+  const [memGB, setMemGB] = useState(80);
+  const [bwGBs, setBwGBs] = useState(3350);
+  const [tflops, setTflops] = useState(990);
+  const [eff, setEff] = useState(0.85);
+
+  // ── Workload params ──
+  const [ctxLen, setCtxLen] = useState(4096);
+  const [batchSize, setBatchSize] = useState(1);
+
+  const params = { totalP, activeP, decodeP, quantBits, kvBits, memGB, bwGBs, tflops, eff, ctxLen, batchSize };
+  const r = useMemo(() => compute(params), [totalP, activeP, decodeP, quantBits, kvBits, memGB, bwGBs, tflops, eff, ctxLen, batchSize]);
+
+  const applyModelPreset = (p) => { setTotalP(p.totalP); setActiveP(p.activeP); setDecodeP(p.decodeP); };
+  const applyHWPreset = (p) => { setMemGB(p.memGB); setBwGBs(p.bwGBs); setTflops(p.tflops); setEff(p.eff); };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, padding: "20px 24px 40px" }}>
+      {/* ── Title ── */}
+      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+        <h1 style={{
+          fontFamily: "'Fraunces', serif", fontSize: 26, color: C.accent,
+          fontWeight: 700, marginBottom: 4,
+        }}>LLM Inference Calculator</h1>
+        <p style={{ fontSize: 12, color: C.textDim, marginBottom: 20, maxWidth: 700 }}>
+          Parameterized sizing model for large language model inference.
+          Computes memory fit, decode &amp; prefill throughput envelopes,
+          roofline position, and batch scaling — for any model × hardware × workload combination.
+        </p>
+
+        {/* ── Layout: inputs left, results right ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 20, alignItems: "start" }}>
+
+          {/* ════════ LEFT: INPUTS ════════ */}
+          <div>
+            <Section title="Model Parameters">
+              <PresetBar presets={MODEL_PRESETS} onSelect={applyModelPreset} />
+              <SliderInput label="Total Parameters" value={totalP} onChange={setTotalP} min={1} max={1500} step={1} unit="B" />
+              <SliderInput label="Active Parameters / Token" value={activeP} onChange={setActiveP} min={1} max={1500} step={1} unit="B" />
+              <SliderInput label="Decode-Equivalent Parameters" value={decodeP} onChange={setDecodeP} min={1} max={1500} step={1} unit="B"  />
+              <div style={{ fontSize: 9, color: C.textDim, marginTop: -8, marginBottom: 8 }}>
+                For dense models: total = active = decode. For MoE: decode-equiv ≈ active (experts read per step).
+              </div>
+              <SliderInput label="Weight Quantization" value={quantBits} onChange={setQuantBits} min={1} max={16} step={0.5} unit="bits" />
+              <SliderInput label="KV Cache Precision" value={kvBits} onChange={setKvBits} min={4} max={16} step={4} unit="bits" />
+            </Section>
+
+            <Section title="Hardware">
+              <PresetBar presets={HW_PRESETS} onSelect={applyHWPreset} />
+              <SliderInput label="Memory Capacity" value={memGB} onChange={setMemGB} min={4} max={12000} step={1} unit="GB" logScale />
+              <SliderInput label="Memory Bandwidth" value={bwGBs} onChange={setBwGBs} min={10} max={50000} step={1} unit="GB/s" logScale />
+              <SliderInput label="Compute (effective)" value={tflops} onChange={setTflops} min={0.5} max={10000} step={0.5} unit="TFLOPS" logScale />
+              <SliderInput label="Runtime Efficiency" value={eff} onChange={setEff} min={0.1} max={0.99} step={0.01} unit="" format={v => `${(v*100).toFixed(0)}%`} />
+            </Section>
+
+            <Section title="Workload">
+              <SliderInput label="Context Length" value={ctxLen} onChange={setCtxLen} min={128} max={131072} step={128} unit="tokens" logScale />
+              <SliderInput label="Batch / Concurrency" value={batchSize} onChange={setBatchSize} min={1} max={256} step={1} unit="seqs" logScale />
+            </Section>
+          </div>
+
+          {/* ════════ RIGHT: RESULTS ════════ */}
+          <div>
+            {/* ── Fit Analysis ── */}
+            <Section title="Memory Fit Analysis" accent={r.fits ? C.green : C.red}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 10, marginBottom: 14,
+                padding: "10px 14px", borderRadius: 6,
+                background: r.fits ? "#34c75910" : "#ff453a10",
+                border: `1px solid ${r.fits ? C.green + "30" : C.red + "30"}`,
+              }}>
+                <span style={{ fontSize: 22 }}>{r.fits ? "✅" : "❌"}</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: r.fits ? C.green : C.red }}>
+                    {r.fits ? "Model fits in memory" : "Model does NOT fit"}
+                  </div>
+                  <div className="mono" style={{ fontSize: 11, color: C.textDim }}>
+                    {r.totalMemGB.toFixed(1)} GB required — {r.fits ? `${r.headroomGB.toFixed(1)} GB headroom` : `${(-r.headroomGB).toFixed(1)} GB over capacity`}
+                  </div>
+                </div>
+              </div>
+              <MemoryBreakdown r={r} memGB={memGB} />
+              <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <Metric label="Weights" value={r.weightGB} unit="GB" color={C.blue} />
+                <Metric label="KV Cache (total)" value={r.kvTotalGB} unit="GB" color={C.orange} />
+                <Metric label="KV / token" value={r.kvPerTokenKB} unit="KB" color={C.textDim} />
+              </div>
+            </Section>
+
+            {/* ── Performance Envelopes ── */}
+            <Section title="Performance Envelopes">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div style={{ background: "#14142e", borderRadius: 6, padding: 14 }}>
+                  <div style={{ fontSize: 9, color: C.orange, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                    Decode (Token Generation)
+                  </div>
+                  <Metric label="Total throughput" value={r.decodeTokPerSec} unit="tok/s" color={C.accent} large />
+                  <Metric label="Per-sequence" value={r.decodeTokPerSecPerSeq} unit="tok/s" color={C.text} />
+                  <Metric label="Inter-token latency" value={r.decodeLatencyMs} unit="ms" color={C.textDim} />
+                  <div style={{ marginTop: 6, fontSize: 10, color: C.textDim }}>
+                    Regime: <span style={{ color: C.orange, fontWeight: 600 }}>Memory-BW bound</span>
+                  </div>
+                  <div className="mono" style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>
+                    AI = {r.decodeAI.toFixed(1)} FLOP/byte (batch={batchSize})
+                  </div>
+                </div>
+
+                <div style={{ background: "#14142e", borderRadius: 6, padding: 14 }}>
+                  <div style={{ fontSize: 9, color: C.green, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                    Prefill (Prompt Processing)
+                  </div>
+                  <Metric label="Throughput" value={r.prefillTokPerSec} unit="tok/s" color={C.green} large />
+                  <Metric label="Compute-bound ceiling" value={r.prefillComputeTokPerSec} unit="tok/s" color={C.textDim} />
+                  <Metric label="Time to First Token" value={r.ttftMs} unit="ms" color={C.text} />
+                  <div style={{ marginTop: 6, fontSize: 10, color: C.textDim }}>
+                    Regime: <span style={{ color: r.prefillTokPerSec < r.prefillComputeTokPerSec * 0.95 ? C.orange : C.green, fontWeight: 600 }}>
+                      {r.prefillTokPerSec < r.prefillComputeTokPerSec * 0.95 ? "BW-bound (short prompt)" : "Compute-bound"}
+                    </span>
+                  </div>
+                  <div className="mono" style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>
+                    AI = {r.prefillAI.toFixed(0)} FLOP/byte (ctx={ctxLen})
+                  </div>
+                </div>
+              </div>
+            </Section>
+
+            {/* ── Roofline ── */}
+            <Section title="Roofline Model">
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 8 }}>
+                Orange dot = decode operating point. Green dot = prefill. Dashed line = machine balance point ({r.machineAI.toFixed(1)} FLOP/byte).
+                Below the ridge: memory-bandwidth-bound. On the plateau: compute-bound.
+              </div>
+              <RooflineDiagram r={r} batchSize={batchSize} />
+              <div className="mono" style={{ fontSize: 10, color: C.textDim, marginTop: 6 }}>
+                Roofline crossover at batch ≈ {r.rooflineCrossoverBatch.toFixed(1)} — above this batch size, decode becomes compute-bound.
+              </div>
+            </Section>
+
+            {/* ── Batch Sweep ── */}
+            <Section title="Batch Scaling — Decode Throughput vs Concurrency">
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 8 }}>
+                How total decode throughput and per-sequence speed change with batch size. Per-sequence speed decreases as KV cache reads increase.
+              </div>
+              <BatchSweepChart params={params} />
+            </Section>
+
+            {/* ── Derived Constants ── */}
+            <Section title="Derived Constants">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                <Metric label="Model weight size" value={r.weightGB} unit="GB" />
+                <Metric label="Bytes/weight" value={quantBits / 8} unit="B" />
+                <Metric label="Decode bytes/step" value={(decodeP * quantBits / 8)} unit="GB" />
+                <Metric label="Machine AI" value={r.machineAI} unit="F/B" />
+                <Metric label="Decode AI (b=1)" value={r.decodeAI} unit="F/B" />
+                <Metric label="Prefill AI" value={r.prefillAI} unit="F/B" />
+                <Metric label="Crossover batch" value={r.rooflineCrossoverBatch} unit="" />
+                <Metric label="Memory util" value={r.memUtil * 100} unit="%" color={r.memUtil > 0.95 ? C.red : r.memUtil > 0.8 ? C.orange : C.green} />
+              </div>
+            </Section>
+
+            {/* ── Formulas ── */}
+            <Section title="Formulas Used">
+              <div className="mono" style={{ fontSize: 10, color: C.textDim, lineHeight: 1.8 }}>
+                <div><span style={{ color: C.blue }}>weight_GB</span> = total_params × (quant_bits ÷ 8)</div>
+                <div><span style={{ color: C.orange }}>kv_per_token</span> = active_params<sup>0.58</sup> × 55 KB × (kv_bits ÷ 16)</div>
+                <div><span style={{ color: C.orange }}>kv_total</span> = kv_per_token × ctx_len × batch</div>
+                <div><span style={{ color: C.accent }}>decode_tok/s</span> = BW ÷ (decode_equiv_GB + 0.15 × kv_read) × eff × batch</div>
+                <div><span style={{ color: C.green }}>prefill_tok/s</span> = min(TFLOPS ÷ (2 × active_P), BW ÷ amortized_bytes) × eff</div>
+                <div><span style={{ color: "#8866cc" }}>machine_AI</span> = TFLOPS ÷ BW &nbsp; (FLOP/byte)</div>
+                <div><span style={{ color: "#8866cc" }}>crossover_batch</span> = machine_AI × decode_equiv_bytes ÷ (2 × active_P)</div>
+              </div>
+            </Section>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Mount ──
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
